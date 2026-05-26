@@ -1,0 +1,7 @@
+export const METABASE_QUESTION_INVENTORY =
+  Number(process.env.METABASE_QUESTION_INVENTORY) || 27759;
+
+export const METABASE_QUESTION_CONSUMPTION =
+  process.env.METABASE_QUESTION_CONSUMPTION
+    ? Number(process.env.METABASE_QUESTION_CONSUMPTION)
+    : null;

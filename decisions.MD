@@ -15,7 +15,7 @@ Each entry records what was decided, why, and when.
 | 4 | Client data fetching | TanStack Query v5 | SWR, Redux Toolkit Query, fetch | Declarative server-state caching; staleTime can be aligned with the API cache TTL; built-in loading/error/refetch states |
 | 5 | Tables | TanStack Table v8 | AG Grid (overkill), react-table v7 | Sortable + filterable with typed column definitions; headless — uses shadcn/ui Table for rendering; same ecosystem as TanStack Query |
 | 6 | Authentication | None (public, unlisted URL) | NextAuth.js + credentials, Supabase Auth | Internal MVP; keeping the URL unlisted is sufficient for now; NextAuth can be added later without refactor (session provider already available in Next.js) |
-| 7 | Primary data source (V1) | Metabase API proxy | ClickHouse direct, CSV export | Reuses existing Metabase question #27759; avoids exposing DB credentials; Metabase session token cached server-side in API route |
+| 7 | Primary data source (V1) | Metabase API proxy | ClickHouse direct, CSV export | Reuses existing Metabase question #27759; API key auth (`X-Api-Key` header) — simpler and more stable than session tokens (no expiry, no re-auth logic needed) |
 | 8 | Primary data source (V2) | ClickHouse direct | Metabase only | ClickHouse is the actual warehouse behind all Metabase numbers; direct queries unlock SO history for forecasting and are more performant |
 | 9 | Deployment region | Vercel GRU (São Paulo) | US-East, Auto | Low latency to metabase.vammo.com which is Brazil-hosted; reduces p99 on every data fetch |
 

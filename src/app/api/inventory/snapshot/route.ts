@@ -42,7 +42,8 @@ async function runSnapshot(req: Request) {
 
     const supabase = createServerSupabase();
     const { error } = await supabase
-      .from('inventory_snapshots')
+      .schema('fleet')
+      .from('piece_stock_hub')
       .upsert(upsertRows, { onConflict: 'snapshot_date,sku_name,hub_id' });
 
     if (error) throw error;

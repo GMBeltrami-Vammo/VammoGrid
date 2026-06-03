@@ -15,7 +15,8 @@ export function useInventoryHistory(skuName: string, hubId: HubId) {
     queryKey: ['inventory-history', skuName, hubId],
     queryFn: async () => {
       const { data, error } = await supabaseBrowser
-        .from('inventory_snapshots')
+        .schema('fleet')
+        .from('piece_stock_hub')
         .select('snapshot_date, qty_available, doh, doh_status')
         .eq('sku_name', skuName)
         .eq('hub_id', hubId)

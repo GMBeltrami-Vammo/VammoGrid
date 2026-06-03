@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Uses the anon key — INSERT is allowed via RLS policy on inventory_snapshots.
+// Uses the anon key — INSERT is allowed via RLS policy on fleet.piece_stock_hub.
 // The snapshot endpoint is protected by CRON_SECRET at the app layer.
 export function createServerSupabase() {
   return createClient(

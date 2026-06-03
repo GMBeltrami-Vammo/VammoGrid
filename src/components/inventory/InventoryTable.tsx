@@ -53,9 +53,13 @@ const columns = [
         showDays
       />
     ),
+    // Nulls (N/D) always sort to the bottom regardless of direction
     sortingFn: (a, b) => {
-      const da = a.original.doh ?? -1;
-      const db = b.original.doh ?? -1;
+      const da = a.original.doh;
+      const db = b.original.doh;
+      if (da === null && db === null) return 0;
+      if (da === null) return 1;
+      if (db === null) return -1;
       return da - db;
     },
   }),

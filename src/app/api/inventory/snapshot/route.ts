@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { fetchCardJson } from '@/lib/metabase/client';
 import { METABASE_QUESTION_INVENTORY } from '@/lib/metabase/queries';
 import { transformInventoryRows } from '@/lib/transformer';
@@ -8,12 +9,18 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 async function runSnapshot(req: Request) {
-  // If CRON_SECRET is configured, enforce it.
-  // If it is not set (first deploy, local dev), allow through so the initial
-  // seed can be triggered without extra setup.
+  // Allow if ANY of these is true:
+  //   1. CRON_SECRET not configured (dev / initial seed)
+  //   2. Valid Authorization: Bearer <CRON_SECRET> header  (Vercel cron)
+  //   3. Valid @vammo.com Auth.js session cookie           (logged-in user)
   if (process.env.CRON_SECRET) {
-    const bearer = req.headers.get('authorization')?.replace('Bearer ', '');
-    if (bearer !== process.env.CRON_SECRET) {
+    const bearer  = req.headers.get('authorization')?.replace('Bearer ', '');
+    const validCron = bearer === process.env.CRON_SECRET;
+
+    const session = await auth();
+    const validSession = !!session?.user;
+
+    if (!validCron && !validSession) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
   }
@@ -22,7 +29,7 @@ async function runSnapshot(req: Request) {
     const rows = await fetchCardJson(METABASE_QUESTION_INVENTORY);
     const items = transformInventoryRows(rows);
 
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = new Date().toISOString().slice(0, 10);
 
     const upsertRows = items.map((item) => ({
       snapshot_date: today,
@@ -48,8 +55,8 @@ async function runSnapshot(req: Request) {
   }
 }
 
-// GET  — used by Vercel cron jobs (vercel.json schedule)
+// GET  — Vercel cron (vercel.json) + browser navigation when logged in
 export const GET = runSnapshot;
 
-// POST — used for manual triggers (curl / admin action)
+// POST — manual curl trigger with CRON_SECRET header
 export const POST = runSnapshot;

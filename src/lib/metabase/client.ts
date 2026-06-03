@@ -13,7 +13,10 @@ export async function fetchCardJson(
         'Content-Type': 'application/json',
         'X-Api-Key': METABASE_API_KEY,
       },
-      body: JSON.stringify({ ignore_cache: false }),
+      // ignore_cache: true — always run fresh so stale Metabase cache doesn't
+      // serve old column shapes after a question SQL update.
+      // Next.js revalidate = 300 on the route handler provides the 5-min edge cache.
+      body: JSON.stringify({ ignore_cache: true }),
     },
   );
 

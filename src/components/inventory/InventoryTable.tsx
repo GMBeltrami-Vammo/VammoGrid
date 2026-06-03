@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -130,9 +131,14 @@ export function InventoryTable({
                     onClick={header.column.getToggleSortingHandler()}
                     className={header.column.getCanSort() ? 'cursor-pointer select-none' : ''}
                   >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                    {header.column.getIsSorted() === 'asc' && ' ↑'}
-                    {header.column.getIsSorted() === 'desc' && ' ↓'}
+                    <span className="inline-flex items-center gap-1">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.column.getCanSort() && (
+                        header.column.getIsSorted() === 'asc'  ? <ChevronUp className="h-3 w-3 text-emerald-500" /> :
+                        header.column.getIsSorted() === 'desc' ? <ChevronDown className="h-3 w-3 text-emerald-500" /> :
+                        <ChevronsUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </span>
                   </TableHead>
                 ))}
               </TableRow>

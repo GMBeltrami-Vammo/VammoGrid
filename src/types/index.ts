@@ -33,6 +33,15 @@ export interface ConsumptionRecord {
   monthlyAvg: number;
 }
 
+export interface InventorySnapshot {
+  snapshotDate: string; // YYYY-MM-DD
+  skuName: string;
+  hubId: HubId;
+  qtyAvailable: number;
+  doh: number | null;
+  dohStatus: DohStatus;
+}
+
 export interface HubSummary {
   hub: Hub;
   totalSkus: number;

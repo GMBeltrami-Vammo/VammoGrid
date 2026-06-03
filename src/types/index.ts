@@ -21,12 +21,16 @@ export interface InventoryItem {
 }
 
 export interface ConsumptionRecord {
-  skuId: string;
-  skuName: string;
+  /** Maestro item_group_name — used as the item identifier */
+  itemGroup: string;
   hubId: HubId;
-  weekStart: string;
+  /** ISO date string (day granularity) */
+  day: string;
   qtyConsumed: number;
-  soCount: number;
+  /** Sorted list of Maestro OS IDs that consumed this item on this day */
+  os: number[];
+  /** Average daily consumption over the last 30 days for this item+hub */
+  monthlyAvg: number;
 }
 
 export interface HubSummary {

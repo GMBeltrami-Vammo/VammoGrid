@@ -1,19 +1,15 @@
 import { NextResponse } from 'next/server';
+import { fetchCardJson } from '@/lib/metabase/client';
 import { METABASE_QUESTION_CONSUMPTION } from '@/lib/metabase/queries';
+import { transformConsumptionRows } from '@/lib/transformer';
 
-export const revalidate = 300;
+export const revalidate = 300; // 5-minute server cache
 
 export async function GET() {
-  if (!METABASE_QUESTION_CONSUMPTION) {
-    // Consumption question not yet configured — return empty dataset
-    return NextResponse.json([]);
-  }
-
   try {
-    const { fetchCardJson } = await import('@/lib/metabase/client');
     const rows = await fetchCardJson(METABASE_QUESTION_CONSUMPTION);
-    // TODO: transform rows to ConsumptionRecord[] once question schema is known
-    return NextResponse.json(rows);
+    const records = transformConsumptionRows(rows);
+    return NextResponse.json(records);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[/api/metabase/consumption]', message);

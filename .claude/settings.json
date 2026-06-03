@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git show*)",
+      "Bash(git remote*)",
+      "Bash(find . -maxdepth*)",
+      "Bash(npm run dev*)",
+      "Bash(npm run build*)",
+      "Bash(npm run lint*)",
+      "Bash(npm run start*)",
+      "Bash(npx tsc --noEmit*)",
+      "Bash(vercel --version*)",
+      "Bash(vercel whoami*)",
+      "Bash(vercel project ls*)",
+      "Bash(vercel env ls*)",
+      "Bash(vercel logs*)",
+      "Bash(vercel inspect*)"
+    ]
+  }
+}

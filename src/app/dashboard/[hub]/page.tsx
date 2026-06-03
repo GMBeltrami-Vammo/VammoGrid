@@ -5,14 +5,14 @@ import { notFound } from 'next/navigation';
 import { use } from 'react';
 import { HUBS } from '@/constants/hubs';
 import { useHubInventory } from '@/hooks/useInventory';
-import { useSkuConsumption } from '@/hooks/useConsumption';
+import { useItemConsumption } from '@/hooks/useConsumption';
 import { InventoryTable } from '@/components/inventory/InventoryTable';
 import { ConsumptionBarChart } from '@/components/charts/ConsumptionBarChart';
 import { Badge } from '@/components/ui/badge';
 import type { HubId, InventoryItem } from '@/types';
 
 function ChartSection({ item }: { item: InventoryItem }) {
-  const { data: records = [], isLoading } = useSkuConsumption(item.skuId, item.hubId);
+  const { data: records = [], isLoading } = useItemConsumption(item.skuName, item.hubId);
 
   if (isLoading) {
     return (
@@ -24,7 +24,7 @@ function ChartSection({ item }: { item: InventoryItem }) {
 
   return (
     <div className="mt-4 rounded-md border bg-card p-4">
-      <ConsumptionBarChart records={records} skuName={item.skuName} />
+      <ConsumptionBarChart records={records} itemGroup={item.skuName} />
     </div>
   );
 }

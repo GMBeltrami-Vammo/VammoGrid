@@ -15,6 +15,8 @@ export interface InventoryItem {
   category: string;
   hubId: HubId;
   qtyAvailable: number;
+  /** Average daily consumption at THIS hub over the last 30 days (from Maestro OS) */
+  dailyConsumption: number;
   doh: number | null;
   dohStatus: DohStatus;
   lastUpdated: string;

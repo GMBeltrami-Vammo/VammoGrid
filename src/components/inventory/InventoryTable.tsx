@@ -53,15 +53,32 @@ const columns = [
         showDays
       />
     ),
-    // Nulls (N/D) always sort to the bottom regardless of direction
+    // ASC:  N/D → 0 → 1.2 → 5.8 ...  (N/D = unknown = treated as -∞)
+    // DESC: ... 5.8 → 1.2 → 0 → N/D
     sortingFn: (a, b) => {
       const da = a.original.doh;
       const db = b.original.doh;
       if (da === null && db === null) return 0;
-      if (da === null) return 1;
-      if (db === null) return -1;
+      if (da === null) return -1; // N/D sorts first in ASC
+      if (db === null) return 1;
       return da - db;
     },
+  }),
+  col.accessor('dailyConsumption', {
+    header: 'Consumo médio',
+    cell: (info) => {
+      const v = info.getValue();
+      if (!v) return <span className="text-muted-foreground text-xs">—</span>;
+      const monthly = Math.round(v * 30);
+      return (
+        <span className="tabular-nums">
+          {monthly}
+          <span className="text-muted-foreground text-xs ml-0.5">un/mês</span>
+        </span>
+      );
+    },
+    // Standard numeric sort — 0 values sort first in ASC (least consumed)
+    sortingFn: (a, b) => a.original.dailyConsumption - b.original.dailyConsumption,
   }),
   col.accessor('skuId', {
     header: 'Código',
@@ -152,7 +169,7 @@ export function InventoryTable({
           <TableBody>
             {table.getRowModel().rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground" >
                   Nenhum item encontrado.
                 </TableCell>
               </TableRow>

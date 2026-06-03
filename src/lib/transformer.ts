@@ -10,24 +10,23 @@ function deriveDohStatus(doh: number | null): DohStatus {
   return 'ok';
 }
 
-// Metabase question #27759 returns one row per SKU with hub quantities pivoted
-// as separate columns: qty_mooca, qty_osasco, qty_sbc.
-// We unpivot here to produce one InventoryItem per (SKU, hub) pair.
+// Metabase question #29571 returns one row per SKU with hub quantities and
+// per-hub Maestro OS consumption pivoted as separate columns.
 //
 // Row shape (confirmed):
-//   sku                  — SKU code, e.g. "VM-01-MOT0-0102"
-//   item_group           — Item description, e.g. "Rolamento do motor"
-//   qty_total            — Total qty across all hubs
-//   qty_mooca            — Qty at Mooca
-//   qty_osasco           — Qty at Osasco
-//   qty_sbc              — Qty at São Bernardo do Campo
-//   consumo_diario_l30d  — Daily consumption rate (avg last 30 days)
-//   doh                  — Overall DOH (qty_total / consumo_diario_l30d)
+//   sku                       — SKU code, e.g. "VM-01-SUS0-3401"
+//   item_group                — Item description, e.g. "Amortecedor Traseiro"
+//   qty_total / qty_mooca / qty_osasco / qty_sbc
+//   consumo_diario_mooca      — Daily consumption at Mooca (Maestro OS, L30D)
+//   consumo_diario_osasco     — Daily consumption at Osasco
+//   consumo_diario_sbc        — Daily consumption at SBC
+//   consumo_diario_l30d       — Total daily consumption (sum of hubs)
+//   doh                       — Overall DOH (qty_total / consumo_diario_l30d)
 
-const HUB_COLUMNS: { column: string; hubId: HubId }[] = [
-  { column: 'qty_mooca', hubId: 'mooca' },
-  { column: 'qty_osasco', hubId: 'osasco' },
-  { column: 'qty_sbc', hubId: 'sbc' },
+const HUB_COLUMNS: { qtyCol: string; consumoCol: string; hubId: HubId }[] = [
+  { qtyCol: 'qty_mooca',  consumoCol: 'consumo_diario_mooca',  hubId: 'mooca'  },
+  { qtyCol: 'qty_osasco', consumoCol: 'consumo_diario_osasco', hubId: 'osasco' },
+  { qtyCol: 'qty_sbc',    consumoCol: 'consumo_diario_sbc',    hubId: 'sbc'    },
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,29 +35,32 @@ export function transformInventoryRows(rows: Record<string, any>[]): InventoryIt
   const now = new Date().toISOString();
 
   for (const row of rows) {
-    const skuId = String(row['sku'] ?? '').trim();
+    const skuId   = String(row['sku']        ?? '').trim();
     const skuName = String(row['item_group'] ?? 'Sem nome').trim();
-    const dailyConsumption = Number(row['consumo_diario_l30d']) || 0;
 
     if (!skuId) continue;
 
-    for (const { column, hubId } of HUB_COLUMNS) {
-      const qty = Number(row[column]) || 0;
+    for (const { qtyCol, consumoCol, hubId } of HUB_COLUMNS) {
+      const qty              = Number(row[qtyCol])    || 0;
+      const dailyConsumption = Number(row[consumoCol]) || 0;
 
-      // Per-hub DOH: how many days this hub can serve at the global consumption rate.
-      // If consumption is zero, DOH is unknown (null) rather than Infinity.
+      // Per-hub DOH: hub stock / hub-specific daily consumption rate.
+      // NULL when there is no Maestro OS consumption data for this hub in L30D.
       const doh: number | null =
-        dailyConsumption > 0 ? Math.round((qty / dailyConsumption) * 10) / 10 : null;
+        dailyConsumption > 0
+          ? Math.round((qty / dailyConsumption) * 10) / 10
+          : null;
 
       items.push({
         skuId,
         skuName,
-        category: skuName, // item_group serves as category for now
+        category:         skuName,
         hubId,
-        qtyAvailable: qty,
+        qtyAvailable:     qty,
+        dailyConsumption,
         doh,
-        dohStatus: deriveDohStatus(doh),
-        lastUpdated: now,
+        dohStatus:        deriveDohStatus(doh),
+        lastUpdated:      now,
       });
     }
   }

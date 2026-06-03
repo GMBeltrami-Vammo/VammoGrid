@@ -7,13 +7,15 @@ import { createServerSupabase } from '@/lib/supabase/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Triggered daily by Vercel cron (vercel.json) at 09:00 UTC (06:00 BRT).
-// Also callable manually: POST /api/inventory/snapshot
-// with Authorization: Bearer <CRON_SECRET>
-export async function POST(req: Request) {
-  const secret = req.headers.get('authorization')?.replace('Bearer ', '');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+async function runSnapshot(req: Request) {
+  // If CRON_SECRET is configured, enforce it.
+  // If it is not set (first deploy, local dev), allow through so the initial
+  // seed can be triggered without extra setup.
+  if (process.env.CRON_SECRET) {
+    const bearer = req.headers.get('authorization')?.replace('Bearer ', '');
+    if (bearer !== process.env.CRON_SECRET) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   try {
@@ -45,3 +47,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+// GET  — used by Vercel cron jobs (vercel.json schedule)
+export const GET = runSnapshot;
+
+// POST — used for manual triggers (curl / admin action)
+export const POST = runSnapshot;

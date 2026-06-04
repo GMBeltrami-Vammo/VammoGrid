@@ -7,6 +7,9 @@ import { createServerSupabase } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Give the heavy 5-CTE inventory query room to run fresh (see ignoreCache below).
+// 60s is the max on Hobby and well within Pro's limit.
+export const maxDuration = 60;
 
 async function runSnapshot(req: Request) {
   // Allow if ANY of these is true:
@@ -26,7 +29,9 @@ async function runSnapshot(req: Request) {
   }
 
   try {
-    const rows = await fetchCardJson(METABASE_QUESTION_INVENTORY);
+    // ignoreCache: true — the daily snapshot must capture fresh data even if
+    // Metabase's result cache is cold at 06:00 BRT. maxDuration=60 covers the run.
+    const rows = await fetchCardJson(METABASE_QUESTION_INVENTORY, true);
     const items = transformInventoryRows(rows);
 
     const today = new Date().toISOString().slice(0, 10);

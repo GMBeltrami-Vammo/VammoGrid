@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { HUB_LIST } from '@/constants/hubs';
 import { useAlerts } from '@/hooks/useAlerts';
+import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
 
 const NAV_LINKS = [
@@ -70,30 +71,33 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* User + sign out */}
-      {session?.user && (
-        <div className="mt-auto border-t pt-4">
-          <div className="mb-1 flex items-center gap-2 px-2">
-            {session.user.image && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={session.user.image}
-                alt={session.user.name ?? ''}
-                className="h-6 w-6 rounded-full"
-              />
-            )}
-            <p className="truncate text-xs text-muted-foreground">
-              {session.user.name ?? session.user.email}
-            </p>
+      {/* Theme toggle + user + sign out */}
+      <div className="mt-auto border-t pt-2">
+        <ThemeToggle />
+        {session?.user && (
+          <div className="mt-2 border-t pt-3">
+            <div className="mb-1 flex items-center gap-2 px-2">
+              {session.user.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={session.user.image}
+                  alt={session.user.name ?? ''}
+                  className="h-6 w-6 rounded-full"
+                />
+              )}
+              <p className="truncate text-xs text-muted-foreground">
+                {session.user.name ?? session.user.email}
+              </p>
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="w-full rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              Sair
+            </button>
           </div>
-          <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
-            className="w-full rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            Sair
-          </button>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

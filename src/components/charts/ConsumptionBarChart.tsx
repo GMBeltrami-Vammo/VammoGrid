@@ -110,7 +110,7 @@ export function ConsumptionBarChart({ records, history, itemGroup }: Consumption
           {/* Left axis — daily consumption */}
           <YAxis
             yAxisId="left"
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
             tickLine={false}
             axisLine={false}
             width={28}
@@ -122,7 +122,7 @@ export function ConsumptionBarChart({ records, history, itemGroup }: Consumption
             <YAxis
               yAxisId="right"
               orientation="right"
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
               tickLine={false}
               axisLine={false}
               width={40}
@@ -132,7 +132,7 @@ export function ConsumptionBarChart({ records, history, itemGroup }: Consumption
 
           <XAxis
             dataKey="dia"
-            tick={{ fontSize: 11 }}
+            tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
             tickLine={false}
             axisLine={false}
             interval={tickInterval}

@@ -44,17 +44,17 @@ export function HubSummaryCard({ hub }: { hub: Hub }) {
               </p>
               <div className="flex gap-3 mt-2">
                 {criticalCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/20 dark:text-red-300">
                     {criticalCount} crítico{criticalCount > 1 ? 's' : ''}
                   </span>
                 )}
                 {warningCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300">
                     {warningCount} atenção
                   </span>
                 )}
                 {criticalCount === 0 && warningCount === 0 && items.length > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
                     Tudo OK
                   </span>
                 )}

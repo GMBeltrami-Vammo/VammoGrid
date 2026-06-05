@@ -2,10 +2,13 @@ import { cn } from '@/lib/utils';
 import type { DohStatus } from '@/types';
 
 const STATUS_STYLES: Record<DohStatus, string> = {
-  critical: 'bg-red-100 text-red-700 border-red-200',
-  warning: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  ok: 'bg-brand-100 text-brand-700 border-brand-200',
-  unknown: 'bg-gray-100 text-gray-500 border-gray-200',
+  critical:
+    'bg-red-100 text-red-700 border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/40',
+  warning:
+    'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/20 dark:text-yellow-300 dark:border-yellow-500/40',
+  ok: 'bg-brand-100 text-brand-700 border-brand-200 dark:bg-brand-500/20 dark:text-brand-300 dark:border-brand-500/40',
+  unknown:
+    'bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-400/20 dark:text-gray-300 dark:border-gray-400/40',
 };
 
 const STATUS_LABELS: Record<DohStatus, string> = {

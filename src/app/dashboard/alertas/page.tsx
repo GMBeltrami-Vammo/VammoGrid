@@ -92,7 +92,7 @@ export default function AlertasPage() {
           title="Tipo 1 · DOH crítico (< 3 dias)"
           description="SKUs cuja cobertura de estoque é menor que 3 dias em algum centro."
           icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
-          accent="bg-red-100 text-red-700"
+          accent="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300"
           alerts={byType.doh_critical}
           render={(a) => (
             <li key={a.skuId} className="flex items-center justify-between py-2">
@@ -112,7 +112,7 @@ export default function AlertasPage() {
           title="Tipo 2 · Centro zerado"
           description="SKUs com estoque igual a 0 em pelo menos um centro."
           icon={<AlertCircle className="h-4 w-4 text-amber-500" />}
-          accent="bg-amber-100 text-amber-700"
+          accent="bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
           alerts={byType.hub_zero}
           render={(a) => (
             <li key={a.skuId} className="flex items-center justify-between py-2">
@@ -134,7 +134,7 @@ export default function AlertasPage() {
           title="Tipo 3 · Estoque total zerado"
           description="SKUs sem nenhuma unidade em estoque em qualquer centro."
           icon={<XCircle className="h-4 w-4 text-rose-600" />}
-          accent="bg-rose-100 text-rose-700"
+          accent="bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300"
           alerts={byType.total_zero}
           render={(a) => (
             <li key={a.skuId} className="flex items-center justify-between py-2">
@@ -151,7 +151,7 @@ export default function AlertasPage() {
           title="Tipo 4 · Pico de consumo"
           description="Consumo do dia e do dia anterior, ambos acima de 1,5× a média diária (L30D), em algum centro."
           icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
-          accent="bg-purple-100 text-purple-700"
+          accent="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300"
           alerts={byType.consumption_spike}
           render={(a) => (
             <li

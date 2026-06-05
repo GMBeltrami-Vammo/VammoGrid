@@ -60,7 +60,9 @@ export function Sidebar() {
                 <span
                   className={cn(
                     'ml-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold',
-                    isActive ? 'bg-white text-brand-700' : 'bg-red-100 text-red-700',
+                    isActive
+                      ? 'bg-white text-brand-700'
+                      : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
                   )}
                 >
                   {alertCount}

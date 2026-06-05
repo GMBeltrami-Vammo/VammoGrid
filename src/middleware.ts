@@ -29,6 +29,8 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Run on everything except Next.js internals and static assets
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // Run on everything except Next.js internals, static assets, and the
+  // cron snapshot endpoint — that route authenticates itself via CRON_SECRET,
+  // so middleware must not block it (the Vercel cron carries no session cookie).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot).*)'],
 };

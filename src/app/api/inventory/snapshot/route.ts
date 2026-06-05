@@ -17,8 +17,10 @@ async function runSnapshot(req: Request) {
   //   2. Valid Authorization: Bearer <CRON_SECRET> header  (Vercel cron)
   //   3. Valid @vammo.com Auth.js session cookie           (logged-in user)
   if (process.env.CRON_SECRET) {
-    const bearer  = req.headers.get('authorization')?.replace('Bearer ', '');
-    const validCron = bearer === process.env.CRON_SECRET;
+    // trim() guards against a trailing newline/BOM in the CRON_SECRET value
+    // (headers strip the newline in transit but process.env keeps it → mismatch)
+    const bearer  = req.headers.get('authorization')?.replace('Bearer ', '').trim();
+    const validCron = bearer === process.env.CRON_SECRET?.trim();
 
     const session = await auth();
     const validSession = !!session?.user;

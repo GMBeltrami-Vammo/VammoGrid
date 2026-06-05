@@ -14,7 +14,6 @@ const NAV_LINKS = [
     label: hub.name,
   })),
   { href: '/dashboard/alertas', label: 'Alertas' },
-  { href: '/dashboard/filtragem', label: 'Filtragem' },
 ];
 
 export function Sidebar() {
@@ -24,12 +23,14 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-56 flex-shrink-0 flex-col border-r bg-muted/30 px-3 py-4">
-      {/* Logo */}
+      {/* Logo — Vammo wordmark style: bold, uppercase, tight tracking */}
       <div className="mb-6 px-2">
-        <span className="text-lg font-bold tracking-tight text-foreground">
-          Vammo<span className="text-emerald-500">Grid</span>
+        <span className="text-xl font-extrabold uppercase tracking-tight text-foreground">
+          Vammo<span className="text-brand-500">Grid</span>
         </span>
-        <p className="text-xs text-muted-foreground">Gestão de Estoque</p>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+          Gestão de Estoque
+        </p>
       </div>
 
       {/* Navigation */}
@@ -49,7 +50,7 @@ export function Sidebar() {
               className={cn(
                 'flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-brand-600 text-white'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
@@ -58,7 +59,7 @@ export function Sidebar() {
                 <span
                   className={cn(
                     'ml-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold',
-                    isActive ? 'bg-white text-emerald-700' : 'bg-red-100 text-red-700',
+                    isActive ? 'bg-white text-brand-700' : 'bg-red-100 text-red-700',
                   )}
                 >
                   {alertCount}

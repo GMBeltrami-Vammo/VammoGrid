@@ -89,7 +89,7 @@ export function MonthlyClosingTable({ hubId }: { hubId: HubId }) {
         <select
           value={activeMonth ?? ''}
           onChange={(e) => setSelectedMonth(e.target.value)}
-          className="rounded-md border bg-background px-3 py-2 text-sm capitalize shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="rounded-md border bg-background px-3 py-2 text-sm capitalize shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         >
           {months.map((m) => (
             <option key={m} value={m} className="capitalize">
@@ -102,7 +102,7 @@ export function MonthlyClosingTable({ hubId }: { hubId: HubId }) {
           placeholder="Filtrar por nome ou código..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-48 rounded-md border bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="flex-1 min-w-48 rounded-md border bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 

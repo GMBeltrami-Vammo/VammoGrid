@@ -17,12 +17,12 @@ export function HubSummaryCard({ hub }: { hub: Hub }) {
 
   return (
     <Link href={`/dashboard/${hub.id}`} className="block focus:outline-none">
-      <Card className="hover:border-emerald-500 transition-colors cursor-pointer">
+      <Card className="hover:border-brand-500 transition-colors cursor-pointer">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-semibold">{hub.name}</CardTitle>
             {hub.isRecoveryCenter && (
-              <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300">
+              <Badge variant="outline" className="text-xs text-brand-600 border-brand-300">
                 Recuperação
               </Badge>
             )}
@@ -54,7 +54,7 @@ export function HubSummaryCard({ hub }: { hub: Hub }) {
                   </span>
                 )}
                 {criticalCount === 0 && warningCount === 0 && items.length > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
                     Tudo OK
                   </span>
                 )}

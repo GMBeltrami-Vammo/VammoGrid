@@ -4,7 +4,7 @@ import type { DohStatus } from '@/types';
 const STATUS_STYLES: Record<DohStatus, string> = {
   critical: 'bg-red-100 text-red-700 border-red-200',
   warning: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  ok: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  ok: 'bg-brand-100 text-brand-700 border-brand-200',
   unknown: 'bg-gray-100 text-gray-500 border-gray-200',
 };
 

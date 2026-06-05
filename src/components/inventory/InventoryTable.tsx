@@ -137,7 +137,7 @@ export function InventoryTable({
           placeholder="Filtrar por nome, código ou categoria..."
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -155,8 +155,8 @@ export function InventoryTable({
                     <span className="inline-flex items-center gap-1">
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {header.column.getCanSort() && (
-                        header.column.getIsSorted() === 'asc'  ? <ChevronUp className="h-3 w-3 text-emerald-500" /> :
-                        header.column.getIsSorted() === 'desc' ? <ChevronDown className="h-3 w-3 text-emerald-500" /> :
+                        header.column.getIsSorted() === 'asc'  ? <ChevronUp className="h-3 w-3 text-brand-500" /> :
+                        header.column.getIsSorted() === 'desc' ? <ChevronDown className="h-3 w-3 text-brand-500" /> :
                         <ChevronsUpDown className="h-3 w-3 text-muted-foreground/50" />
                       )}
                     </span>
@@ -180,7 +180,7 @@ export function InventoryTable({
                   onClick={() => onRowSelect?.(row.original)}
                   className={[
                     onRowSelect ? 'cursor-pointer hover:bg-muted/50' : '',
-                    selectedSkuId === row.original.skuId ? 'bg-emerald-50 dark:bg-emerald-950/20' : '',
+                    selectedSkuId === row.original.skuId ? 'bg-brand-50 dark:bg-brand-950/20' : '',
                   ].join(' ')}
                 >
                   {row.getVisibleCells().map((cell) => (

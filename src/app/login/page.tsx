@@ -6,8 +6,8 @@ export default function LoginPage() {
       <div className="flex flex-col items-center gap-8 text-center">
         {/* Logo */}
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Vammo<span className="text-emerald-500">Grid</span>
+          <h1 className="text-4xl font-extrabold uppercase tracking-tight text-foreground">
+            Vammo<span className="text-brand-500">Grid</span>
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">Gestão de Estoque</p>
         </div>

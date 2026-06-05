@@ -147,7 +147,7 @@ export default function HubPage({
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{hub.name}</h1>
           {hub.isRecoveryCenter && (
-            <Badge variant="outline" className="text-emerald-600 border-emerald-300">
+            <Badge variant="outline" className="text-brand-600 border-brand-300">
               Centro de Recuperação
             </Badge>
           )}
@@ -163,7 +163,7 @@ export default function HubPage({
             className={cn(
               '-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors',
               tab === t.key
-                ? 'border-emerald-600 text-foreground'
+                ? 'border-brand-600 text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >

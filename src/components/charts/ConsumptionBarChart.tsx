@@ -39,7 +39,7 @@ function CustomTooltip({ active, payload, label }: any) {
     >
       <p className="mb-1 font-semibold">{label}</p>
       {consumed?.value != null && (
-        <p className="text-emerald-500">{consumed.value} unidades consumidas</p>
+        <p className="text-brand-500">{consumed.value} unidades consumidas</p>
       )}
       {available?.value != null && (
         <p className="text-sky-500">{available.value} em estoque</p>
@@ -165,11 +165,11 @@ export function ConsumptionBarChart({ records, history, itemGroup }: Consumption
             />
           )}
 
-          {/* Foreground bars: daily consumption */}
+          {/* Foreground bars: daily consumption (Vammo brand blue) */}
           <Bar
             yAxisId="left"
             dataKey="qty_consumed"
-            fill="#10b981"
+            fill="#0098db"
             radius={[3, 3, 0, 0]}
             maxBarSize={20}
           />

@@ -55,7 +55,50 @@ async function runSnapshot(req: Request) {
 
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, date: today, count: upsertRows.length });
+    // ── Monthly closing ───────────────────────────────────────────────────
+    // On day 30 (or the last day of a shorter month, e.g. Feb 28/29) also write
+    // a month-closing record: stock + avg daily consumption (L30D) per SKU/hub.
+    // Reuses this same cron + freshly-fetched data — no second cron needed.
+    const now = new Date();
+    const day = now.getUTCDate();
+    const lastDay = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),
+    ).getUTCDate();
+    const isMonthlyClose = day === 30 || (day === lastDay && lastDay < 30);
+
+    let monthlyCount = 0;
+    if (isMonthlyClose) {
+      const closingMonth = `${now.getUTCFullYear()}-${String(
+        now.getUTCMonth() + 1,
+      ).padStart(2, '0')}-01`;
+
+      const monthlyRows = items.map((item) => ({
+        closing_month:         closingMonth,
+        snapshot_date:         today,
+        sku_id:                item.skuId,
+        sku_name:              item.skuName,
+        hub_id:                item.hubId,
+        qty_available:         item.qtyAvailable,
+        avg_daily_consumption: item.dailyConsumption,
+        doh:                   item.doh,
+      }));
+
+      const { error: monthlyError } = await supabase
+        .schema('fleet')
+        .from('piece_stock_hub_monthly')
+        .upsert(monthlyRows, { onConflict: 'closing_month,sku_id,hub_id' });
+
+      if (monthlyError) throw monthlyError;
+      monthlyCount = monthlyRows.length;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      date: today,
+      count: upsertRows.length,
+      monthlyClose: isMonthlyClose,
+      monthlyCount,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[/api/inventory/snapshot]', message);

@@ -5,10 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useHubInventory } from '@/hooks/useInventory';
+import { useApplyFilter } from '@/lib/filter/FilterContext';
 import type { Hub } from '@/types';
 
 export function HubSummaryCard({ hub }: { hub: Hub }) {
-  const { data: items, isLoading, isError } = useHubInventory(hub.id);
+  const { data: rawItems, isLoading, isError } = useHubInventory(hub.id);
+  const items = useApplyFilter(rawItems);
 
   const criticalCount = items.filter((i) => i.dohStatus === 'critical').length;
   const warningCount = items.filter((i) => i.dohStatus === 'warning').length;

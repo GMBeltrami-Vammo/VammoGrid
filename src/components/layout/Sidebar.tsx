@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { HUB_LIST } from '@/constants/hubs';
+import { useAlerts } from '@/hooks/useAlerts';
 import { cn } from '@/lib/utils';
 
 const NAV_LINKS = [
@@ -12,11 +13,14 @@ const NAV_LINKS = [
     href: `/dashboard/${hub.id}`,
     label: hub.name,
   })),
+  { href: '/dashboard/alertas', label: 'Alertas' },
+  { href: '/dashboard/filtragem', label: 'Filtragem' },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { total: alertCount } = useAlerts();
 
   return (
     <aside className="flex h-full w-56 flex-shrink-0 flex-col border-r bg-muted/30 px-3 py-4">
@@ -36,18 +40,30 @@ export function Sidebar() {
               ? pathname === '/dashboard'
               : pathname.startsWith(href);
 
+          const showBadge = href === '/dashboard/alertas' && alertCount > 0;
+
           return (
             <Link
               key={href}
               href={href}
               className={cn(
-                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                'flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 isActive
                   ? 'bg-emerald-600 text-white'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
-              {label}
+              <span>{label}</span>
+              {showBadge && (
+                <span
+                  className={cn(
+                    'ml-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold',
+                    isActive ? 'bg-white text-emerald-700' : 'bg-red-100 text-red-700',
+                  )}
+                >
+                  {alertCount}
+                </span>
+              )}
             </Link>
           );
         })}

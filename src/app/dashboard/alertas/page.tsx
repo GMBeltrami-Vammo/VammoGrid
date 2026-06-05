@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, AlertCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, AlertCircle, XCircle, TrendingUp } from 'lucide-react';
 import { useAlerts } from '@/hooks/useAlerts';
 import { HUBS } from '@/constants/hubs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -86,7 +86,7 @@ export default function AlertasPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Tipo 1 — DOH < 3 */}
         <AlertSection
           title="Tipo 1 · DOH crítico (< 3 dias)"
@@ -141,6 +141,32 @@ export default function AlertasPage() {
               <p className="truncate text-sm font-medium">{a.skuName}</p>
               <span className="ml-2 shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
                 0 un
+              </span>
+            </li>
+          )}
+        />
+
+        {/* Tipo 4 — daily consumption spike */}
+        <AlertSection
+          title="Tipo 4 · Pico de consumo"
+          description="Consumo do dia e do dia anterior, ambos acima de 1,5× a média diária (L30D), em algum centro."
+          icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
+          accent="bg-purple-100 text-purple-700"
+          alerts={byType.consumption_spike}
+          render={(a) => (
+            <li
+              key={`${a.skuId}-${a.hubs[0]}`}
+              className="flex items-center justify-between py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{a.skuName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {hubNames(a.hubs)} · hoje {a.today} / ontem {a.yesterday}{' '}
+                  (média {a.avg?.toFixed(1)}/dia)
+                </p>
+              </div>
+              <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                {a.avg ? `${((a.today ?? 0) / a.avg).toFixed(1)}×` : '—'}
               </span>
             </li>
           )}

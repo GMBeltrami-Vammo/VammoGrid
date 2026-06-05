@@ -58,7 +58,11 @@ export interface MonthlyClosing {
   doh: number | null;
 }
 
-export type AlertType = 'doh_critical' | 'hub_zero' | 'total_zero';
+export type AlertType =
+  | 'doh_critical'
+  | 'hub_zero'
+  | 'total_zero'
+  | 'consumption_spike';
 
 export interface Alert {
   type: AlertType;
@@ -68,6 +72,12 @@ export interface Alert {
   hubs: HubId[];
   /** Lowest DOH across the flagged hubs (for doh_critical) */
   doh?: number | null;
+  /** consumption_spike: units consumed on the most recent day at the flagged hub */
+  today?: number;
+  /** consumption_spike: units consumed the day before */
+  yesterday?: number;
+  /** consumption_spike: average daily consumption (L30D) at the flagged hub */
+  avg?: number;
 }
 
 export interface HubSummary {

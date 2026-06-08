@@ -1,9 +1,17 @@
 'use client';
 
-import { AlertTriangle, AlertCircle, XCircle, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
+import {
+  AlertTriangle,
+  AlertCircle,
+  XCircle,
+  TrendingUp,
+  ChevronRight,
+} from 'lucide-react';
 import { useAlerts } from '@/hooks/useAlerts';
 import { HUBS } from '@/constants/hubs';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import type { Alert, HubId } from '@/types';
 
 function hubNames(hubs: HubId[]): string {
@@ -25,9 +33,22 @@ function AlertSection({
   alerts: Alert[];
   render: (a: Alert) => React.ReactNode;
 }) {
+  const [open, setOpen] = useState(true);
+
   return (
     <section className="rounded-lg border bg-card">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
+      {/* Clickable header — toggles the body open/closed */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+      >
+        <ChevronRight
+          className={cn(
+            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90',
+          )}
+        />
         {icon}
         <h2 className="text-sm font-semibold">{title}</h2>
         <span
@@ -35,17 +56,22 @@ function AlertSection({
         >
           {alerts.length}
         </span>
-      </div>
-      <p className="px-4 pt-3 text-xs text-muted-foreground">{description}</p>
-      <div className="p-4 pt-2">
-        {alerts.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            Nenhum alerta neste tipo. ✓
-          </p>
-        ) : (
-          <ul className="divide-y">{alerts.map(render)}</ul>
-        )}
-      </div>
+      </button>
+
+      {open && (
+        <div className="border-t">
+          <p className="px-4 pt-3 text-xs text-muted-foreground">{description}</p>
+          <div className="p-4 pt-2">
+            {alerts.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                Nenhum alerta neste tipo. ✓
+              </p>
+            ) : (
+              <ul className="divide-y">{alerts.map(render)}</ul>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -100,7 +126,7 @@ export default function AlertasPage() {
                 <p className="truncate text-sm font-medium">{a.skuName}</p>
                 <p className="text-xs text-muted-foreground">{hubNames(a.hubs)}</p>
               </div>
-              <span className="ml-2 shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+              <span className="ml-2 shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-300">
                 {a.doh}d
               </span>
             </li>
@@ -122,7 +148,7 @@ export default function AlertasPage() {
                   Zerado em: {hubNames(a.hubs)}
                 </p>
               </div>
-              <span className="ml-2 shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+              <span className="ml-2 shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
                 {a.hubs.length}/3
               </span>
             </li>
@@ -139,34 +165,34 @@ export default function AlertasPage() {
           render={(a) => (
             <li key={a.skuId} className="flex items-center justify-between py-2">
               <p className="truncate text-sm font-medium">{a.skuName}</p>
-              <span className="ml-2 shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
+              <span className="ml-2 shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
                 0 un
               </span>
             </li>
           )}
         />
 
-        {/* Tipo 4 — daily consumption spike */}
+        {/* Tipo 4 — high consumption by weekday */}
         <AlertSection
-          title="Tipo 4 · Pico de consumo"
-          description="Consumo do dia e do dia anterior, ambos acima de 1,5× a média diária (L30D), em algum centro."
+          title="Tipo 4 · Pico por dia da semana"
+          description="Dias da semana em que o consumo superou 1,5× a média diária (L30D), por peça e centro. Até 7 por peça/centro."
           icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
           accent="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300"
           alerts={byType.consumption_spike}
           render={(a) => (
             <li
-              key={`${a.skuId}-${a.hubs[0]}`}
+              key={`${a.skuId}-${a.hubs[0]}-${a.weekday}`}
               className="flex items-center justify-between py-2"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{a.skuName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {hubNames(a.hubs)} · hoje {a.today} / ontem {a.yesterday}{' '}
+                  {hubNames(a.hubs)} · {a.weekday} · pico {a.weekdayQty} un
                   (média {a.avg?.toFixed(1)}/dia)
                 </p>
               </div>
-              <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">
-                {a.avg ? `${((a.today ?? 0) / a.avg).toFixed(1)}×` : '—'}
+              <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                {a.avg ? `${((a.weekdayQty ?? 0) / a.avg).toFixed(1)}×` : '—'}
               </span>
             </li>
           )}

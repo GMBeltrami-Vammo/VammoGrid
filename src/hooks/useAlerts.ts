@@ -80,13 +80,22 @@ export function useAlerts(): AlertsResult {
       }
     }
 
-    // ── Tipo 4 — daily consumption spike ──────────────────────────────────
-    // Fires when consumption on the most recent day AND the day before are both
-    // greater than 1.5× the monthly average (L30D daily rate), per item × hub.
+    // ── Tipo 4 — high consumption by weekday ──────────────────────────────
+    // For each item × hub, flag the weekdays on which consumption exceeded
+    // 1.5× the L30D daily average. Up to 7 alerts per item/hub (one per weekday).
     const consumption_spike: Alert[] = [];
+    const WEEKDAYS_PT = [
+      'Domingo',
+      'Segunda-feira',
+      'Terça-feira',
+      'Quarta-feira',
+      'Quinta-feira',
+      'Sexta-feira',
+      'Sábado',
+    ];
 
     // Map normalized IMS name → { skuId, skuName } so we can apply the global
-    // filter (which is keyed by skuId) to Maestro consumption (keyed by name).
+    // filter (keyed by skuId) to Maestro consumption (keyed by name).
     const nameToSku = new Map<string, { skuId: string; skuName: string }>();
     for (const item of items) {
       const key = item.skuName.toLowerCase().trim();
@@ -96,52 +105,56 @@ export function useAlerts(): AlertsResult {
     }
 
     if (consumption.length > 0) {
-      // Reference days: latest day present in the dataset, and the day before it
-      const dayKey = (iso: string) => iso.slice(0, 10);
-      let maxDay = '';
-      for (const r of consumption) {
-        const d = dayKey(r.day);
-        if (d > maxDay) maxDay = d;
-      }
-      let prevDay = '';
-      if (maxDay) {
-        const d = new Date(maxDay + 'T12:00:00Z');
-        d.setUTCDate(d.getUTCDate() - 1);
-        prevDay = d.toISOString().slice(0, 10);
-      }
-
-      // Aggregate today/yesterday qty per (itemGroup × hub)
-      const spikeMap = new Map<
+      // Group all daily records per (itemGroup × hub)
+      const groups = new Map<
         string,
-        { itemGroup: string; hubId: HubId; today: number; yest: number; avg: number }
+        {
+          itemGroup: string;
+          hubId: HubId;
+          avg: number;
+          recs: { day: string; qty: number }[];
+        }
       >();
       for (const r of consumption) {
         const key = `${r.itemGroup.toLowerCase().trim()}|${r.hubId}`;
-        let e = spikeMap.get(key);
-        if (!e) {
-          e = { itemGroup: r.itemGroup, hubId: r.hubId, today: 0, yest: 0, avg: r.monthlyAvg };
-          spikeMap.set(key, e);
+        let g = groups.get(key);
+        if (!g) {
+          g = { itemGroup: r.itemGroup, hubId: r.hubId, avg: r.monthlyAvg, recs: [] };
+          groups.set(key, g);
         }
-        e.avg = r.monthlyAvg; // constant across the item/hub records
-        const d = dayKey(r.day);
-        if (d === maxDay) e.today += r.qtyConsumed;
-        else if (d === prevDay) e.yest += r.qtyConsumed;
+        g.avg = r.monthlyAvg; // constant across the item/hub records
+        g.recs.push({ day: r.day.slice(0, 10), qty: r.qtyConsumed });
       }
 
-      for (const e of spikeMap.values()) {
-        const threshold = SPIKE_MULTIPLIER * e.avg;
-        if (e.avg > 0 && e.today > threshold && e.yest > threshold) {
-          const mapped = nameToSku.get(e.itemGroup.toLowerCase().trim());
-          const skuId = mapped?.skuId ?? e.itemGroup;
-          if (excluded.has(skuId)) continue; // respect global filter
+      for (const g of groups.values()) {
+        if (g.avg <= 0) continue;
+        const threshold = SPIKE_MULTIPLIER * g.avg;
+
+        // Per weekday, keep the peak consumption among days above the threshold
+        const peakByWeekday = new Map<number, number>();
+        for (const rec of g.recs) {
+          if (rec.qty > threshold) {
+            const wd = new Date(rec.day + 'T12:00:00Z').getUTCDay();
+            peakByWeekday.set(wd, Math.max(peakByWeekday.get(wd) ?? 0, rec.qty));
+          }
+        }
+        if (peakByWeekday.size === 0) continue;
+
+        const mapped = nameToSku.get(g.itemGroup.toLowerCase().trim());
+        const skuId = mapped?.skuId ?? g.itemGroup;
+        if (excluded.has(skuId)) continue; // respect global filter
+
+        // One alert per flagged weekday (≤ 7), strongest first
+        const ordered = [...peakByWeekday.entries()].sort((a, b) => b[1] - a[1]);
+        for (const [wd, qty] of ordered) {
           consumption_spike.push({
             type: 'consumption_spike',
             skuId,
-            skuName: mapped?.skuName ?? e.itemGroup,
-            hubs: [e.hubId],
-            today: e.today,
-            yesterday: e.yest,
-            avg: e.avg,
+            skuName: mapped?.skuName ?? g.itemGroup,
+            hubs: [g.hubId],
+            weekday: WEEKDAYS_PT[wd],
+            weekdayQty: qty,
+            avg: g.avg,
           });
         }
       }
@@ -152,7 +165,8 @@ export function useAlerts(): AlertsResult {
     hub_zero.sort((a, b) => b.hubs.length - a.hubs.length);
     // Spikes: biggest jump over the average first
     consumption_spike.sort(
-      (a, b) => (b.today ?? 0) / (b.avg || 1) - (a.today ?? 0) / (a.avg || 1),
+      (a, b) =>
+        (b.weekdayQty ?? 0) / (b.avg || 1) - (a.weekdayQty ?? 0) / (a.avg || 1),
     );
 
     const alerts = [

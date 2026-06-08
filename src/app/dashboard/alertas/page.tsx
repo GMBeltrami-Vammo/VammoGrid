@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   AlertTriangle,
   AlertCircle,
@@ -18,6 +18,7 @@ function hubNames(hubs: HubId[]): string {
   return hubs.map((h) => HUBS[h]?.name ?? h).join(', ');
 }
 
+// ── Generic collapsible section (Tipos 1–3) ──────────────────────────────
 function AlertSection({
   title,
   description,
@@ -37,7 +38,6 @@ function AlertSection({
 
   return (
     <section className="rounded-lg border bg-card">
-      {/* Clickable header — toggles the body open/closed */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -76,6 +76,131 @@ function AlertSection({
   );
 }
 
+// ── Tipo 4: grouped by item + hub ─────────────────────────────────────────
+interface SpikeGroup {
+  key: string; // `${skuId}|${hub}`
+  skuId: string;
+  skuName: string;
+  hub: HubId;
+  days: Alert[]; // all qualifying days for this item+hub (already sorted)
+}
+
+function SpikeItemGroup({ group }: { group: SpikeGroup }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <li>
+      {/* Group header — click to expand days */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 py-2 text-left transition-colors hover:bg-muted/30"
+      >
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90',
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{group.skuName}</p>
+          <p className="text-xs text-muted-foreground">{hubNames([group.hub])}</p>
+        </div>
+        <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+          {group.days.length} dia{group.days.length !== 1 ? 's' : ''}
+        </span>
+      </button>
+
+      {/* Expanded day list */}
+      {open && (
+        <ul className="mb-2 ml-5 space-y-0.5 border-l border-purple-200 pl-3 dark:border-purple-800">
+          {group.days.map((a) => (
+            <li
+              key={`${a.skuId}-${a.hubs[0]}-${a.daySort}`}
+              className="flex items-center justify-between gap-2 py-1.5"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-medium">{a.dayLabel}</p>
+                <p className="text-xs text-muted-foreground">
+                  {a.dayQty} un no dia · estoque {a.currentStock} · média{' '}
+                  {a.monthlyConsumption}/mês
+                </p>
+              </div>
+              <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                {a.avg ? `${((a.dayQty ?? 0) / a.avg).toFixed(1)}×` : '—'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function SpikeSection({ alerts }: { alerts: Alert[] }) {
+  const [open, setOpen] = useState(true);
+
+  // Group by skuId+hub — preserves the sort order already applied by useAlerts
+  const groups = useMemo<SpikeGroup[]>(() => {
+    const map = new Map<string, SpikeGroup>();
+    for (const a of alerts) {
+      const hub = a.hubs[0];
+      const key = `${a.skuId}|${hub}`;
+      if (!map.has(key)) {
+        map.set(key, { key, skuId: a.skuId, skuName: a.skuName, hub, days: [] });
+      }
+      map.get(key)!.days.push(a);
+    }
+    return [...map.values()];
+  }, [alerts]);
+
+  return (
+    <section className="rounded-lg border bg-card">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+      >
+        <ChevronRight
+          className={cn(
+            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90',
+          )}
+        />
+        <TrendingUp className="h-4 w-4 text-purple-500" />
+        <h2 className="text-sm font-semibold">Tipo 4 · Pico de consumo no dia</h2>
+        {/* Badge shows number of unique items, not total days */}
+        <span className="ml-auto inline-flex min-w-6 items-center justify-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+          {groups.length}
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t">
+          <p className="px-4 pt-3 text-xs text-muted-foreground">
+            Itens com dias em que o consumo superou 2× a média diária (L30D) e teve ao menos 5
+            unidades. Clique em cada item para ver os dias de pico.
+          </p>
+          <div className="p-4 pt-2">
+            {groups.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                Nenhum alerta neste tipo. ✓
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {groups.map((group) => (
+                  <SpikeItemGroup key={group.key} group={group} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────
 export default function AlertasPage() {
   const { byType, total, isLoading, isError } = useAlerts();
 
@@ -172,34 +297,8 @@ export default function AlertasPage() {
           )}
         />
 
-        {/* Tipo 4 — high-consumption days */}
-        <AlertSection
-          title="Tipo 4 · Pico de consumo no dia"
-          description="Dias em que o consumo passou de 1,5× a média diária (L30D) e teve pelo menos 3 unidades. Um alerta por dia, com estoque atual e consumo médio mensal."
-          icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
-          accent="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300"
-          alerts={byType.consumption_spike}
-          render={(a) => (
-            <li
-              key={`${a.skuId}-${a.hubs[0]}-${a.daySort}`}
-              className="flex items-center justify-between gap-2 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{a.skuName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {hubNames(a.hubs)} · {a.dayLabel}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {a.dayQty} un no dia · estoque atual {a.currentStock} · média{' '}
-                  {a.monthlyConsumption}/mês
-                </p>
-              </div>
-              <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                {a.avg ? `${((a.dayQty ?? 0) / a.avg).toFixed(1)}×` : '—'}
-              </span>
-            </li>
-          )}
-        />
+        {/* Tipo 4 — high-consumption days, grouped by item+hub */}
+        <SpikeSection alerts={byType.consumption_spike} />
       </div>
 
       {byType.total_zero.length === 0 && (

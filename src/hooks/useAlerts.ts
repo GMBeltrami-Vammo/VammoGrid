@@ -7,8 +7,8 @@ import { useSkuFilter } from '@/lib/filter/FilterContext';
 import type { Alert, HubId, InventoryItem } from '@/types';
 
 const DOH_CRITICAL_ALERT = 3; // Tipo 1: DOH < 3
-const SPIKE_MULTIPLIER = 1.5; // Tipo 4: a day's consumption > 1.5× the L30D daily avg
-const SPIKE_MIN_QTY = 3; // Tipo 4: ...and at least this many units that day (cuts low-volume noise)
+const SPIKE_MULTIPLIER = 2; // Tipo 4: a day's consumption > 2× the L30D daily avg
+const SPIKE_MIN_QTY = 5; // Tipo 4: ...and at least this many units that day (cuts low-volume noise)
 
 interface AlertsResult {
   alerts: Alert[];

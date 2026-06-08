@@ -172,27 +172,30 @@ export default function AlertasPage() {
           )}
         />
 
-        {/* Tipo 4 — high consumption by weekday */}
+        {/* Tipo 4 — high-consumption days */}
         <AlertSection
-          title="Tipo 4 · Pico por dia da semana"
-          description="Dias da semana em que o consumo superou 1,5× a média diária (L30D), por peça e centro. Até 7 por peça/centro."
+          title="Tipo 4 · Pico de consumo no dia"
+          description="Dias em que o consumo passou de 1,5× a média diária (L30D) e teve pelo menos 3 unidades. Um alerta por dia, com estoque atual e consumo médio mensal."
           icon={<TrendingUp className="h-4 w-4 text-purple-500" />}
           accent="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300"
           alerts={byType.consumption_spike}
           render={(a) => (
             <li
-              key={`${a.skuId}-${a.hubs[0]}-${a.weekday}`}
-              className="flex items-center justify-between py-2"
+              key={`${a.skuId}-${a.hubs[0]}-${a.daySort}`}
+              className="flex items-center justify-between gap-2 py-2"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{a.skuName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {hubNames(a.hubs)} · {a.weekday} · pico {a.weekdayQty} un
-                  (média {a.avg?.toFixed(1)}/dia)
+                  {hubNames(a.hubs)} · {a.dayLabel}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {a.dayQty} un no dia · estoque atual {a.currentStock} · média{' '}
+                  {a.monthlyConsumption}/mês
                 </p>
               </div>
               <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                {a.avg ? `${((a.weekdayQty ?? 0) / a.avg).toFixed(1)}×` : '—'}
+                {a.avg ? `${((a.dayQty ?? 0) / a.avg).toFixed(1)}×` : '—'}
               </span>
             </li>
           )}

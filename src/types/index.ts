@@ -72,11 +72,17 @@ export interface Alert {
   hubs: HubId[];
   /** Lowest DOH across the flagged hubs (for doh_critical) */
   doh?: number | null;
-  /** consumption_spike: weekday name (pt-BR) that exceeded the threshold */
-  weekday?: string;
-  /** consumption_spike: peak consumption observed on that weekday */
-  weekdayQty?: number;
-  /** consumption_spike: average daily consumption (L30D) for the item+hub */
+  /** consumption_spike: day label, e.g. "Sexta-feira - 30/05" */
+  dayLabel?: string;
+  /** consumption_spike: ISO day (YYYY-MM-DD) — for sorting */
+  daySort?: string;
+  /** consumption_spike: units consumed on that day */
+  dayQty?: number;
+  /** consumption_spike: current stock for the item+hub */
+  currentStock?: number;
+  /** consumption_spike: monthly average consumption (un/month) */
+  monthlyConsumption?: number;
+  /** consumption_spike: daily average (L30D) — for the multiplier */
   avg?: number;
 }
 

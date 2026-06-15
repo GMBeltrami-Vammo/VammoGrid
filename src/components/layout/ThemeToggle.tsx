@@ -30,7 +30,7 @@ export function ThemeToggle() {
     <button
       onClick={toggle}
       aria-label="Alternar tema"
-      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="flex w-full items-center gap-2 rounded-md px-2 py-[7px] text-left text-sm font-medium text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
     >
       {mounted && isDark ? (
         <>

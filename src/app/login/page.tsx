@@ -2,19 +2,50 @@ import { signIn } from '@/auth';
 
 export default function LoginPage() {
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-8 text-center">
-        {/* Logo */}
-        <div>
-          <h1 className="text-4xl font-extrabold uppercase tracking-tight text-foreground">
-            Vammo<span className="text-brand-500">Grid</span>
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Gestão de Estoque</p>
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-black">
+      {/* Dot-grid texture */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, rgba(46,194,255,0.10) 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
+        }}
+      />
+
+      {/* Top blue glow */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 left-1/2 h-64 w-96 -translate-x-1/2 rounded-full bg-brand-500/15 blur-3xl"
+      />
+
+      {/* Single pixel blue rule at very top */}
+      <div aria-hidden className="absolute top-0 inset-x-0 h-px bg-brand-500/40" />
+
+      {/* Content */}
+      <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-8 px-6">
+        {/* Wordmark */}
+        <div className="text-center">
+          <div className="flex items-baseline justify-center">
+            <span className="text-5xl font-black uppercase tracking-[-0.04em] text-white">
+              vammo
+            </span>
+            <span className="text-5xl font-black uppercase tracking-[-0.04em] text-brand-500">
+              grid
+            </span>
+          </div>
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/30">
+            Gestão de Estoque
+          </p>
         </div>
 
-        {/* Card */}
-        <div className="w-80 rounded-xl border bg-card px-8 py-8 shadow-sm">
-          <p className="mb-6 text-sm text-muted-foreground">
+        {/* Blue rule divider */}
+        <div className="h-px w-12 bg-brand-500/50" />
+
+        {/* Login card */}
+        <div className="w-full border border-white/10 bg-white/[0.03] px-8 py-8">
+          <p className="mb-7 text-center text-xs text-white/40">
             Acesso restrito a colaboradores Vammo.
           </p>
 
@@ -26,7 +57,7 @@ export default function LoginPage() {
           >
             <button
               type="submit"
-              className="flex w-full items-center justify-center gap-3 rounded-md border bg-background px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
+              className="flex w-full items-center justify-center gap-3 bg-brand-500 px-4 py-3 text-sm font-bold uppercase tracking-wider text-black transition-colors hover:bg-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
               <GoogleIcon />
               Entrar com Google
@@ -34,6 +65,11 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
+
+      {/* Bottom attribution */}
+      <p className="absolute bottom-6 text-[10px] text-white/15 tracking-wider uppercase">
+        Vammo · Interno
+      </p>
     </div>
   );
 }

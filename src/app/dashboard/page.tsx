@@ -19,6 +19,9 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="mb-4">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-500">
+          Dashboard
+        </p>
         <h1 className="text-2xl font-bold tracking-tight">Visão Geral</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Estoque disponível e DOH por base

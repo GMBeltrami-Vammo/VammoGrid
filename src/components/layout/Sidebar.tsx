@@ -3,103 +3,191 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
+import { LayoutGrid, MapPin, Bell, LogOut } from 'lucide-react';
 import { HUB_LIST } from '@/constants/hubs';
 import { useAlerts } from '@/hooks/useAlerts';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
-
-const NAV_LINKS = [
-  { href: '/dashboard', label: 'Visão Geral' },
-  ...HUB_LIST.map((hub) => ({
-    href: `/dashboard/${hub.id}`,
-    label: hub.name,
-  })),
-  { href: '/dashboard/alertas', label: 'Alertas' },
-];
+import type { Hub } from '@/types';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { total: alertCount } = useAlerts();
 
+  const isActive = (href: string) =>
+    href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href);
+
   return (
-    <aside className="flex h-full w-56 flex-shrink-0 flex-col border-r bg-muted/30 px-3 py-4">
-      {/* Logo — Vammo wordmark style: bold, uppercase, tight tracking */}
-      <div className="mb-6 px-2">
-        <span className="text-xl font-extrabold uppercase tracking-tight text-foreground">
-          Vammo<span className="text-brand-500">Grid</span>
-        </span>
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+    <aside className="flex h-full w-60 flex-shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
+      {/* Wordmark */}
+      <div className="px-5 pt-5 pb-4">
+        <div className="flex items-baseline">
+          <span className="text-[1.15rem] font-black uppercase tracking-[-0.03em] text-sidebar-foreground">
+            vammo
+          </span>
+          <span className="text-[1.15rem] font-black uppercase tracking-[-0.03em] text-brand-500">
+            grid
+          </span>
+        </div>
+        <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-sidebar-foreground/35">
           Gestão de Estoque
         </p>
       </div>
 
+      <div className="mx-4 h-px bg-sidebar-border" />
+
       {/* Navigation */}
-      <nav className="flex flex-col gap-1">
-        {NAV_LINKS.map(({ href, label }) => {
-          const isActive =
-            href === '/dashboard'
-              ? pathname === '/dashboard'
-              : pathname.startsWith(href);
+      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
+        <NavSection label="Geral">
+          <NavLink
+            href="/dashboard"
+            label="Visão Geral"
+            icon={LayoutGrid}
+            active={isActive('/dashboard')}
+          />
+        </NavSection>
 
-          const showBadge = href === '/dashboard/alertas' && alertCount > 0;
+        <NavSection label="Bases">
+          {HUB_LIST.map((hub) => (
+            <HubNavLink key={hub.id} hub={hub} active={isActive(`/dashboard/${hub.id}`)} />
+          ))}
+        </NavSection>
 
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-brand-600 text-white'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-            >
-              <span>{label}</span>
-              {showBadge && (
-                <span
-                  className={cn(
-                    'ml-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold',
-                    isActive
-                      ? 'bg-white text-brand-700'
-                      : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300',
-                  )}
-                >
-                  {alertCount}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+        <NavSection label="Sistema">
+          <NavLink
+            href="/dashboard/alertas"
+            label="Alertas"
+            icon={Bell}
+            active={isActive('/dashboard/alertas')}
+            badge={alertCount > 0 ? alertCount : undefined}
+          />
+        </NavSection>
       </nav>
 
-      {/* Theme toggle + user + sign out */}
-      <div className="mt-auto border-t pt-2">
+      {/* Footer */}
+      <div className="border-t border-sidebar-border px-3 py-3 space-y-1">
         <ThemeToggle />
         {session?.user && (
-          <div className="mt-2 border-t pt-3">
-            <div className="mb-1 flex items-center gap-2 px-2">
-              {session.user.image && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={session.user.image}
-                  alt={session.user.name ?? ''}
-                  className="h-6 w-6 rounded-full"
-                />
-              )}
-              <p className="truncate text-xs text-muted-foreground">
-                {session.user.name ?? session.user.email}
-              </p>
-            </div>
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            {session.user.image && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={session.user.image}
+                alt={session.user.name ?? ''}
+                className="h-6 w-6 shrink-0 rounded-full ring-1 ring-sidebar-border"
+              />
+            )}
+            <p className="min-w-0 flex-1 truncate text-xs text-sidebar-foreground/50">
+              {session.user.name ?? session.user.email}
+            </p>
             <button
               onClick={() => signOut({ callbackUrl: '/login' })}
-              className="w-full rounded-md px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="shrink-0 rounded p-1 text-sidebar-foreground/35 hover:text-sidebar-foreground transition-colors"
+              aria-label="Sair"
             >
-              Sair
+              <LogOut size={13} />
             </button>
           </div>
         )}
       </div>
     </aside>
+  );
+}
+
+function NavSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-foreground/30">
+        {label}
+      </p>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  );
+}
+
+function NavLink({
+  href,
+  label,
+  icon: Icon,
+  active,
+  badge,
+  tag,
+}: {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  active: boolean;
+  badge?: number;
+  tag?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        'group flex items-center gap-2.5 rounded-md px-2 py-[7px] text-sm font-medium transition-colors',
+        active
+          ? 'bg-brand-500/10 text-brand-400'
+          : 'text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+      )}
+    >
+      <Icon
+        size={14}
+        className={cn(
+          'shrink-0',
+          active
+            ? 'text-brand-500'
+            : 'text-sidebar-foreground/35 group-hover:text-sidebar-foreground/60',
+        )}
+      />
+      <span className="flex-1 truncate">{label}</span>
+      {tag && (
+        <span className="rounded px-1 text-[9px] font-bold uppercase tracking-wide bg-sidebar-foreground/8 text-sidebar-foreground/35">
+          {tag}
+        </span>
+      )}
+      {badge !== undefined && (
+        <span
+          className={cn(
+            'inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold',
+            active
+              ? 'bg-brand-500/20 text-brand-300'
+              : 'bg-alert-error/20 text-alert-error',
+          )}
+        >
+          {badge}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function HubNavLink({ hub, active }: { hub: Hub; active: boolean }) {
+  return (
+    <Link
+      href={`/dashboard/${hub.id}`}
+      className={cn(
+        'group flex items-center gap-2.5 rounded-md px-2 py-[7px] text-sm font-medium transition-colors',
+        active
+          ? 'bg-brand-500/10 text-brand-400'
+          : 'text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+      )}
+    >
+      <MapPin
+        size={14}
+        className={cn(
+          'shrink-0',
+          active
+            ? 'text-brand-500'
+            : 'text-sidebar-foreground/35 group-hover:text-sidebar-foreground/60',
+        )}
+      />
+      <span className="flex-1 truncate">{hub.name}</span>
+      {hub.isRecoveryCenter && (
+        <span className="rounded px-1 text-[9px] font-bold uppercase tracking-wide text-sidebar-foreground/30">
+          RC
+        </span>
+      )}
+    </Link>
   );
 }

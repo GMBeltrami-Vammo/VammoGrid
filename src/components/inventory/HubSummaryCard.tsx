@@ -17,12 +17,12 @@ export function HubSummaryCard({ hub }: { hub: Hub }) {
 
   return (
     <Link href={`/dashboard/${hub.id}`} className="block focus:outline-none">
-      <Card className="hover:border-brand-500 transition-colors cursor-pointer">
+      <Card className="cursor-pointer transition-colors hover:border-brand-500/50">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-semibold">{hub.name}</CardTitle>
             {hub.isRecoveryCenter && (
-              <Badge variant="outline" className="text-xs text-brand-600 border-brand-300">
+              <Badge variant="outline" className="text-xs text-brand-500 border-brand-500/30">
                 Recuperação
               </Badge>
             )}
@@ -36,25 +36,25 @@ export function HubSummaryCard({ hub }: { hub: Hub }) {
               <Skeleton className="h-4 w-32" />
             </div>
           ) : isError ? (
-            <p className="text-sm text-destructive">Erro ao carregar dados</p>
+            <p className="text-sm text-alert-error">Erro ao carregar dados</p>
           ) : (
             <div className="space-y-1 text-sm">
               <p className="text-muted-foreground">
                 <span className="font-medium text-foreground">{items.length}</span> SKUs monitorados
               </p>
-              <div className="flex gap-3 mt-2">
+              <div className="flex flex-wrap gap-2 mt-2">
                 {criticalCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-500/20 dark:text-red-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-alert-error/12 px-2 py-0.5 text-xs font-medium text-alert-error border border-alert-error/20">
                     {criticalCount} crítico{criticalCount > 1 ? 's' : ''}
                   </span>
                 )}
                 {warningCount > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-alert-warning/12 px-2 py-0.5 text-xs font-medium text-[#b8a800] border border-alert-warning/20 dark:text-alert-warning dark:border-alert-warning/25">
                     {warningCount} atenção
                   </span>
                 )}
                 {criticalCount === 0 && warningCount === 0 && items.length > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-2 py-0.5 text-xs font-medium text-brand-700 border border-brand-300/30 dark:text-brand-400 dark:border-brand-500/20">
                     Tudo OK
                   </span>
                 )}

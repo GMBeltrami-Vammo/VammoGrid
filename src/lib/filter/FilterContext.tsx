@@ -29,6 +29,8 @@ interface FilterContextValue {
   setIncluded: (skuId: string, included: boolean) => void;
   selectAll: () => void;
   clearAll: (allSkuIds: string[]) => void;
+  /** Include only the given SKUs; exclude everything else in allSkuIds. */
+  keepOnly: (included: Set<string>, allSkuIds: string[]) => void;
   excludedCount: number;
   /** true once the initial localStorage read has completed (avoids SSR flash) */
   ready: boolean;
@@ -71,6 +73,19 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
     [email],
   );
 
+  // Stable action callbacks — only depend on persist (changes only on email change).
+  // Safe to use as useEffect dependencies without risk of infinite loops.
+  const selectAll = useCallback(() => persist(new Set()), [persist]);
+  const clearAll = useCallback(
+    (allSkuIds: string[]) => persist(new Set(allSkuIds)),
+    [persist],
+  );
+  const keepOnly = useCallback(
+    (included: Set<string>, allSkuIds: string[]) =>
+      persist(new Set(allSkuIds.filter((id) => !included.has(id)))),
+    [persist],
+  );
+
   const value = useMemo<FilterContextValue>(
     () => ({
       excluded,
@@ -87,12 +102,13 @@ export function FilterProvider({ children }: { children: React.ReactNode }) {
         else next.add(skuId);
         persist(next);
       },
-      selectAll: () => persist(new Set()),
-      clearAll: (allSkuIds) => persist(new Set(allSkuIds)),
+      selectAll,
+      clearAll,
+      keepOnly,
       excludedCount: excluded.size,
       ready,
     }),
-    [excluded, ready, persist],
+    [excluded, ready, persist, selectAll, clearAll, keepOnly],
   );
 
   return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;

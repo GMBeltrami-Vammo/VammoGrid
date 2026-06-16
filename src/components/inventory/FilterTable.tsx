@@ -1,15 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   CheckSquare,
   Square,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  Bike,
 } from 'lucide-react';
 import { useInventory } from '@/hooks/useInventory';
 import { useSkuFilter } from '@/lib/filter/FilterContext';
+import { useCompat } from '@/hooks/useCompat';
+import { BIKE_MODELS, type BikeModel } from '@/types';
+import { MODEL_LABELS } from '@/constants/models';
 import {
   Table,
   TableBody,
@@ -33,11 +37,13 @@ type SortDir = 'asc' | 'desc';
 
 export function FilterTable() {
   const { data: items = [], isLoading } = useInventory();
-  const { isIncluded, setIncluded, selectAll, clearAll, excludedCount } =
+  const { data: compatData = [] } = useCompat();
+  const { isIncluded, setIncluded, selectAll, clearAll, keepOnly, excludedCount } =
     useSkuFilter();
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [selectedBikes, setSelectedBikes] = useState<Set<BikeModel>>(new Set());
 
   // Dedupe (SKU × hub) → one row per unique SKU, summing stock + consumption
   const skus = useMemo<SkuRow[]>(() => {
@@ -60,6 +66,34 @@ export function FilterTable() {
   }, [items]);
 
   const allSkuIds = useMemo(() => skus.map((s) => s.skuId), [skus]);
+
+  // Reactively apply bike compatibility filter whenever selection or data changes.
+  // selectAll/keepOnly are stable callbacks (depend only on email via persist),
+  // so including them in deps won't cause loops.
+  useEffect(() => {
+    if (allSkuIds.length === 0) return;
+    if (selectedBikes.size === 0) {
+      selectAll();
+      return;
+    }
+    const bikes = [...selectedBikes];
+    const compatible = new Set<string>();
+    for (const row of compatData) {
+      if (bikes.some((b) => row.models[b])) {
+        compatible.add(row.sku);
+      }
+    }
+    keepOnly(compatible, allSkuIds);
+  }, [selectedBikes, compatData, allSkuIds, selectAll, keepOnly]);
+
+  function toggleBike(model: BikeModel) {
+    setSelectedBikes((prev) => {
+      const next = new Set(prev);
+      if (next.has(model)) next.delete(model);
+      else next.add(model);
+      return next;
+    });
+  }
 
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -84,7 +118,6 @@ export function FilterTable() {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
-      // sensible default: name ascending, numeric columns descending
       setSortDir(key === 'name' ? 'asc' : 'desc');
     }
   }
@@ -109,6 +142,54 @@ export function FilterTable() {
         seleção fica salva neste navegador. Esta tabela sempre mostra todos os
         SKUs.
       </p>
+
+      {/* Bike compatibility filter */}
+      <div className="mb-4 rounded-md border bg-muted/30 p-3">
+        <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+          <Bike className="h-4 w-4 text-brand-500" />
+          Filtrar por moto
+          {selectedBikes.size > 0 && (
+            <span className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white leading-none">
+              {selectedBikes.size}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {BIKE_MODELS.map((model) => {
+            const active = selectedBikes.has(model);
+            return (
+              <button
+                key={model}
+                onClick={() => toggleBike(model)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? 'border-brand-500 bg-brand-500 text-white'
+                    : 'border-border bg-background text-muted-foreground hover:border-brand-400 hover:text-foreground'
+                }`}
+              >
+                {MODEL_LABELS[model]}
+              </button>
+            );
+          })}
+          {selectedBikes.size > 0 && (
+            <button
+              onClick={() => setSelectedBikes(new Set())}
+              className="rounded-full border border-dashed border-muted-foreground/40 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-muted-foreground/70 hover:text-foreground"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+        {selectedBikes.size > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Apenas SKUs compatíveis com{' '}
+            <span className="font-medium text-foreground">
+              {[...selectedBikes].map((b) => MODEL_LABELS[b]).join(', ')}
+            </span>{' '}
+            estão ativos.
+          </p>
+        )}
+      </div>
 
       {/* Controls */}
       <div className="mb-3 flex flex-wrap items-center gap-2">

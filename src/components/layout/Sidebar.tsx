@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
-import { LayoutGrid, MapPin, Bell, LogOut } from 'lucide-react';
+import { LayoutGrid, MapPin, Bell, LogOut, Truck, Bike, Settings } from 'lucide-react';
 import { HUB_LIST } from '@/constants/hubs';
 import { useAlerts } from '@/hooks/useAlerts';
 import { ThemeToggle } from './ThemeToggle';
@@ -54,6 +54,21 @@ export function Sidebar() {
           ))}
         </NavSection>
 
+        <NavSection label="Planejamento">
+          <NavLink
+            href="/dashboard/pedidos"
+            label="Pedidos & Projeção"
+            icon={Truck}
+            active={isActive('/dashboard/pedidos')}
+          />
+          <NavLink
+            href="/dashboard/compatibilidade"
+            label="Compatibilidade"
+            icon={Bike}
+            active={isActive('/dashboard/compatibilidade')}
+          />
+        </NavSection>
+
         <NavSection label="Sistema">
           <NavLink
             href="/dashboard/alertas"
@@ -62,6 +77,14 @@ export function Sidebar() {
             active={isActive('/dashboard/alertas')}
             badge={alertCount > 0 ? alertCount : undefined}
           />
+          {session?.user?.isHead && (
+            <NavLink
+              href="/dashboard/admin"
+              label="Admin"
+              icon={Settings}
+              active={isActive('/dashboard/admin')}
+            />
+          )}
         </NavSection>
       </nav>
 

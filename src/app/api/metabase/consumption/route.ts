@@ -3,7 +3,9 @@ import { fetchCardJson } from '@/lib/metabase/client';
 import { METABASE_QUESTION_CONSUMPTION } from '@/lib/metabase/queries';
 import { transformConsumptionRows } from '@/lib/transformer';
 
-export const revalidate = 300; // 5-minute server cache
+// Live, auth-protected consumption data — render at request time, never
+// prerender at build. Client-side react-query handles caching.
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

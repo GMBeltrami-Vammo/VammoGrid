@@ -3,7 +3,10 @@ import { fetchCardJson } from '@/lib/metabase/client';
 import { METABASE_QUESTION_INVENTORY } from '@/lib/metabase/queries';
 import { transformInventoryRows } from '@/lib/transformer';
 
-export const revalidate = 300; // 5-minute server cache
+// Live, auth-protected inventory — render at request time, never prerender at
+// build (build-time fetching of live Metabase data is fragile and pointless for
+// an authenticated route). Client-side react-query handles caching.
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

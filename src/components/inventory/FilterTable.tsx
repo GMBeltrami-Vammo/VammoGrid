@@ -77,12 +77,18 @@ export function FilterTable() {
       return;
     }
     const bikes = [...selectedBikes];
-    const compatible = new Set<string>();
+    // Metabase returns "VM-01-SUS0-3401" while part_compat stores "VM-01-SUS0-3401-01-01".
+    // Normalize both to their base form (strip trailing -XX-XX revision suffix) to match.
+    const stripSuffix = (sku: string) => sku.replace(/-\d{2}-\d{2}$/, '');
+    const compatibleBase = new Set<string>();
     for (const row of compatData) {
       if (bikes.some((b) => row.models[b])) {
-        compatible.add(row.sku);
+        compatibleBase.add(stripSuffix(row.sku));
       }
     }
+    const compatible = new Set<string>(
+      allSkuIds.filter((id) => compatibleBase.has(stripSuffix(id))),
+    );
     keepOnly(compatible, allSkuIds);
   }, [selectedBikes, compatData, allSkuIds, selectAll, keepOnly]);
 

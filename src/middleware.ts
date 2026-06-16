@@ -29,8 +29,12 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Run on everything except Next.js internals, static assets, and the
-  // cron snapshot endpoint — that route authenticates itself via CRON_SECRET,
-  // so middleware must not block it (the Vercel cron carries no session cookie).
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot).*)'],
+  // Run on everything except Next.js internals, static assets, and the two
+  // self-authenticating machine endpoints:
+  //   • api/inventory/snapshot — Vercel cron, authenticates via CRON_SECRET
+  //   • api/orders/ingest      — n8n, authenticates via N8N_INGEST_SECRET
+  // Both carry no session cookie, so middleware must not block them.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot|api/orders/ingest).*)',
+  ],
 };

@@ -1,0 +1,100 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import type { HubId } from '@/types/planning';
+import type { SkuProjections } from '@/lib/planning/projection';
+import { ProjectionChart } from './ProjectionChart';
+import { KpiCard } from './ui';
+import { fmtDate, fmtInt, fmtNum } from '@/lib/planning/format';
+import { cn } from '@/lib/utils';
+
+type Scope = 'global' | HubId;
+
+export function ProjectionView({
+  options,
+  selected,
+  projections,
+}: {
+  options: { skuBase: string; skuName: string }[];
+  selected: string;
+  projections: SkuProjections | null;
+}) {
+  const router = useRouter();
+  const [scope, setScope] = useState<Scope>('global');
+
+  const proj = projections
+    ? scope === 'global'
+      ? projections.global
+      : projections.byHub[scope]
+    : null;
+
+  const scopes: { key: Scope; label: string }[] = [
+    { key: 'global', label: 'Global' },
+    { key: 'osasco', label: 'Osasco' },
+    { key: 'mooca', label: 'Mooca' },
+    { key: 'sbc', label: 'SBC' },
+  ];
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select
+          value={selected}
+          onChange={(e) =>
+            router.push(`/dashboard/projection?sku=${encodeURIComponent(e.target.value)}`)
+          }
+          className="h-9 max-w-md flex-1 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500"
+        >
+          {options.map((o) => (
+            <option key={o.skuBase} value={o.skuBase}>
+              {o.skuName} ({o.skuBase})
+            </option>
+          ))}
+        </select>
+        <div className="flex gap-1">
+          {scopes.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => setScope(s.key)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                scope === s.key ? 'bg-brand-500/15 text-brand-600' : 'text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {proj ? (
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <KpiCard label="Estoque atual" value={fmtInt(proj.currentStock)} />
+            <KpiCard label="Consumo diário" value={fmtNum(proj.dailyDemand)} hint="un/dia (méd. 30d)" />
+            <KpiCard
+              label="Cobertura"
+              value={proj.dohNow != null ? `${fmtInt(proj.dohNow)}d` : '—'}
+            />
+            <KpiCard
+              label="Ruptura prevista"
+              value={fmtDate(proj.stockoutDate)}
+              tone={proj.stockoutDate ? 'danger' : 'success'}
+              hint={proj.incomingUnits > 0 ? `${fmtInt(proj.incomingUnits)} un. a chegar` : undefined}
+            />
+          </div>
+          <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+            <ProjectionChart timeline={proj.timeline} stockoutDate={proj.stockoutDate} height={340} />
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
+              horizonte do modelo.
+            </p>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">Sem projeção para este SKU.</p>
+      )}
+    </div>
+  );
+}

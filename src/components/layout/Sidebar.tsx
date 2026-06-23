@@ -3,24 +3,30 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
-import { LayoutGrid, MapPin, Bell, LogOut, Truck, Bike, Settings } from 'lucide-react';
-import { HUB_LIST } from '@/constants/hubs';
-import { useAlerts } from '@/hooks/useAlerts';
+import {
+  LayoutGrid,
+  TrendingUp,
+  ShoppingCart,
+  ArrowLeftRight,
+  Bell,
+  LogOut,
+  Settings,
+} from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
-import type { Hub } from '@/types';
+
+// Navigation for the Stock Planning & Logistics Platform. Sections map to the
+// engine surfaces: projection, procurement, transfers + system (alerts, admin).
 
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { total: alertCount } = useAlerts();
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === '/dashboard' : pathname.startsWith(href);
 
   return (
     <aside className="flex h-full w-60 flex-shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
-      {/* Wordmark */}
       <div className="px-5 pt-5 pb-4">
         <div className="flex items-baseline">
           <span className="text-[1.15rem] font-black uppercase tracking-[-0.03em] text-sidebar-foreground">
@@ -31,52 +37,40 @@ export function Sidebar() {
           </span>
         </div>
         <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-sidebar-foreground/35">
-          Gestão de Estoque
+          Planejamento de Estoque
         </p>
       </div>
 
       <div className="mx-4 h-px bg-sidebar-border" />
 
-      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
         <NavSection label="Geral">
-          <NavLink
-            href="/dashboard"
-            label="Visão Geral"
-            icon={LayoutGrid}
-            active={isActive('/dashboard')}
-          />
-        </NavSection>
-
-        <NavSection label="Bases">
-          {HUB_LIST.map((hub) => (
-            <HubNavLink key={hub.id} hub={hub} active={isActive(`/dashboard/${hub.id}`)} />
-          ))}
+          <NavLink href="/dashboard" label="Visão Geral" icon={LayoutGrid} active={isActive('/dashboard')} />
         </NavSection>
 
         <NavSection label="Planejamento">
           <NavLink
-            href="/dashboard/pedidos"
-            label="Pedidos & Projeção"
-            icon={Truck}
-            active={isActive('/dashboard/pedidos')}
+            href="/dashboard/projection"
+            label="Projeção"
+            icon={TrendingUp}
+            active={isActive('/dashboard/projection')}
           />
           <NavLink
-            href="/dashboard/compatibilidade"
-            label="Compatibilidade"
-            icon={Bike}
-            active={isActive('/dashboard/compatibilidade')}
+            href="/dashboard/procurement"
+            label="Compras"
+            icon={ShoppingCart}
+            active={isActive('/dashboard/procurement')}
+          />
+          <NavLink
+            href="/dashboard/transfers"
+            label="Transferências"
+            icon={ArrowLeftRight}
+            active={isActive('/dashboard/transfers')}
           />
         </NavSection>
 
         <NavSection label="Sistema">
-          <NavLink
-            href="/dashboard/alertas"
-            label="Alertas"
-            icon={Bell}
-            active={isActive('/dashboard/alertas')}
-            badge={alertCount > 0 ? alertCount : undefined}
-          />
+          <NavLink href="/dashboard/alertas" label="Alertas" icon={Bell} active={isActive('/dashboard/alertas')} />
           {session?.user?.isHead && (
             <NavLink
               href="/dashboard/admin"
@@ -88,7 +82,6 @@ export function Sidebar() {
         </NavSection>
       </nav>
 
-      {/* Footer */}
       <div className="border-t border-sidebar-border px-3 py-3 space-y-1">
         <ThemeToggle />
         {session?.user && (
@@ -134,15 +127,11 @@ function NavLink({
   label,
   icon: Icon,
   active,
-  badge,
-  tag,
 }: {
   href: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   active: boolean;
-  badge?: number;
-  tag?: string;
 }) {
   return (
     <Link
@@ -158,59 +147,10 @@ function NavLink({
         size={14}
         className={cn(
           'shrink-0',
-          active
-            ? 'text-brand-500'
-            : 'text-sidebar-foreground/35 group-hover:text-sidebar-foreground/60',
+          active ? 'text-brand-500' : 'text-sidebar-foreground/35 group-hover:text-sidebar-foreground/60',
         )}
       />
       <span className="flex-1 truncate">{label}</span>
-      {tag && (
-        <span className="rounded px-1 text-[9px] font-bold uppercase tracking-wide bg-sidebar-foreground/8 text-sidebar-foreground/35">
-          {tag}
-        </span>
-      )}
-      {badge !== undefined && (
-        <span
-          className={cn(
-            'inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold',
-            active
-              ? 'bg-brand-500/20 text-brand-300'
-              : 'bg-alert-error/20 text-alert-error',
-          )}
-        >
-          {badge}
-        </span>
-      )}
-    </Link>
-  );
-}
-
-function HubNavLink({ hub, active }: { hub: Hub; active: boolean }) {
-  return (
-    <Link
-      href={`/dashboard/${hub.id}`}
-      className={cn(
-        'group flex items-center gap-2.5 rounded-md px-2 py-[7px] text-sm font-medium transition-colors',
-        active
-          ? 'bg-brand-500/10 text-brand-400'
-          : 'text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-      )}
-    >
-      <MapPin
-        size={14}
-        className={cn(
-          'shrink-0',
-          active
-            ? 'text-brand-500'
-            : 'text-sidebar-foreground/35 group-hover:text-sidebar-foreground/60',
-        )}
-      />
-      <span className="flex-1 truncate">{hub.name}</span>
-      {hub.isRecoveryCenter && (
-        <span className="rounded px-1 text-[9px] font-bold uppercase tracking-wide text-sidebar-foreground/30">
-          RC
-        </span>
-      )}
     </Link>
   );
 }

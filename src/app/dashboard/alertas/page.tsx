@@ -1,311 +1,105 @@
-'use client';
+import Link from 'next/link';
+import { loadPlanningInputs } from '@/lib/planning/load';
+import { EmptyState, FreshnessBanner, KpiCard, PageHeader, SeverityPill } from '@/components/planning/ui';
+import { fmtInt } from '@/lib/planning/format';
+import type { AlertCode, PlanningAlert } from '@/types/planning';
 
-import { useState, useMemo } from 'react';
-import {
-  AlertTriangle,
-  AlertCircle,
-  XCircle,
-  TrendingUp,
-  ChevronRight,
-} from 'lucide-react';
-import { useAlerts } from '@/hooks/useAlerts';
-import { HUBS } from '@/constants/hubs';
-import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
-import type { Alert, HubId } from '@/types';
+export const dynamic = 'force-dynamic';
 
-function hubNames(hubs: HubId[]): string {
-  return hubs.map((h) => HUBS[h]?.name ?? h).join(', ');
-}
+const CODE_LABEL: Record<AlertCode, string> = {
+  STK_RUPTURE: 'Ruptura prevista',
+  STK_BELOW_ROP: 'Abaixo do ponto de recompra',
+  STK_BELOW_SS: 'Abaixo do estoque de segurança',
+  DEM_TREND_UP: 'Demanda em alta',
+  DEM_VARIABILITY: 'Demanda volátil',
+  STK_OBSOLETE: 'Possível obsolescência',
+};
 
-// ── Generic collapsible section (Tipos 1–3) ──────────────────────────────
-function AlertSection({
-  title,
-  description,
-  icon,
-  accent,
-  alerts,
-  render,
-}: {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  accent: string;
-  alerts: Alert[];
-  render: (a: Alert) => React.ReactNode;
-}) {
-  const [open, setOpen] = useState(true);
+const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 } as const;
 
-  return (
-    <section className="rounded-lg border bg-card">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-      >
-        <ChevronRight
-          className={cn(
-            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-90',
-          )}
-        />
-        {icon}
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <span
-          className={`ml-auto inline-flex min-w-6 items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${accent}`}
-        >
-          {alerts.length}
-        </span>
-      </button>
-
-      {open && (
-        <div className="border-t">
-          <p className="px-4 pt-3 text-xs text-muted-foreground">{description}</p>
-          <div className="p-4 pt-2">
-            {alerts.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                Nenhum alerta neste tipo. ✓
-              </p>
-            ) : (
-              <ul className="divide-y">{alerts.map(render)}</ul>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
+export default async function AlertsPage() {
+  const inputs = await loadPlanningInputs();
+  const alerts = [...inputs.alerts].sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
   );
-}
 
-// ── Tipo 4: grouped by item + hub ─────────────────────────────────────────
-interface SpikeGroup {
-  key: string; // `${skuId}|${hub}`
-  skuId: string;
-  skuName: string;
-  hub: HubId;
-  days: Alert[]; // all qualifying days for this item+hub (already sorted)
-}
-
-function SpikeItemGroup({ group }: { group: SpikeGroup }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <li>
-      {/* Group header — click to expand days */}
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 py-2 text-left transition-colors hover:bg-muted/30"
-      >
-        <ChevronRight
-          className={cn(
-            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-90',
-          )}
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{group.skuName}</p>
-          <p className="text-xs text-muted-foreground">{hubNames([group.hub])}</p>
-        </div>
-        <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-          {group.days.length} dia{group.days.length !== 1 ? 's' : ''}
-        </span>
-      </button>
-
-      {/* Expanded day list */}
-      {open && (
-        <ul className="mb-2 ml-5 space-y-0.5 border-l border-purple-200 pl-3 dark:border-purple-800">
-          {group.days.map((a) => (
-            <li
-              key={`${a.skuId}-${a.hubs[0]}-${a.daySort}`}
-              className="flex items-center justify-between gap-2 py-1.5"
-            >
-              <div className="min-w-0">
-                <p className="text-xs font-medium">{a.dayLabel}</p>
-                <p className="text-xs text-muted-foreground">
-                  {a.dayQty} un no dia · estoque {a.currentStock} · média{' '}
-                  {a.monthlyConsumption}/mês
-                </p>
-              </div>
-              <span className="ml-2 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-                {a.avg ? `${((a.dayQty ?? 0) / a.avg).toFixed(1)}×` : '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </li>
-  );
-}
-
-function SpikeSection({ alerts }: { alerts: Alert[] }) {
-  const [open, setOpen] = useState(true);
-
-  // Group by skuId+hub — preserves the sort order already applied by useAlerts
-  const groups = useMemo<SpikeGroup[]>(() => {
-    const map = new Map<string, SpikeGroup>();
-    for (const a of alerts) {
-      const hub = a.hubs[0];
-      const key = `${a.skuId}|${hub}`;
-      if (!map.has(key)) {
-        map.set(key, { key, skuId: a.skuId, skuName: a.skuName, hub, days: [] });
-      }
-      map.get(key)!.days.push(a);
-    }
-    return [...map.values()];
-  }, [alerts]);
-
-  return (
-    <section className="rounded-lg border bg-card">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-      >
-        <ChevronRight
-          className={cn(
-            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-90',
-          )}
-        />
-        <TrendingUp className="h-4 w-4 text-purple-500" />
-        <h2 className="text-sm font-semibold">Tipo 4 · Pico de consumo no dia</h2>
-        {/* Badge shows number of unique items, not total days */}
-        <span className="ml-auto inline-flex min-w-6 items-center justify-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
-          {groups.length}
-        </span>
-      </button>
-
-      {open && (
-        <div className="border-t">
-          <p className="px-4 pt-3 text-xs text-muted-foreground">
-            Itens com dias em que o consumo superou 2× a média diária (L30D) e teve ao menos 5
-            unidades. Clique em cada item para ver os dias de pico.
-          </p>
-          <div className="p-4 pt-2">
-            {groups.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                Nenhum alerta neste tipo. ✓
-              </p>
-            ) : (
-              <ul className="divide-y">
-                {groups.map((group) => (
-                  <SpikeItemGroup key={group.key} group={group} />
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────
-export default function AlertasPage() {
-  const { byType, total, isLoading, isError } = useAlerts();
-
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold tracking-tight">Alertas</h1>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-40 w-full rounded-lg" />
-        ))}
-      </div>
-    );
+  const byCode = new Map<AlertCode, PlanningAlert[]>();
+  for (const a of alerts) {
+    const list = byCode.get(a.code);
+    if (list) list.push(a);
+    else byCode.set(a.code, [a]);
   }
-
-  if (isError) {
-    return (
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Alertas</h1>
-        <p className="mt-2 text-sm text-destructive">
-          Erro ao carregar dados de estoque.
-        </p>
-      </div>
-    );
-  }
+  const critical = alerts.filter((a) => a.severity === 'critical').length;
+  const warning = alerts.filter((a) => a.severity === 'warning').length;
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Alertas</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {total === 0
-            ? 'Nenhum alerta ativo. Tudo sob controle.'
-            : `${total} alerta${total > 1 ? 's' : ''} ativo${total > 1 ? 's' : ''} (respeitando seu filtro global).`}
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Sistema"
+        title="Alertas"
+        subtitle="Cobertura e demanda do pipeline S&OP (dev.sop_alerts), por código de alerta"
+      />
+      <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Tipo 1 — DOH < 3 */}
-        <AlertSection
-          title="Tipo 1 · DOH crítico (< 3 dias)"
-          description="SKUs cuja cobertura de estoque é menor que 3 dias em algum centro."
-          icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
-          accent="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300"
-          alerts={byType.doh_critical}
-          render={(a) => (
-            <li key={a.skuId} className="flex items-center justify-between py-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{a.skuName}</p>
-                <p className="text-xs text-muted-foreground">{hubNames(a.hubs)}</p>
+      {alerts.length === 0 ? (
+        <EmptyState title="Nenhum alerta" hint="Sem alertas no último ciclo do S&OP (ou fonte não configurada)." />
+      ) : (
+        <>
+          <div className="mb-5 grid grid-cols-3 gap-3">
+            <KpiCard label="Total" value={fmtInt(alerts.length)} />
+            <KpiCard label="Críticos" value={fmtInt(critical)} tone="danger" />
+            <KpiCard label="Atenção" value={fmtInt(warning)} tone="warning" />
+          </div>
+
+          <div className="space-y-6">
+            {[...byCode.entries()].map(([code, list]) => (
+              <div key={code}>
+                <div className="mb-2 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold">{CODE_LABEL[code]}</h2>
+                  <span className="text-xs text-muted-foreground">({list.length})</span>
+                </div>
+                <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">SKU</th>
+                        <th className="px-3 py-2 font-medium">Severidade</th>
+                        <th className="px-3 py-2 font-medium">Motivo</th>
+                        <th className="px-3 py-2 text-right font-medium">Cobertura</th>
+                        <th className="px-3 py-2 text-right font-medium">Estoque</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-foreground/5">
+                      {list.slice(0, 50).map((a, i) => (
+                        <tr key={`${a.skuBase}-${i}`} className="align-top hover:bg-muted/40">
+                          <td className="px-3 py-2">
+                            <Link
+                              href={`/dashboard/sku/${encodeURIComponent(a.skuBase)}`}
+                              className="font-medium text-foreground hover:text-brand-600"
+                            >
+                              {a.skuName}
+                            </Link>
+                            <div className="text-[11px] text-muted-foreground">{a.skuBase}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <SeverityPill severity={a.severity} />
+                          </td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">{a.reason}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {a.metrics.cover != null ? `${fmtInt(a.metrics.cover)}d` : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {a.metrics.OH != null ? fmtInt(a.metrics.OH) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <span className="ml-2 shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-300">
-                {a.doh}d
-              </span>
-            </li>
-          )}
-        />
-
-        {/* Tipo 2 — hub stock = 0 */}
-        <AlertSection
-          title="Tipo 2 · Centro zerado"
-          description="SKUs com estoque igual a 0 em pelo menos um centro."
-          icon={<AlertCircle className="h-4 w-4 text-amber-500" />}
-          accent="bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-          alerts={byType.hub_zero}
-          render={(a) => (
-            <li key={a.skuId} className="flex items-center justify-between py-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{a.skuName}</p>
-                <p className="text-xs text-muted-foreground">
-                  Zerado em: {hubNames(a.hubs)}
-                </p>
-              </div>
-              <span className="ml-2 shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                {a.hubs.length}/3
-              </span>
-            </li>
-          )}
-        />
-
-        {/* Tipo 3 — total stock = 0 */}
-        <AlertSection
-          title="Tipo 3 · Estoque total zerado"
-          description="SKUs sem nenhuma unidade em estoque em qualquer centro."
-          icon={<XCircle className="h-4 w-4 text-rose-600" />}
-          accent="bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300"
-          alerts={byType.total_zero}
-          render={(a) => (
-            <li key={a.skuId} className="flex items-center justify-between py-2">
-              <p className="truncate text-sm font-medium">{a.skuName}</p>
-              <span className="ml-2 shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
-                0 un
-              </span>
-            </li>
-          )}
-        />
-
-        {/* Tipo 4 — high-consumption days, grouped by item+hub */}
-        <SpikeSection alerts={byType.consumption_spike} />
-      </div>
-
-      {byType.total_zero.length === 0 && (
-        <p className="mt-4 text-xs text-muted-foreground">
-          Nota: o Tipo 3 depende de incluir SKUs com estoque total zerado na
-          questão Metabase #29571 (hoje ela filtra <code>qty_total &gt; 0</code>).
-        </p>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

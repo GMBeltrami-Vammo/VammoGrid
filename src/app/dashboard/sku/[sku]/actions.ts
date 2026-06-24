@@ -7,7 +7,7 @@ export async function updateRecoveryPolicy(
   skuBase: string,
   params: { recoveryRate: number; recoveryTurnaroundDays: number; isRepairable: boolean },
 ) {
-  await requireHead();
+  const email = await requireHead();
   const supabase = createServiceSupabase();
 
   // Update only recovery fields; leave lead_time, abc_class, etc. untouched.
@@ -21,6 +21,7 @@ export async function updateRecoveryPolicy(
         recovery_rate: params.recoveryRate,
         recovery_turnaround_days: params.recoveryTurnaroundDays,
         is_repairable: params.isRepairable,
+        updated_by: email,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'sku_base' },

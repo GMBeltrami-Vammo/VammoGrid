@@ -72,6 +72,7 @@ export default async function EstoquePage({
           policy={policy}
           shares={shares}
           today={inputs.today}
+          historicalRate={inputs.recoveryRates.get(selected) ?? null}
         />
       </div>
     </div>

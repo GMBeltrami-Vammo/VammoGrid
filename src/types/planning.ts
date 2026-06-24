@@ -12,6 +12,17 @@
 /** The three physical hubs. Osasco is the central distribution + recovery hub. */
 export type HubId = 'osasco' | 'mooca' | 'sbc';
 
+/** Observed recovery metrics derived from the IMS ledger (RECONDITION vs USAGE events). */
+export interface HistoricalRecovery {
+  /** recovered / consumed over the lookback window (0–1+). */
+  rate: number;
+  /** Total units with ledger_type = RECONDITION in the window. */
+  recovered: number;
+  /** Total units with ledger_type LIKE USAGE% in the window. */
+  consumed: number;
+  lookbackDays: number;
+}
+
 export interface Hub {
   id: HubId;
   name: string;

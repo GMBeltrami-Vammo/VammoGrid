@@ -175,6 +175,7 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
             policy={policy}
             shares={shares}
             today={inputs.today}
+            historicalRate={inputs.recoveryRates.get(skuBase) ?? null}
           />
           <div className="mt-3 grid grid-cols-2 gap-3">
             <KpiCard label="Consumo diário (global)" value={fmtNum(projections.global.dailyDemand)} hint="un/dia" />

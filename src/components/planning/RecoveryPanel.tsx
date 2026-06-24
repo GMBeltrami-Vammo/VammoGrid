@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import dynamic from 'next/dynamic';
-import type { HubId, OpenPurchaseOrder, SkuForecast, SkuPolicy, StockState } from '@/types/planning';
+import type { HistoricalRecovery, HubId, OpenPurchaseOrder, SkuForecast, SkuPolicy, StockState } from '@/types/planning';
 import { projectSku } from '@/lib/planning/projection';
 import { fmtInt, fmtNum } from '@/lib/planning/format';
 import { updateRecoveryPolicy } from '@/app/dashboard/sku/[sku]/actions';
@@ -28,6 +28,7 @@ export function RecoveryPanel({
   policy,
   shares,
   today,
+  historicalRate,
 }: {
   skuBase: string;
   stock: StockState;
@@ -36,12 +37,14 @@ export function RecoveryPanel({
   policy: SkuPolicy;
   shares: Record<HubId, number>;
   today: string;
+  historicalRate?: HistoricalRecovery | null;
 }) {
   // Editable policy state (matches current saved values on mount)
   const [rate, setRate] = useState(Math.round(policy.recoveryRate * 100));
   const [turnaround, setTurnaround] = useState(policy.recoveryTurnaroundDays);
   const [isRepairable, setIsRepairable] = useState(stock.isRepairable);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   // Simulator state (independent from the saved values above)
@@ -85,6 +88,7 @@ export function RecoveryPanel({
 
   function handleSave() {
     setSaveStatus('saving');
+    setSaveError(null);
     startTransition(async () => {
       try {
         await updateRecoveryPolicy(skuBase, {
@@ -94,8 +98,9 @@ export function RecoveryPanel({
         });
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 3000);
-      } catch {
+      } catch (e) {
         setSaveStatus('error');
+        setSaveError(e instanceof Error ? e.message : 'Erro desconhecido');
       }
     });
   }
@@ -164,7 +169,33 @@ export function RecoveryPanel({
             </button>
           </div>
         </div>
+        {saveStatus === 'error' && saveError && (
+          <p className="mt-2 rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">{saveError}</p>
+        )}
       </div>
+
+      {/* Historical rate from IMS ledger */}
+      {historicalRate && (
+        <div className="rounded-lg bg-muted/30 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Taxa observada ({historicalRate.lookbackDays}d — IMS)
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-[10px] text-muted-foreground">Taxa real</p>
+              <p className="mt-0.5 text-base font-bold tabular-nums">{Math.round(historicalRate.rate * 100)}%</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground">Recondicionados</p>
+              <p className="mt-0.5 text-base font-bold tabular-nums">{fmtInt(historicalRate.recovered)} un</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-muted-foreground">Consumidos</p>
+              <p className="mt-0.5 text-base font-bold tabular-nums">{fmtInt(historicalRate.consumed)} un</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Recovery impact metrics from current projection */}
       {policy.isRepairable && (

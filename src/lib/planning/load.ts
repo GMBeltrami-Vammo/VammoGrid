@@ -2,6 +2,7 @@ import 'server-only';
 import { cache } from 'react';
 import { cookies } from 'next/headers';
 import type {
+  HistoricalRecovery,
   HubId,
   OpenPurchaseOrder,
   PlanningAlert,
@@ -22,6 +23,7 @@ import { fetchSopAlerts } from './source/alerts';
 import { fetchForecasts } from './source/forecast';
 import { fetchOpenOrders, ordersBySkuBase } from './source/orders';
 import { fetchSkuPolicies } from './source/policies';
+import { fetchRecoveryRates } from './source/recovery';
 import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
@@ -59,6 +61,8 @@ export interface PlanningInputs {
   alerts: PlanningAlert[];
   filter: PlanningFilter;
   scenario: PlanningScenario;
+  /** Observed recovery rates from the IMS ledger (last 90 days). Empty when CH unavailable. */
+  recoveryRates: Map<string, HistoricalRecovery>;
 }
 
 function emptyInputs(today: string): PlanningInputs {
@@ -75,6 +79,7 @@ function emptyInputs(today: string): PlanningInputs {
     alerts: [],
     filter: EMPTY_FILTER,
     scenario: EMPTY_SCENARIO,
+    recoveryRates: new Map(),
   };
 }
 
@@ -89,7 +94,7 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
   // instead of throwing (keeps the app building + usable before secrets are set).
   if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter, scenario };
 
-  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides] =
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates] =
     await Promise.all([
       fetchStockStates(nowIso),
       fetchForecasts(),
@@ -98,6 +103,7 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
       fetchSopAlerts(),
       fetchCompatModels(),
       fetchSkuPolicies(),
+      fetchRecoveryRates(),
     ]);
 
   // Apply the app-wide filter once, here, so every downstream surface (dashboard,
@@ -131,6 +137,7 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
     alerts,
     filter,
     scenario,
+    recoveryRates,
   };
 });
 

@@ -172,8 +172,8 @@ export default async function ExecutiveDashboard() {
             <div>
               <div className="mb-3 flex items-center justify-between">
                 <SectionTitle>Próximas rupturas (≤30d)</SectionTitle>
-                <Link href="/dashboard/projection" className="text-xs text-brand-600 hover:underline">
-                  projeção →
+                <Link href="/dashboard/estoque" className="text-xs text-brand-600 hover:underline">
+                  estoque →
                 </Link>
               </div>
               <RiskTable rows={stockouts.slice(0, 8)} today={snap.today} skuHref={skuHref} kind="stockout" />

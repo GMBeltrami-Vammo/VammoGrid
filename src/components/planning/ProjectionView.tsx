@@ -22,6 +22,9 @@ export function ProjectionView({
   selected,
   projections,
   history,
+  scope: controlledScope,
+  onScopeChange,
+  hideControls,
 }: {
   options: { skuBase: string; skuName: string }[];
   selected: string;
@@ -30,9 +33,14 @@ export function ProjectionView({
     global: { date: string; stock: number }[];
     byHub: Record<HubId, { date: string; stock: number }[]>;
   };
+  scope?: Scope;
+  onScopeChange?: (s: Scope) => void;
+  hideControls?: boolean;
 }) {
   const router = useRouter();
-  const [scope, setScope] = useState<Scope>('global');
+  const [localScope, setLocalScope] = useState<Scope>('global');
+  const scope = controlledScope ?? localScope;
+  const setScope = onScopeChange ?? setLocalScope;
 
   const proj = projections
     ? scope === 'global'
@@ -55,35 +63,37 @@ export function ProjectionView({
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <select
-          value={selected}
-          onChange={(e) =>
-            router.push(`/dashboard/projection?sku=${encodeURIComponent(e.target.value)}`)
-          }
-          className="h-9 max-w-md flex-1 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500"
-        >
-          {options.map((o) => (
-            <option key={o.skuBase} value={o.skuBase}>
-              {o.skuName} ({o.skuBase})
-            </option>
-          ))}
-        </select>
-        <div className="flex gap-1">
-          {scopes.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => setScope(s.key)}
-              className={cn(
-                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                scope === s.key ? 'bg-brand-500/15 text-brand-600' : 'text-muted-foreground hover:bg-muted',
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
+      {!hideControls && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <select
+            value={selected}
+            onChange={(e) =>
+              router.push(`/dashboard/estoque?sku=${encodeURIComponent(e.target.value)}`)
+            }
+            className="h-9 max-w-md flex-1 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500"
+          >
+            {options.map((o) => (
+              <option key={o.skuBase} value={o.skuBase}>
+                {o.skuName} ({o.skuBase})
+              </option>
+            ))}
+          </select>
+          <div className="flex gap-1">
+            {scopes.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setScope(s.key)}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                  scope === s.key ? 'bg-brand-500/15 text-brand-600' : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {proj ? (
         <>

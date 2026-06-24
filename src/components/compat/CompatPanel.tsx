@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState, useTransition } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { Plus, Pencil, Trash2, Check, X, Minus } from 'lucide-react';
+import { toSkuBase } from '@/lib/planning/sku';
 import {
   Table,
   TableBody,
@@ -201,7 +203,14 @@ export function CompatPanel() {
           <TableBody>
             {filtered.map((c) => (
               <TableRow key={c.sku}>
-                <TableCell className="font-mono text-xs">{c.sku}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <Link
+                    href={`/dashboard/sku/${encodeURIComponent(toSkuBase(c.sku))}`}
+                    className="text-foreground hover:text-brand-500 transition-colors"
+                  >
+                    {c.sku}
+                  </Link>
+                </TableCell>
                 <TableCell className="max-w-[200px] truncate text-muted-foreground">
                   {c.description ?? '—'}
                 </TableCell>

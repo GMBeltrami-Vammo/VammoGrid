@@ -1,0 +1,56 @@
+import { loadPlanningInputs, projectOne } from '@/lib/planning/load';
+import { fetchStockHistory } from '@/lib/planning/source/history';
+import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
+import { EstoqueView } from '@/components/planning/EstoqueView';
+
+export const dynamic = 'force-dynamic';
+
+export default async function EstoquePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sku?: string }>;
+}) {
+  const sp = await searchParams;
+  const inputs = await loadPlanningInputs();
+
+  if (inputs.stocks.length === 0) {
+    return (
+      <div>
+        <PageHeader eyebrow="Estoque" title="Estoque" />
+        <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
+        <EmptyState title="Sem dados" hint="Configure a fonte de dados para visualizar o estoque." />
+      </div>
+    );
+  }
+
+  const options = inputs.stocks
+    .map((s) => ({ skuBase: s.skuBase, skuName: s.skuName }))
+    .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
+
+  const selected =
+    sp.sku && inputs.stocks.some((s) => s.skuBase === sp.sku) ? sp.sku : options[0].skuBase;
+
+  const selStock = inputs.stocks.find((s) => s.skuBase === selected);
+
+  const [projections, history] = await Promise.all([
+    projectOne(selected),
+    fetchStockHistory(selStock?.skuName ?? ''),
+  ]);
+
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Estoque"
+        title="Estoque"
+        subtitle="Janela D-30→D+30 e horizonte D0→D+150 — histórico real, projeção e banda lo–hi por SKU e hub"
+      />
+      <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
+      <EstoqueView
+        options={options}
+        selected={selected}
+        projections={projections}
+        history={history}
+      />
+    </div>
+  );
+}

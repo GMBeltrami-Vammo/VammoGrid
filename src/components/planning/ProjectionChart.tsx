@@ -85,7 +85,7 @@ export function ProjectionChart({
             dataKey="band"
             stroke="none"
             fill="var(--color-brand-500)"
-            fillOpacity={0.12}
+            fillOpacity={0.18}
             isAnimationActive={false}
           />
           <Line

@@ -26,11 +26,18 @@ const SCOPES: { id: Scope; label: string }[] = [
 export function StockWindowChart({
   history,
   projections,
+  scope: controlledScope,
+  onScopeChange,
 }: {
   history: StockHistory;
   projections: SkuProjections;
+  scope?: Scope;
+  onScopeChange?: (s: Scope) => void;
 }) {
-  const [scope, setScope] = useState<Scope>('global');
+  const [localScope, setLocalScope] = useState<Scope>('global');
+  const scope = controlledScope ?? localScope;
+  const setScope = onScopeChange ?? setLocalScope;
+  const isControlled = controlledScope !== undefined;
 
   const proj = scope === 'global' ? projections.global : projections.byHub[scope as HubId];
   const hist = scope === 'global' ? history.global : (history.byHub[scope as HubId] ?? []);
@@ -44,22 +51,24 @@ export function StockWindowChart({
         <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Janela D-30 → D+30
         </p>
-        <div className="flex gap-1">
-          {SCOPES.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setScope(s.id)}
-              className={cn(
-                'rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                scope === s.id
-                  ? 'bg-brand-500/20 text-brand-600'
-                  : 'text-muted-foreground hover:bg-muted/60',
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        {!isControlled && (
+          <div className="flex gap-1">
+            {SCOPES.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setScope(s.id)}
+                className={cn(
+                  'rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                  scope === s.id
+                    ? 'bg-brand-500/20 text-brand-600'
+                    : 'text-muted-foreground hover:bg-muted/60',
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <ProjectionChart

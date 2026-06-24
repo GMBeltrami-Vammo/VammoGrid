@@ -13,6 +13,7 @@ import {
   Bell,
   LogOut,
   Settings,
+  Package,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
@@ -52,10 +53,16 @@ export function Sidebar() {
 
         <NavSection label="Planejamento">
           <NavLink
-            href="/dashboard/projection"
-            label="Projeção"
+            href="/dashboard/estoque"
+            label="Estoque"
             icon={TrendingUp}
-            active={isActive('/dashboard/projection')}
+            active={isActive('/dashboard/estoque')}
+          />
+          <NavLink
+            href="/dashboard/skus"
+            label="SKUs"
+            icon={Package}
+            active={isActive('/dashboard/skus')}
           />
           <NavLink
             href="/dashboard/procurement"

@@ -19,6 +19,7 @@ import {
 } from '@/components/planning/ui';
 import { SkuSimulator } from '@/components/planning/SkuSimulator';
 import { SkuFilterToggle } from '@/components/planning/SkuFilterToggle';
+import { SafetyStockPanel } from '@/components/planning/SafetyStockPanel';
 import { StockWindowChart } from '@/components/planning/StockWindowChart';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 
@@ -123,6 +124,19 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
             value={purchase.estCost != null && purchase.orderQty > 0 ? fmtBRL(purchase.estCost) : '—'}
           />
         </div>
+      </div>
+
+      {/* Safety stock (global) — editable, feeds the purchase suggestion */}
+      <SectionTitle>Estoque de segurança (global)</SectionTitle>
+      <div className="mb-6">
+        <SafetyStockPanel
+          skuBase={skuBase}
+          abcClass={policy.abcClass}
+          sigmaL={purchase.sigmaL}
+          safetyOverride={policy.safetyOverride}
+          expectedLeadTimeDemand={purchase.expectedLeadTimeDemand}
+          rop={purchase.rop}
+        />
       </div>
 
       {/* Simulator */}

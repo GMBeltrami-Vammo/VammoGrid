@@ -225,6 +225,9 @@ export interface PurchaseSuggestion {
   leadTimeDays: number;
   /** Expected demand during the lead time (Σ yhat over L). */
   expectedLeadTimeDemand: number;
+  /** σ over the lead time, from the forecast band: (cum_hi[L] − cum_yhat[L]) / 1.28. */
+  sigmaL: number;
+  /** Effective safety stock (manual override, or ABC_Z[class] × σ_L). */
   safetyStock: number;
   /** Reorder point = expectedLeadTimeDemand + safetyStock. */
   rop: number;

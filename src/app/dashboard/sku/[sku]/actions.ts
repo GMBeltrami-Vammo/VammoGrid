@@ -38,3 +38,33 @@ export async function updateRecoveryPolicy(
     return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
   }
 }
+
+// Per-SKU safety-stock override (global). null clears the override → engine falls
+// back to the computed ABC_Z[class] × σ_L. Feeds ROP = demanda no lead + safety.
+export async function updateSafetyStock(
+  skuBase: string,
+  safetyOverride: number | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const email = await requireHead();
+    const supabase = createServiceSupabase();
+
+    const { error } = await supabase
+      .schema('fleet')
+      .from('sku_policy')
+      .upsert(
+        {
+          sku_base: skuBase,
+          safety_override: safetyOverride,
+          updated_by: email,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'sku_base' },
+      );
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}

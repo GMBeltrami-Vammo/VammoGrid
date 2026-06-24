@@ -124,6 +124,7 @@ export function purchaseForSku({
     onHand,
     leadTimeDays: L,
     expectedLeadTimeDemand: round1(expectedLeadTimeDemand),
+    sigmaL: round1(sigmaL),
     safetyStock: round1(safety),
     rop: round1(rop),
     orderUpTo: round1(orderUpTo),

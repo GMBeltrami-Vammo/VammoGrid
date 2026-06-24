@@ -101,6 +101,26 @@ export function ProjectionView({
               hint={proj.incomingUnits > 0 ? `${fmtInt(proj.incomingUnits)} un. a chegar` : undefined}
             />
           </div>
+          <div className="mb-4 grid grid-cols-4 gap-3">
+            {[30, 60, 90, 150].map((d) => {
+              const pt = proj.timeline[d];
+              return (
+                <div key={d} className="rounded-lg bg-muted/40 p-2 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Em {d} dias
+                  </p>
+                  <p
+                    className={cn(
+                      'text-sm font-bold tabular-nums',
+                      pt && pt.stock === 0 ? 'text-alert-error' : 'text-foreground',
+                    )}
+                  >
+                    {pt ? fmtInt(pt.stock) : '—'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
           <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
             <ProjectionChart
               timeline={proj.timeline}

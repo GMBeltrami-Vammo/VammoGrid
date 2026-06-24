@@ -158,8 +158,8 @@ export function ProjectionView({
               {showRecoveryOverlay
                 ? 'Linha sólida = com recuperação (recondicionados entram em Osasco/global). Tracejada cinza = sem recuperação. '
                 : ''}
-              Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
-              horizonte do modelo.
+              Ponto verde = chegada de pedido (+qtd). Faixa sombreada = banda lo–hi da previsão.
+              Sombreamento após ~90d é extrapolado além do horizonte do modelo.
             </p>
           </div>
         </>

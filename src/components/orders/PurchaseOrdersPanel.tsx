@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
+import { toSkuBase } from '@/lib/planning/sku';
 import {
   Table,
   TableBody,
@@ -203,7 +205,14 @@ export function PurchaseOrdersPanel() {
               ) : (
                 <TableRow key={o.id}>
                   <TableCell className="font-medium">{o.vo ?? '—'}</TableCell>
-                  <TableCell className="font-mono text-xs">{o.sku}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    <Link
+                      href={`/dashboard/sku/${encodeURIComponent(toSkuBase(o.sku))}`}
+                      className="text-brand-500 transition-colors hover:text-brand-400 hover:underline"
+                    >
+                      {o.sku}
+                    </Link>
+                  </TableCell>
                   <TableCell className="max-w-[200px] truncate text-muted-foreground">
                     {o.skuName ?? '—'}
                   </TableCell>

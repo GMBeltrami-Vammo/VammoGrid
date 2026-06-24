@@ -93,7 +93,7 @@ export function StockWindowChart({
         height={240}
       />
       <p className="mt-1.5 text-[10px] text-muted-foreground">
-        Histórico real (esquerda de &quot;hoje&quot;) · Projeção com banda lo–hi (direita)
+        Histórico real (esquerda de &quot;hoje&quot;) · Projeção com banda lo–hi (direita) · ponto verde = chegada de pedido
         {showRecoveryOverlay ? ' · tracejada cinza = sem recuperação' : ''}
       </p>
     </div>

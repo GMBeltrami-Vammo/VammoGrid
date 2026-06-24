@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -48,6 +49,11 @@ export function ProjectionChart({
   }));
   const data = [...histData, ...projData];
   const todayMarker = timeline[0]?.date;
+
+  // Mark days where an open PO (pedido) arrives and bumps the stock up.
+  const inboundMarkers = timeline
+    .filter((p) => p.inbound > 0)
+    .map((p) => ({ date: p.date, stock: p.stock, qty: p.inbound }));
 
   return (
     <div style={{ width: '100%', height }}>
@@ -107,6 +113,25 @@ export function ProjectionChart({
               isAnimationActive={false}
             />
           )}
+          {/* Pedido arrivals: a dot on the stock line at each inbound bump, labeled +qty */}
+          {inboundMarkers.map((m) => (
+            <ReferenceDot
+              key={`in-${m.date}`}
+              x={m.date}
+              y={m.stock}
+              r={4}
+              fill="var(--color-alert-success)"
+              stroke="var(--color-card)"
+              strokeWidth={1.5}
+              ifOverflow="extendDomain"
+              label={{
+                value: `+${fmtInt(m.qty)}`,
+                position: 'top',
+                fontSize: 9,
+                fill: 'var(--color-alert-success)',
+              }}
+            />
+          ))}
           {history && history.length > 0 && todayMarker && (
             <ReferenceLine
               x={todayMarker}

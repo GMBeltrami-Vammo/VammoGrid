@@ -18,6 +18,7 @@ import {
   StatusPill,
 } from '@/components/planning/ui';
 import { SkuSimulator } from '@/components/planning/SkuSimulator';
+import { SkuFilterToggle } from '@/components/planning/SkuFilterToggle';
 import { StockWindowChart } from '@/components/planning/StockWindowChart';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 
@@ -65,10 +66,11 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
 
   return (
     <div>
-      <div className="mb-1">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <Link href="/dashboard/procurement" className="text-xs text-brand-600 hover:underline">
           ← Compras
         </Link>
+        <SkuFilterToggle skuBase={skuBase} filter={inputs.filter} />
       </div>
       <PageHeader
         eyebrow={`${skuBase} · classe ${policy.abcClass} · lead ${policy.leadTimeDays}d (${policy.leadTimeSource === 'national-file' ? 'nacional' : policy.leadTimeSource === 'manual' ? 'manual' : 'internacional'})`}

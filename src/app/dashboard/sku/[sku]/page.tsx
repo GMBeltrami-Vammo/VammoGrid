@@ -17,6 +17,8 @@ import {
   StatusPill,
 } from '@/components/planning/ui';
 import { SkuSimulator } from '@/components/planning/SkuSimulator';
+import { StockWindowChart } from '@/components/planning/StockWindowChart';
+import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +88,12 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
             tone={projections.byHub[h.id].stockoutDate ? 'danger' : 'default'}
           />
         ))}
+      </div>
+
+      {/* D-30→D+30 stock window */}
+      <SectionTitle>Janela de estoque (D-30 → D+30)</SectionTitle>
+      <div className="mb-6">
+        <StockWindowChart history={history} projections={projections} />
       </div>
 
       {/* Purchase recommendation */}
@@ -159,20 +167,15 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
 
         <div>
           <SectionTitle>Recuperação</SectionTitle>
-          <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-            {stock.isRepairable ? (
-              <div className="grid grid-cols-2 gap-3">
-                <Metric label="Taxa de recuperação" value={`${Math.round(policy.recoveryRate * 100)}%`} />
-                <Metric label="Turnaround" value={`${policy.recoveryTurnaroundDays}d`} />
-                <p className="col-span-2 text-xs text-muted-foreground">
-                  Peças consumidas retornam a Osasco como estoque recuperado após o turnaround,
-                  proporcional ao consumo previsto. Editável em Admin.
-                </p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Peça não recuperável — sem pipeline de recuperação.</p>
-            )}
-          </div>
+          <RecoveryPanel
+            skuBase={skuBase}
+            stock={stock}
+            forecast={forecast}
+            orders={orders}
+            policy={policy}
+            shares={shares}
+            today={inputs.today}
+          />
           <div className="mt-3 grid grid-cols-2 gap-3">
             <KpiCard label="Consumo diário (global)" value={fmtNum(projections.global.dailyDemand)} hint="un/dia" />
             <KpiCard

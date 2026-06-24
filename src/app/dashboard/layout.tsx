@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             shared cookie changes, so the bar reflects edits made from other controls
             (e.g. the category chips on the SKUs page). */}
         <FilterBar
-          key={`${filter.category ?? ''}|${filter.models.join(',')}|${filter.q}`}
+          key={`${filter.category ?? ''}|${filter.models.join(',')}|${filter.q}|${filter.withForecast}`}
           initial={filter}
         />
         <ScenarioBar initial={scenario} />

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Bike, X } from 'lucide-react';
+import { Search, Bike, X, TrendingUp } from 'lucide-react';
 import { MODEL_LABELS } from '@/constants/models';
 import { BIKE_MODELS } from '@/types';
 import { type PlanningFilter } from '@/lib/planning/filter';
@@ -26,12 +26,14 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
   const [models, setModels] = useState<string[]>(initial.models);
   const [open, setOpen] = useState(false);
 
+  const [withForecast, setWithForecast] = useState(initial.withForecast);
+
   // The hand-picked SKU selection is managed on the SKUs page; the bar preserves it
   // across category/model/search edits and offers a one-click clear.
   const skus = initial.skus;
 
-  function apply(next: Omit<PlanningFilter, 'skus'>) {
-    writeFilterCookie({ ...next, skus });
+  function apply(next: Pick<PlanningFilter, 'models' | 'category' | 'q'>, wf = withForecast) {
+    writeFilterCookie({ ...next, skus, withForecast: wf });
     router.refresh();
   }
   const setCat = (v: string | null) => {
@@ -43,20 +45,27 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
     setModels(next);
     apply({ models: next, category, q });
   };
+  const toggleWithForecast = () => {
+    const next = !withForecast;
+    setWithForecast(next);
+    apply({ models, category, q }, next);
+  };
   const clearAll = () => {
     setQ('');
     setCategory(null);
     setModels([]);
+    setWithForecast(false);
     // "Limpar filtro" clears everything, including the hand-picked selection.
-    writeFilterCookie({ models: [], category: null, q: '', skus: [] });
+    writeFilterCookie({ models: [], category: null, q: '', skus: [], withForecast: false });
     router.refresh();
   };
   const clearSelection = () => {
-    writeFilterCookie({ models, category, q, skus: [] });
+    writeFilterCookie({ models, category, q, skus: [], withForecast });
     router.refresh();
   };
 
-  const active = models.length > 0 || category != null || q.trim().length > 0 || skus.length > 0;
+  const active =
+    models.length > 0 || category != null || q.trim().length > 0 || skus.length > 0 || withForecast;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-card p-2 ring-1 ring-foreground/10">
@@ -123,6 +132,17 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
           </>
         )}
       </div>
+
+      <button
+        onClick={toggleWithForecast}
+        className={cn(
+          'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+          withForecast ? 'bg-brand-500/15 text-brand-600' : 'text-muted-foreground hover:bg-muted',
+        )}
+        title="Mostrar apenas SKUs com previsão de demanda (S&OP)"
+      >
+        <TrendingUp size={14} /> Com previsão
+      </button>
 
       {skus.length > 0 && (
         <span className="flex items-center gap-1.5 rounded-md bg-brand-500/15 px-2.5 py-1.5 text-xs font-medium text-brand-600">

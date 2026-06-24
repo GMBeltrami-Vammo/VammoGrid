@@ -112,7 +112,12 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
   // still list/show every SKU; all aggregate analyses respect the hand-picked set.
   const narrowFilter = ignoreSkuSelection ? { ...filter, skus: [] } : filter;
   const stocks = isFilterActive(narrowFilter)
-    ? allStocks.filter((s) => skuPasses(narrowFilter, s, compatModels))
+    ? allStocks.filter(
+        (s) =>
+          skuPasses(narrowFilter, s, compatModels) &&
+          // "Com previsão": only SKUs with a demand forecast (needs the forecast map).
+          (!narrowFilter.withForecast || forecastBundle.bySku.has(s.skuBase)),
+      )
     : allStocks;
 
   // Apply the what-if scenario (read-only): scale demand, delay open POs. Done here

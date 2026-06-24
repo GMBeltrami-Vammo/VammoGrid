@@ -259,6 +259,8 @@ export interface TransferSuggestion {
   needByDate: string | null;
   /** 0–1 confidence from forecast band width + data freshness. */
   confidence: number;
+  /** Transfer cycle: 1 = this week (Tuesday), 2 = next week. */
+  cycle: number;
   reason: string;
 }
 

@@ -11,10 +11,19 @@ export interface PlanningFilter {
   /** Hand-picked sku_bases (single-SKU focus set). Empty = no selection. When
    *  non-empty, only these SKUs pass — narrows every aggregate analysis. */
   skus: string[];
+  /** Show only SKUs that have a demand forecast (dev.sop_predictions_daily).
+   *  Applied in loadPlanningInputs (needs the forecast map), not in skuPasses. */
+  withForecast: boolean;
 }
 
 export const FILTER_COOKIE = 'vg:filter';
-export const EMPTY_FILTER: PlanningFilter = { models: [], category: null, q: '', skus: [] };
+export const EMPTY_FILTER: PlanningFilter = {
+  models: [],
+  category: null,
+  q: '',
+  skus: [],
+  withForecast: false,
+};
 
 /** Cap on the hand-picked set, to keep the cookie well under the ~4KB limit
  *  (a 15-char sku_base encodes to ~24 bytes in the cookie → 100 ≈ 2.4KB). */
@@ -35,6 +44,7 @@ export function parseFilterCookie(raw: string | undefined): PlanningFilter {
       category: o.category ? String(o.category) : null,
       q: typeof o.q === 'string' ? o.q : '',
       skus: Array.isArray(o.skus) ? o.skus.map(String) : [],
+      withForecast: o.withForecast === true,
     };
   } catch {
     return EMPTY_FILTER;
@@ -43,7 +53,11 @@ export function parseFilterCookie(raw: string | undefined): PlanningFilter {
 
 export function isFilterActive(f: PlanningFilter): boolean {
   return (
-    f.models.length > 0 || f.category != null || f.q.trim().length > 0 || f.skus.length > 0
+    f.models.length > 0 ||
+    f.category != null ||
+    f.q.trim().length > 0 ||
+    f.skus.length > 0 ||
+    f.withForecast
   );
 }
 

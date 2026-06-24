@@ -1,29 +1,29 @@
 import type { HubId, SkuForecast, StockState, TransferSuggestion } from '@/types/planning';
 import { addDays, diffDays } from './dates';
-import { buildDailyDemand } from './forecast';
+import { buildDailyDemand, type DailyDemand } from './forecast';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Transfer Recommendation Engine — weekly, hub-and-spoke via Osasco.
+// Transfer Recommendation Engine — hub-and-spoke via Osasco, TWO weekly cycles.
 //
-// Primary path: if Osasco has surplus above its own safety buffer, distribute
-// pro-rata to any spoke that will run short within the next cycle window.
+// Cycle 1 (this Tuesday) and Cycle 2 (next Tuesday). Cycle 2 starts from the
+// on-hand projected forward one cycle: minus a week of demand, plus the transfers
+// suggested in cycle 1 (Osasco loses what it sends, spokes gain what they receive).
 //
-// Fallback (spoke-to-spoke): when Osasco cannot supply a spoke (e.g. Osasco is
-// also short), the engine checks whether the OTHER spoke has surplus it can
-// share. These moves carry lower confidence and are rendered distinctly in the
-// transfer map.
+// Per cycle:
+//  • Primary: if Osasco has surplus above its own coverage demand, distribute
+//    pro-rata to any spoke short within its cycle window.
+//  • Fallback (spoke-to-spoke): when Osasco can't supply, the other spoke shares
+//    its surplus (lower confidence).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SPOKES: HubId[] = ['mooca', 'sbc'];
+const ALL_HUBS: HubId[] = ['osasco', 'mooca', 'sbc'];
+const CYCLES = 2;
 
 export interface TransferConfig {
-  /** Days between transfer cycles (weekly = 7). */
   cycleDays: number;
-  /** In-transit days for each leg. */
   transitDays: Record<HubId, number>;
-  /** Transit days for spoke-to-spoke moves (default: 1). */
   spokeToSpokeTransitDays: number;
-  /** Don't suggest a move below this quantity. */
   minQty: number;
 }
 
@@ -49,34 +49,34 @@ interface TransferInput {
   config?: TransferConfig;
 }
 
-// Compute how much a hub needs vs has over its replenishment window.
 interface HubNeed {
   hub: HubId;
   need: number;
-  onHand: number;
-  demandCov: number;
   needByDate: string | null;
   confidence: number;
 }
 
+// Demand over [dayStart+1 .. dayStart+coverage] at this hub's share.
 function computeHubNeed(
   hub: HubId,
   onHand: number,
   share: number,
-  fleet: { yhat: number[]; lo: number[]; hi: number[] },
+  fleet: DailyDemand,
   coverage: number,
   today: string,
   asOfDate: string,
+  dayStart: number,
 ): HubNeed {
   let demandCov = 0;
   let cum = 0;
-  let stockoutDay: number | null = null;
+  let stockoutK: number | null = null;
   let bandRelSum = 0;
-  for (let d = 1; d <= coverage; d++) {
+  for (let k = 1; k <= coverage; k++) {
+    const d = dayStart + k;
     const yh = (fleet.yhat[d] ?? 0) * share;
     demandCov += yh;
     cum += yh;
-    if (stockoutDay === null && cum >= onHand && yh > 0) stockoutDay = d;
+    if (stockoutK === null && cum >= onHand && yh > 0) stockoutK = k;
     const band = ((fleet.hi[d] ?? 0) - (fleet.lo[d] ?? 0)) * share;
     bandRelSum += band / Math.max(yh, 0.001);
   }
@@ -87,38 +87,35 @@ function computeHubNeed(
   return {
     hub,
     need: Math.max(0, demandCov - onHand),
-    onHand,
-    demandCov,
-    needByDate: stockoutDay != null ? addDays(today, stockoutDay) : null,
+    needByDate: stockoutK != null ? addDays(today, dayStart + stockoutK) : null,
     confidence,
   };
 }
 
-export function transferForSku(i: TransferInput): TransferSuggestion[] {
-  const cfg = i.config ?? DEFAULT_TRANSFER_CONFIG;
-  if (!i.forecast) return [];
-
-  const maxCoverage =
-    cfg.cycleDays + Math.max(cfg.spokeToSpokeTransitDays, ...SPOKES.map((h) => cfg.transitDays[h] ?? 0));
-  const fleet = buildDailyDemand(i.forecast, Math.max(60, maxCoverage + 1));
-
-  // ── Primary path: Osasco → spokes ─────────────────────────────────────────
+// Suggestions for ONE cycle, given the on-hand at the cycle's start.
+function cycleSuggestions(
+  i: TransferInput,
+  cfg: TransferConfig,
+  fleet: DailyDemand,
+  byHand: Record<HubId, number>,
+  dayStart: number,
+  cycle: number,
+): TransferSuggestion[] {
   const osShare = i.shares.osasco ?? 0;
   const osCoverage = cfg.cycleDays + (cfg.transitDays.osasco ?? 0);
   let osDemandCov = 0;
-  for (let d = 1; d <= osCoverage; d++) osDemandCov += (fleet.yhat[d] ?? 0) * osShare;
-  const osAvailable = Math.max(0, (i.stock.byHub.osasco ?? 0) - osDemandCov);
+  for (let k = 1; k <= osCoverage; k++) osDemandCov += (fleet.yhat[dayStart + k] ?? 0) * osShare;
+  const osAvailable = Math.max(0, (byHand.osasco ?? 0) - osDemandCov);
 
+  // ── Primary: Osasco → spokes ──────────────────────────────────────────────
   if (osAvailable > 0) {
     const needs: HubNeed[] = [];
     for (const h of SPOKES) {
-      const share = i.shares[h] ?? 0;
       const coverage = cfg.cycleDays + (cfg.transitDays[h] ?? 0);
-      const n = computeHubNeed(h, i.stock.byHub[h] ?? 0, share, fleet, coverage, i.today, i.asOfDate);
+      const n = computeHubNeed(h, byHand[h] ?? 0, i.shares[h] ?? 0, fleet, coverage, i.today, i.asOfDate, dayStart);
       if (n.need > 0) needs.push(n);
     }
     if (needs.length === 0) return [];
-
     const totalNeed = needs.reduce((s, n) => s + n.need, 0);
     const out: TransferSuggestion[] = [];
     for (const n of needs) {
@@ -133,6 +130,7 @@ export function transferForSku(i: TransferInput): TransferSuggestion[] {
         toHub: n.hub,
         needByDate: n.needByDate,
         confidence: Math.round(n.confidence * 100) / 100,
+        cycle,
         reason:
           `${HUB_LABEL[n.hub]} projeta faltar ${Math.round(n.need)} un. até ` +
           `${n.needByDate ?? 'fim do ciclo'}; Osasco tem ${Math.round(osAvailable)} acima do buffer → transferir ${qty}.`,
@@ -141,8 +139,7 @@ export function transferForSku(i: TransferInput): TransferSuggestion[] {
     return out;
   }
 
-  // ── Fallback: spoke-to-spoke when Osasco cannot supply ────────────────────
-  // Only triggered when Osasco's on-hand ≤ its own coverage demand.
+  // ── Fallback: spoke-to-spoke ──────────────────────────────────────────────
   const out: TransferSuggestion[] = [];
   for (const fromSpoke of SPOKES) {
     for (const toSpoke of SPOKES) {
@@ -151,17 +148,15 @@ export function transferForSku(i: TransferInput): TransferSuggestion[] {
       const toShare = i.shares[toSpoke] ?? 0;
       if (fromShare <= 0 || toShare <= 0) continue;
 
-      // fromSpoke surplus above its own cycle-window demand.
       const fromCoverage = cfg.cycleDays + cfg.spokeToSpokeTransitDays;
       let fromDemandCov = 0;
-      for (let d = 1; d <= fromCoverage; d++) fromDemandCov += (fleet.yhat[d] ?? 0) * fromShare;
-      const fromAvailable = Math.max(0, (i.stock.byHub[fromSpoke] ?? 0) - fromDemandCov);
+      for (let k = 1; k <= fromCoverage; k++) fromDemandCov += (fleet.yhat[dayStart + k] ?? 0) * fromShare;
+      const fromAvailable = Math.max(0, (byHand[fromSpoke] ?? 0) - fromDemandCov);
       if (fromAvailable <= 0) continue;
 
-      // toSpoke need.
       const toCoverage = cfg.cycleDays + cfg.spokeToSpokeTransitDays;
       const toNeed = computeHubNeed(
-        toSpoke, i.stock.byHub[toSpoke] ?? 0, toShare, fleet, toCoverage, i.today, i.asOfDate,
+        toSpoke, byHand[toSpoke] ?? 0, toShare, fleet, toCoverage, i.today, i.asOfDate, dayStart,
       );
       if (toNeed.need <= 0) continue;
 
@@ -175,8 +170,8 @@ export function transferForSku(i: TransferInput): TransferSuggestion[] {
         fromHub: fromSpoke,
         toHub: toSpoke,
         needByDate: toNeed.needByDate,
-        // Lower confidence: spoke-to-spoke is a fallback route
         confidence: Math.round(toNeed.confidence * 0.7 * 100) / 100,
+        cycle,
         reason:
           `Osasco sem estoque disponível; ${HUB_LABEL[fromSpoke]} tem ${Math.round(fromAvailable)} ` +
           `acima do próprio buffer → cobrir ${HUB_LABEL[toSpoke]} (precisa ${Math.round(toNeed.need)}).`,
@@ -184,6 +179,49 @@ export function transferForSku(i: TransferInput): TransferSuggestion[] {
     }
   }
   return out;
+}
+
+// Advance on-hand one cycle: subtract a week of demand per hub, then apply the
+// transfers suggested in the cycle just computed.
+function advanceCycle(
+  byHand: Record<HubId, number>,
+  fleet: DailyDemand,
+  shares: Record<HubId, number>,
+  cfg: TransferConfig,
+  dayStart: number,
+  suggestions: TransferSuggestion[],
+): Record<HubId, number> {
+  const next = { ...byHand };
+  for (const h of ALL_HUBS) {
+    let dem = 0;
+    for (let k = 1; k <= cfg.cycleDays; k++) dem += (fleet.yhat[dayStart + k] ?? 0) * (shares[h] ?? 0);
+    next[h] = Math.max(0, (next[h] ?? 0) - dem);
+  }
+  for (const t of suggestions) {
+    next[t.fromHub] = Math.max(0, (next[t.fromHub] ?? 0) - t.qty);
+    next[t.toHub] = (next[t.toHub] ?? 0) + t.qty;
+  }
+  return next;
+}
+
+export function transferForSku(i: TransferInput): TransferSuggestion[] {
+  const cfg = i.config ?? DEFAULT_TRANSFER_CONFIG;
+  if (!i.forecast) return [];
+
+  const maxCoverage =
+    cfg.cycleDays + Math.max(cfg.spokeToSpokeTransitDays, ...SPOKES.map((h) => cfg.transitDays[h] ?? 0));
+  // Enough days for both cycles' windows.
+  const fleet = buildDailyDemand(i.forecast, Math.max(60, CYCLES * cfg.cycleDays + maxCoverage + 1));
+
+  const all: TransferSuggestion[] = [];
+  let byHand: Record<HubId, number> = { ...i.stock.byHub };
+  for (let cycle = 1; cycle <= CYCLES; cycle++) {
+    const dayStart = (cycle - 1) * cfg.cycleDays;
+    const suggestions = cycleSuggestions(i, cfg, fleet, byHand, dayStart, cycle);
+    all.push(...suggestions);
+    if (cycle < CYCLES) byHand = advanceCycle(byHand, fleet, i.shares, cfg, dayStart, suggestions);
+  }
+  return all;
 }
 
 export function transferForAll(args: {

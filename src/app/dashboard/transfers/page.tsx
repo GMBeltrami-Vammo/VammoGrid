@@ -4,21 +4,23 @@ import { isFilterActive } from '@/lib/planning/filter';
 import { fmtDate, fmtInt, HUB_SHORT } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { TransferMap } from '@/components/planning/TransferMap';
+import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
 export default async function TransfersPage() {
   const snap = await safeComputeSnapshot();
-  const transfers = [...snap.transfers].sort((a, b) => b.qty - a.qty);
-  const units = transfers.reduce((s, t) => s + t.qty, 0);
-  const hubsServed = new Set(transfers.map((t) => t.toHub)).size;
+  const cycle1 = snap.transfers.filter((t) => t.cycle === 1).sort((a, b) => b.qty - a.qty);
+  const cycle2 = snap.transfers.filter((t) => t.cycle === 2).sort((a, b) => b.qty - a.qty);
+  const transfers = [...cycle1, ...cycle2];
+  const unitsC1 = cycle1.reduce((s, t) => s + t.qty, 0);
 
   return (
     <div>
       <PageHeader
         eyebrow="Transferências"
         title="Planejamento de Transferências"
-        subtitle="Ciclo semanal (terça) — distribuição hub-and-spoke a partir de Osasco para evitar rupturas"
+        subtitle="Dois ciclos semanais (terça) — distribuição hub-and-spoke a partir de Osasco. Ciclo 2 parte do estoque projetado após o Ciclo 1."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
 
@@ -27,13 +29,13 @@ export default async function TransfersPage() {
       ) : (
         <>
           <div className="mb-5 grid grid-cols-3 gap-3">
-            <KpiCard label="Transferências sugeridas" value={fmtInt(transfers.length)} tone="brand" />
-            <KpiCard label="Unidades a mover" value={fmtInt(units)} />
-            <KpiCard label="Hubs atendidos" value={`${hubsServed} / 2`} />
+            <KpiCard label="Ciclo 1 · esta semana" value={fmtInt(cycle1.length)} tone="brand" hint={`${fmtInt(unitsC1)} un a mover`} />
+            <KpiCard label="Ciclo 2 · próxima semana" value={fmtInt(cycle2.length)} hint="estoque projetado pós-ciclo 1" />
+            <KpiCard label="Total sugerido" value={fmtInt(transfers.length)} />
           </div>
 
           <div className="mb-6">
-            <TransferMap transfers={transfers} />
+            <TransferMap transfers={cycle1} />
           </div>
 
           {transfers.length === 0 ? (
@@ -50,6 +52,7 @@ export default async function TransfersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Ciclo</th>
                     <th className="px-3 py-2 font-medium">SKU</th>
                     <th className="px-3 py-2 font-medium">Rota</th>
                     <th className="px-3 py-2 text-right font-medium">Qtd</th>
@@ -60,7 +63,19 @@ export default async function TransfersPage() {
                 </thead>
                 <tbody className="divide-y divide-foreground/5">
                   {transfers.map((t, i) => (
-                    <tr key={`${t.skuBase}-${t.toHub}-${i}`} className="align-top hover:bg-muted/40">
+                    <tr key={`${t.skuBase}-${t.toHub}-${t.cycle}-${i}`} className="align-top hover:bg-muted/40">
+                      <td className="px-3 py-2">
+                        <span
+                          className={cn(
+                            'inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                            t.cycle === 1
+                              ? 'bg-brand-500/15 text-brand-600'
+                              : 'bg-muted text-muted-foreground',
+                          )}
+                        >
+                          {t.cycle === 1 ? 'Sem 1' : 'Sem 2'}
+                        </span>
+                      </td>
                       <td className="px-3 py-2">
                         <Link
                           href={`/dashboard/sku/${encodeURIComponent(t.skuBase)}`}

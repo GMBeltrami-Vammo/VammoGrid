@@ -63,12 +63,7 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
 
   const persist = (next: Set<string>) => {
     setSelected(next);
-    writeFilterCookie({
-      models: filter.models,
-      category: filter.category,
-      q: filter.q,
-      skus: [...next],
-    });
+    writeFilterCookie({ ...filter, skus: [...next] });
   };
 
   const toggle = (skuBase: string) => {
@@ -89,7 +84,7 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
   // Category is the APP-WIDE scope filter (drives every page + syncs with the top
   // bar): write the shared cookie and refresh so the server re-renders the set.
   const setCategory = (v: string | null) => {
-    writeFilterCookie({ models: filter.models, category: v, q: filter.q, skus: [...selected] });
+    writeFilterCookie({ ...filter, category: v, skus: [...selected] });
     router.refresh();
   };
 

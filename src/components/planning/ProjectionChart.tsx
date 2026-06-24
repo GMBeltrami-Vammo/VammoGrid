@@ -5,7 +5,6 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
-  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -13,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { ProjectionPoint } from '@/types/planning';
+import type { PoArrival } from '@/lib/planning/projection';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 
 // Projection cone: shaded lo–hi band + the central stock line, with a red marker at
@@ -24,6 +24,7 @@ export function ProjectionChart({
   overlayTimeline,
   overlayLabel = 'Simulado',
   overlayColor = 'var(--color-alert-success)',
+  arrivals,
   history,
   height = 300,
 }: {
@@ -32,6 +33,8 @@ export function ProjectionChart({
   overlayTimeline?: ProjectionPoint[] | null;
   overlayLabel?: string;
   overlayColor?: string;
+  /** Open-PO arrivals (date + VO + qty) to mark the cause of stock bumps. */
+  arrivals?: PoArrival[] | null;
   history?: { date: string; stock: number }[] | null;
   height?: number;
 }) {
@@ -50,10 +53,9 @@ export function ProjectionChart({
   const data = [...histData, ...projData];
   const todayMarker = timeline[0]?.date;
 
-  // Mark days where an open PO (pedido) arrives and bumps the stock up.
-  const inboundMarkers = timeline
-    .filter((p) => p.inbound > 0)
-    .map((p) => ({ date: p.date, stock: p.stock, qty: p.inbound }));
+  // Pedido arrivals visible within this chart's window — mark the cause of bumps.
+  const projDates = new Set(projData.map((d) => d.date));
+  const arrivalMarkers = (arrivals ?? []).filter((a) => projDates.has(a.date));
 
   return (
     <div style={{ width: '100%', height }}>
@@ -113,20 +115,16 @@ export function ProjectionChart({
               isAnimationActive={false}
             />
           )}
-          {/* Pedido arrivals: a dot on the stock line at each inbound bump, labeled +qty */}
-          {inboundMarkers.map((m) => (
-            <ReferenceDot
-              key={`in-${m.date}`}
-              x={m.date}
-              y={m.stock}
-              r={4}
-              fill="var(--color-alert-success)"
-              stroke="var(--color-card)"
-              strokeWidth={1.5}
-              ifOverflow="extendDomain"
+          {/* Pedido arrivals: a green line at each arrival date, labeled with VO + qty */}
+          {arrivalMarkers.map((a) => (
+            <ReferenceLine
+              key={`po-${a.date}`}
+              x={a.date}
+              stroke="var(--color-alert-success)"
+              strokeDasharray="3 2"
               label={{
-                value: `+${fmtInt(m.qty)}`,
-                position: 'top',
+                value: `${a.vos.length ? a.vos.join('/') + ' ' : ''}+${fmtInt(a.qty)}`,
+                position: 'insideTopRight',
                 fontSize: 9,
                 fill: 'var(--color-alert-success)',
               }}

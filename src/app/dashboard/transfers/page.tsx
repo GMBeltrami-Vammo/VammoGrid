@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { safeComputeSnapshot } from '@/lib/planning/load';
+import { isFilterActive } from '@/lib/planning/filter';
 import { fmtDate, fmtInt, HUB_SHORT } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { TransferMap } from '@/components/planning/TransferMap';
@@ -36,7 +37,14 @@ export default async function TransfersPage() {
           </div>
 
           {transfers.length === 0 ? (
-            <EmptyState title="Nenhuma transferência necessária" hint="Todos os hubs cobrem o próximo ciclo." />
+            isFilterActive(snap.filter) ? (
+              <EmptyState
+                title="Nenhuma transferência no recorte atual"
+                hint="Há um filtro/seleção ativo limitando os SKUs. Use “Limpar filtro” no topo para avaliar a rede inteira."
+              />
+            ) : (
+              <EmptyState title="Nenhuma transferência necessária" hint="Todos os hubs cobrem o próximo ciclo." />
+            )
           ) : (
             <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
               <table className="w-full text-sm">

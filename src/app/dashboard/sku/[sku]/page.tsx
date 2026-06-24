@@ -5,7 +5,7 @@ import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
 import { purchaseForSku } from '@/lib/planning/purchase';
-import { projectSku } from '@/lib/planning/projection';
+import { projectSku, computeArrivals } from '@/lib/planning/projection';
 import { HUB_LIST } from '@/constants/planningHubs';
 import { fmtBRL, fmtDate, fmtInt, fmtNum } from '@/lib/planning/format';
 import {
@@ -102,7 +102,11 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
       {/* D-30→D+30 stock window */}
       <SectionTitle>Janela de estoque (D-30 → D+30)</SectionTitle>
       <div className="mb-6">
-        <StockWindowChart history={history} projections={projections} />
+        <StockWindowChart
+          history={history}
+          projections={projections}
+          arrivals={computeArrivals(orders, inputs.today)}
+        />
       </div>
 
       {/* Purchase recommendation */}

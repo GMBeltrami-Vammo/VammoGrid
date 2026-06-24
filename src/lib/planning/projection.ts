@@ -47,6 +47,38 @@ function bucketReceipts(orders: OpenPurchaseOrder[], today: string, horizon: num
   return receipts;
 }
 
+/** Open-PO arrivals bucketed by date (same rule as bucketReceipts), with the VO(s)
+ *  and total qty landing each day — for labeling the projection chart. */
+export interface PoArrival {
+  date: string;
+  qty: number;
+  vos: string[];
+}
+
+export function computeArrivals(
+  orders: OpenPurchaseOrder[],
+  today: string,
+  horizon: number = HORIZON_DAYS,
+): PoArrival[] {
+  const byDate = new Map<string, { qty: number; vos: Set<string> }>();
+  for (const o of orders) {
+    if (!OPEN_STATUSES.has(o.status)) continue;
+    const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
+    if (!arrival) continue;
+    let offset = diffDays(today, arrival);
+    if (offset < 0) offset = 0;
+    if (offset > horizon) continue;
+    const date = addDays(today, offset);
+    const e = byDate.get(date) ?? { qty: 0, vos: new Set<string>() };
+    e.qty += o.qty;
+    if (o.vo) e.vos.add(o.vo);
+    byDate.set(date, e);
+  }
+  return [...byDate.entries()]
+    .map(([date, e]) => ({ date, qty: e.qty, vos: [...e.vos] }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
 function scaleDemand(d: DailyDemand, factor: number): DailyDemand {
   return {
     yhat: d.yhat.map((v) => v * factor),

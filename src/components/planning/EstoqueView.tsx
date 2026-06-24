@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { HubId } from '@/types/planning';
-import type { SkuProjections } from '@/lib/planning/projection';
+import type { PoArrival, SkuProjections } from '@/lib/planning/projection';
 import type { StockHistory } from '@/lib/planning/source/history';
 import { StockWindowChart } from './StockWindowChart';
 import { ProjectionView } from './ProjectionView';
@@ -23,6 +23,7 @@ export function EstoqueView({
   selected,
   projections,
   baseline,
+  arrivals,
   history,
 }: {
   options: { skuBase: string; skuName: string }[];
@@ -30,6 +31,8 @@ export function EstoqueView({
   projections: SkuProjections | null;
   /** "No recovery" projection, to overlay the reconditioning uplift. */
   baseline?: SkuProjections | null;
+  /** Open-PO arrivals to mark on the charts. */
+  arrivals?: PoArrival[] | null;
   history: StockHistory;
 }) {
   const router = useRouter();
@@ -80,6 +83,7 @@ export function EstoqueView({
             history={history}
             projections={projections}
             baseline={baseline}
+            arrivals={arrivals}
             scope={scope}
             onScopeChange={setScope}
           />
@@ -99,6 +103,7 @@ export function EstoqueView({
         selected={selected}
         projections={projections}
         baseline={baseline}
+        arrivals={arrivals}
         history={history}
         scope={scope}
         onScopeChange={setScope}

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { HubId } from '@/types/planning';
-import type { SkuProjections } from '@/lib/planning/projection';
+import type { PoArrival, SkuProjections } from '@/lib/planning/projection';
 import type { StockHistory } from '@/lib/planning/source/history';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +27,7 @@ export function StockWindowChart({
   history,
   projections,
   baseline,
+  arrivals,
   scope: controlledScope,
   onScopeChange,
 }: {
@@ -34,6 +35,8 @@ export function StockWindowChart({
   projections: SkuProjections;
   /** "No recovery" projection — overlaid as a reference line on global/Osasco. */
   baseline?: SkuProjections | null;
+  /** Open-PO arrivals (global/Osasco only). */
+  arrivals?: PoArrival[] | null;
   scope?: Scope;
   onScopeChange?: (s: Scope) => void;
 }) {
@@ -55,7 +58,8 @@ export function StockWindowChart({
       ? baseline.global
       : baseline.byHub[scope as HubId]
     : null;
-  const showRecoveryOverlay = !!baseProj && (scope === 'global' || scope === 'osasco');
+  const isGlobalOrOsasco = scope === 'global' || scope === 'osasco';
+  const showRecoveryOverlay = !!baseProj && isGlobalOrOsasco;
 
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
@@ -88,12 +92,14 @@ export function StockWindowChart({
         overlayTimeline={showRecoveryOverlay ? baseProj!.timeline.slice(0, 31) : undefined}
         overlayLabel="Sem recuperação"
         overlayColor="var(--color-muted-foreground)"
+        arrivals={isGlobalOrOsasco ? arrivals : undefined}
         stockoutDate={proj.stockoutDate}
         history={hist.length > 0 ? hist : undefined}
         height={240}
       />
       <p className="mt-1.5 text-[10px] text-muted-foreground">
-        Histórico real (esquerda de &quot;hoje&quot;) · Projeção com banda lo–hi (direita) · ponto verde = chegada de pedido
+        Histórico real (esquerda de &quot;hoje&quot;) · Projeção com banda lo–hi (direita)
+        {isGlobalOrOsasco ? ' · linha verde = chegada de pedido (VO)' : ''}
         {showRecoveryOverlay ? ' · tracejada cinza = sem recuperação' : ''}
       </p>
     </div>

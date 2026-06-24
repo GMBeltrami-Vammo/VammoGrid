@@ -1,4 +1,5 @@
 import { loadPlanningInputs, projectOneCompare } from '@/lib/planning/load';
+import { computeArrivals } from '@/lib/planning/projection';
 import { fetchStockHistory } from '@/lib/planning/source/history';
 import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { resolveShares } from '@/lib/planning/allocation';
@@ -49,6 +50,7 @@ export default async function EstoquePage({
   ]);
   const projections = compare?.projections ?? null;
   const baseline = compare?.baseline ?? null;
+  const arrivals = computeArrivals(orders, inputs.today);
 
   return (
     <div>
@@ -64,6 +66,7 @@ export default async function EstoquePage({
         selected={selected}
         projections={projections}
         baseline={baseline}
+        arrivals={arrivals}
         history={history}
       />
 

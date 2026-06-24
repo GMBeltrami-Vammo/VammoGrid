@@ -4,7 +4,7 @@ import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import type { HubId } from '@/types/planning';
-import type { SkuProjections } from '@/lib/planning/projection';
+import type { PoArrival, SkuProjections } from '@/lib/planning/projection';
 import { KpiCard } from './ui';
 
 // Lazy-load Recharts (bundle-dynamic-imports) — keeps it off the initial bundle.
@@ -22,6 +22,7 @@ export function ProjectionView({
   selected,
   projections,
   baseline,
+  arrivals,
   history,
   scope: controlledScope,
   onScopeChange,
@@ -32,6 +33,8 @@ export function ProjectionView({
   projections: SkuProjections | null;
   /** "No recovery" projection — overlaid as a reference line on global/Osasco. */
   baseline?: SkuProjections | null;
+  /** Open-PO arrivals (global/Osasco only). */
+  arrivals?: PoArrival[] | null;
   history?: {
     global: { date: string; stock: number }[];
     byHub: Record<HubId, { date: string; stock: number }[]>;
@@ -58,7 +61,8 @@ export function ProjectionView({
       ? baseline.global
       : baseline.byHub[scope]
     : null;
-  const showRecoveryOverlay = !!baseProj && (scope === 'global' || scope === 'osasco');
+  const isGlobalOrOsasco = scope === 'global' || scope === 'osasco';
+  const showRecoveryOverlay = !!baseProj && isGlobalOrOsasco;
 
   const scopeHistory = history
     ? scope === 'global'
@@ -149,6 +153,7 @@ export function ProjectionView({
               overlayTimeline={showRecoveryOverlay ? baseProj!.timeline : undefined}
               overlayLabel="Sem recuperação"
               overlayColor="var(--color-muted-foreground)"
+              arrivals={isGlobalOrOsasco ? arrivals : undefined}
               stockoutDate={proj.stockoutDate}
               history={scopeHistory}
               height={340}
@@ -158,8 +163,9 @@ export function ProjectionView({
               {showRecoveryOverlay
                 ? 'Linha sólida = com recuperação (recondicionados entram em Osasco/global). Tracejada cinza = sem recuperação. '
                 : ''}
-              Ponto verde = chegada de pedido (+qtd). Faixa sombreada = banda lo–hi da previsão.
-              Sombreamento após ~90d é extrapolado além do horizonte do modelo.
+              {isGlobalOrOsasco ? 'Linha verde tracejada = chegada de pedido (VO + qtd). ' : ''}
+              Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
+              horizonte do modelo.
             </p>
           </div>
         </>

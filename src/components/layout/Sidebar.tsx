@@ -15,6 +15,7 @@ import {
   Settings,
   Package,
   CalendarRange,
+  Clock,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
@@ -76,6 +77,12 @@ export function Sidebar() {
             label="Compras"
             icon={ShoppingCart}
             active={isActive('/dashboard/procurement')}
+          />
+          <NavLink
+            href="/dashboard/lead-times"
+            label="Lead times"
+            icon={Clock}
+            active={isActive('/dashboard/lead-times')}
           />
           <NavLink
             href="/dashboard/transfers"

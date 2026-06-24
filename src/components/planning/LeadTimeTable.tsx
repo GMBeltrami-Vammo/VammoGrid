@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import type { LeadTimeSource, TransportModal } from '@/types/planning';
-import { updateLeadTimePolicy } from '@/app/dashboard/semanas/actions';
+import { updateLeadTimePolicy } from '@/app/dashboard/lead-times/actions';
 import { cn } from '@/lib/utils';
 
 // Editable per-SKU lead-time table (marítimo / aéreo / modal padrão). The default

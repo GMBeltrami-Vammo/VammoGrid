@@ -50,15 +50,22 @@ export async function fetchStockHistory(
 ): Promise<StockHistory> {
   if (!skuName) return emptyHistory();
 
+  // Supabase fleet.piece_stock_hub is the primary source — populated by the daily
+  // cron at /api/inventory/snapshot. Use it when it has data for this SKU.
+  const supabaseResult = await fetchHistoryFromSupabase(skuName, days);
+  if (supabaseResult.global.length > 0) return supabaseResult;
+
+  // Fallback: reconstruct from the IMS ledger (ClickHouse) when the Supabase
+  // snapshot table is empty (e.g. new environments, before cron has run).
   if (currentByHub) {
     try {
       return await fetchHistoryFromLedger(skuName, days, currentByHub);
     } catch {
-      // fall through to Supabase
+      // ledger unavailable — return empty
     }
   }
 
-  return fetchHistoryFromSupabase(skuName, days);
+  return emptyHistory();
 }
 
 async function fetchHistoryFromLedger(

@@ -12,6 +12,7 @@ interface StockRow {
   sku_code: string;
   sku_name: string;
   is_repairable: boolean | number;
+  category: string | null;
   unit_price: number | string | null;
   location_id: number | string;
   qty: number | string;
@@ -19,11 +20,12 @@ interface StockRow {
 
 const STOCK_SQL = `
 SELECT
-  it.item_code        AS sku_code,
-  ig.item_group_name  AS sku_name,
-  ig.is_repairable    AS is_repairable,
-  toFloat64(ig.price) AS unit_price,
-  loc.location_id     AS location_id,
+  it.item_code         AS sku_code,
+  ig.item_group_name   AS sku_name,
+  ig.is_repairable     AS is_repairable,
+  ig.compatible_asset  AS category,
+  toFloat64(ig.price)  AS unit_price,
+  loc.location_id      AS location_id,
   sum(toFloat64(inv.quantity)) AS qty
 FROM analytics.stg_ims_r__inventory inv
 JOIN analytics.stg_ims_r__deposit dep ON dep.deposit_id = inv.deposit_id
@@ -33,7 +35,7 @@ JOIN analytics.stg_ims_r__item_group ig ON ig.item_group_id = it.item_group_id
 WHERE inv.inventory_status = 'AVAILABLE'
   AND dep.deposit_type = 'STORAGE'
   AND loc.location_id IN (${HUB_LOCATION_IDS})
-GROUP BY sku_code, sku_name, is_repairable, unit_price, location_id`;
+GROUP BY sku_code, sku_name, is_repairable, category, unit_price, location_id`;
 
 function zeroHubs(): Record<HubId, number> {
   return { osasco: 0, mooca: 0, sbc: 0 };
@@ -57,10 +59,12 @@ export async function fetchStockStates(nowIso: string): Promise<StockState[]> {
         total: 0,
         unitPrice: null,
         isRepairable: false,
+        category: r.category ? String(r.category) : null,
         lastUpdated: nowIso,
       };
       bySku.set(skuBase, s);
     }
+    if (!s.category && r.category) s.category = String(r.category);
     const qty = Number(r.qty) || 0;
     s.byHub[hub] += qty;
     s.total += qty;

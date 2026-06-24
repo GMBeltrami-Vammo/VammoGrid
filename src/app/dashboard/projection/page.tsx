@@ -1,4 +1,5 @@
 import { loadPlanningInputs, projectOne } from '@/lib/planning/load';
+import { fetchHistory } from '@/lib/planning/source/history';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { ProjectionView } from '@/components/planning/ProjectionView';
 
@@ -27,17 +28,17 @@ export default async function ProjectionPage({
     .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
   const selected =
     sp.sku && inputs.stocks.some((s) => s.skuBase === sp.sku) ? sp.sku : options[0].skuBase;
-  const projections = await projectOne(selected);
+  const [projections, history] = await Promise.all([projectOne(selected), fetchHistory(selected)]);
 
   return (
     <div>
       <PageHeader
         eyebrow="Projeção"
         title="Projeção de Estoque"
-        subtitle="Horizonte de 150 dias — global, por hub e por SKU, com previsão de demanda, pedidos e recuperação"
+        subtitle="Histórico (D-30) + horizonte de 150 dias — global, por hub e por SKU, com demanda, pedidos e recuperação"
       />
       <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
-      <ProjectionView options={options} selected={selected} projections={projections} />
+      <ProjectionView options={options} selected={selected} projections={projections} history={history} />
     </div>
   );
 }

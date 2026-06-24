@@ -86,7 +86,11 @@ export default async function ExecutiveDashboard() {
 
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
             {HUB_LIST.map((h) => (
-              <div key={h.id} className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+              <Link
+                key={h.id}
+                href={`/dashboard/hub/${h.id}`}
+                className="block rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-colors hover:ring-brand-500/40"
+              >
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold">{h.name}</p>
                   {h.isCentral && (
@@ -102,7 +106,7 @@ export default async function ExecutiveDashboard() {
                     ↓ {fmtInt(tByHub[h.id].qty)} un. a receber ({tByHub[h.id].count} transf.)
                   </p>
                 )}
-              </div>
+              </Link>
             ))}
           </div>
 

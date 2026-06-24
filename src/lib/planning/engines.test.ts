@@ -34,6 +34,7 @@ function stock(total: number, byHub?: Partial<Record<HubId, number>>): StockStat
     total: h.osasco + h.mooca + h.sbc,
     unitPrice: 10,
     isRepairable: false,
+    category: null,
     lastUpdated: TODAY,
   };
 }

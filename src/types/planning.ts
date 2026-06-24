@@ -64,6 +64,8 @@ export interface StockState {
   unitPrice: number | null;
   /** Whether the part can be reconditioned (feeds the recovery pipeline). */
   isRepairable: boolean;
+  /** Coarse warehouse category: 'BIKE' | 'BATTERY' | 'BOX' | null. */
+  category: string | null;
   /** When the underlying inventory was last updated. */
   lastUpdated: string;
 }

@@ -25,6 +25,7 @@ export function SkuSimulator({
   policy,
   shares,
   today,
+  history,
 }: {
   stock: StockState;
   forecast: SkuForecast | null;
@@ -32,6 +33,7 @@ export function SkuSimulator({
   policy: SkuPolicy;
   shares: Record<HubId, number>;
   today: string;
+  history?: { date: string; stock: number }[];
 }) {
   const [qty, setQty] = useState(100);
   const [arrivalDays, setArrivalDays] = useState(policy.leadTimeDays);
@@ -120,6 +122,7 @@ export function SkuSimulator({
         overlayTimeline={simulated.timeline}
         overlayLabel={`+${fmtInt(qty)} un (${modal === 'air' ? 'aéreo' : 'marítimo'})`}
         stockoutDate={baseline.stockoutDate}
+        history={history}
         height={300}
       />
       <p className="mt-2 text-[11px] text-muted-foreground">

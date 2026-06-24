@@ -22,20 +22,30 @@ export function ProjectionChart({
   stockoutDate,
   overlayTimeline,
   overlayLabel = 'Simulado',
+  history,
   height = 300,
 }: {
   timeline: ProjectionPoint[];
   stockoutDate?: string | null;
   overlayTimeline?: ProjectionPoint[] | null;
   overlayLabel?: string;
+  history?: { date: string; stock: number }[] | null;
   height?: number;
 }) {
-  const data = timeline.map((p, i) => ({
+  const histData = (history ?? []).map((h) => ({
+    date: h.date,
+    stock: h.stock,
+    band: undefined as [number, number] | undefined,
+    sim: undefined as number | undefined,
+  }));
+  const projData = timeline.map((p, i) => ({
     date: p.date,
     stock: p.stock,
-    band: [p.stockLo, p.stockHi] as [number, number],
+    band: [p.stockLo, p.stockHi] as [number, number] | undefined,
     sim: overlayTimeline?.[i]?.stock,
   }));
+  const data = [...histData, ...projData];
+  const todayMarker = timeline[0]?.date;
 
   return (
     <div style={{ width: '100%', height }}>
@@ -93,6 +103,14 @@ export function ProjectionChart({
               strokeDasharray="5 3"
               dot={false}
               isAnimationActive={false}
+            />
+          )}
+          {history && history.length > 0 && todayMarker && (
+            <ReferenceLine
+              x={todayMarker}
+              stroke="var(--color-muted-foreground)"
+              strokeDasharray="2 2"
+              label={{ value: 'hoje', fill: 'var(--color-muted-foreground)', fontSize: 10, position: 'top' }}
             />
           )}
           {stockoutDate && (

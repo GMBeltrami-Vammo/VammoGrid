@@ -130,7 +130,8 @@ begin
   end loop;
 end $$;
 
--- 8. (Opt-in) retire superseded objects — replaced by analytics.mart_inventory_snapshot_daily.
--- Uncomment after confirming nothing else reads them:
--- drop table if exists fleet.piece_stock_hub;
--- drop table if exists fleet.piece_stock_hub_monthly;
+-- 8. Retire superseded objects — daily stock history now comes from the warehouse
+-- (analytics.mart_inventory_snapshot_daily). The daily snapshot cron + route that
+-- wrote these is removed in the same change, so nothing repopulates them.
+drop table if exists fleet.piece_stock_hub;
+drop table if exists fleet.piece_stock_hub_monthly;

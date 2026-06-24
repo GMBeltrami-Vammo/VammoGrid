@@ -15,10 +15,12 @@ export function ProjectionView({
   options,
   selected,
   projections,
+  history,
 }: {
   options: { skuBase: string; skuName: string }[];
   selected: string;
   projections: SkuProjections | null;
+  history?: { date: string; stock: number }[];
 }) {
   const router = useRouter();
   const [scope, setScope] = useState<Scope>('global');
@@ -85,8 +87,16 @@ export function ProjectionView({
             />
           </div>
           <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-            <ProjectionChart timeline={proj.timeline} stockoutDate={proj.stockoutDate} height={340} />
+            <ProjectionChart
+              timeline={proj.timeline}
+              stockoutDate={proj.stockoutDate}
+              history={scope === 'global' ? history : undefined}
+              height={340}
+            />
             <p className="mt-2 text-[11px] text-muted-foreground">
+              {scope === 'global' && history && history.length > 0
+                ? 'Antes de "hoje" = histórico real (rede). '
+                : ''}
               Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
               horizonte do modelo.
             </p>

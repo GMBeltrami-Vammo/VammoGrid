@@ -8,6 +8,8 @@ import {
   TrendingUp,
   ShoppingCart,
   ArrowLeftRight,
+  ClipboardList,
+  Bike,
   Bell,
   LogOut,
   Settings,
@@ -67,10 +69,22 @@ export function Sidebar() {
             icon={ArrowLeftRight}
             active={isActive('/dashboard/transfers')}
           />
+          <NavLink
+            href="/dashboard/pedidos"
+            label="Pedidos"
+            icon={ClipboardList}
+            active={isActive('/dashboard/pedidos')}
+          />
         </NavSection>
 
         <NavSection label="Sistema">
           <NavLink href="/dashboard/alertas" label="Alertas" icon={Bell} active={isActive('/dashboard/alertas')} />
+          <NavLink
+            href="/dashboard/compatibilidade"
+            label="Compatibilidade"
+            icon={Bike}
+            active={isActive('/dashboard/compatibilidade')}
+          />
           {session?.user?.isHead && (
             <NavLink
               href="/dashboard/admin"

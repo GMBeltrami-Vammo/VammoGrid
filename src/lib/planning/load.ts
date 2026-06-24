@@ -1,5 +1,6 @@
 import 'server-only';
 import { cache } from 'react';
+import { cookies } from 'next/headers';
 import type {
   HubId,
   OpenPurchaseOrder,
@@ -22,6 +23,15 @@ import { fetchForecasts } from './source/forecast';
 import { fetchOpenOrders, ordersBySkuBase } from './source/orders';
 import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
+import { fetchCompatModels } from './source/compat';
+import {
+  EMPTY_FILTER,
+  FILTER_COOKIE,
+  isFilterActive,
+  parseFilterCookie,
+  skuPasses,
+  type PlanningFilter,
+} from './filter';
 
 // Single per-request load of all engine inputs, then the engine runs. Wrapped in
 // React `cache()` so every Server Component in one render shares one fetch+compute.
@@ -37,6 +47,7 @@ export interface PlanningInputs {
   ordersBySku: Map<string, OpenPurchaseOrder[]>;
   policies: Map<string, SkuPolicy>;
   alerts: PlanningAlert[];
+  filter: PlanningFilter;
 }
 
 function emptyInputs(today: string): PlanningInputs {
@@ -51,24 +62,34 @@ function emptyInputs(today: string): PlanningInputs {
     ordersBySku: new Map(),
     policies: new Map(),
     alerts: [],
+    filter: EMPTY_FILTER,
   };
 }
 
 export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
   const today = todayUtc();
   const nowIso = new Date().toISOString();
+  const cookieStore = await cookies();
+  const filter = parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value);
 
   // No warehouse credentials configured → render the shell with empty states
   // instead of throwing (keeps the app building + usable before secrets are set).
-  if (activeBackendKind() === 'none') return emptyInputs(today);
+  if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter };
 
-  const [stocks, forecastBundle, shares, orders, alerts] = await Promise.all([
+  const [allStocks, forecastBundle, shares, orders, alerts, compatModels] = await Promise.all([
     fetchStockStates(nowIso),
     fetchForecasts(),
     fetchHubShares(),
     fetchOpenOrders(),
     fetchSopAlerts(),
+    fetchCompatModels(),
   ]);
+
+  // Apply the app-wide filter once, here, so every downstream surface (dashboard,
+  // projection, procurement, transfers) operates on the same narrowed SKU set.
+  const stocks = isFilterActive(filter)
+    ? allStocks.filter((s) => skuPasses(filter, s, compatModels))
+    : allStocks;
 
   const forecasts = forecastBundle.bySku;
   const policies = buildPolicies({ stocks, forecasts, nowIso });
@@ -84,6 +105,7 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
     ordersBySku: ordersBySkuBase(orders),
     policies,
     alerts,
+    filter,
   };
 });
 

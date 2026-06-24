@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { loadPlanningInputs } from '@/lib/planning/load';
+import { fetchHistory } from '@/lib/planning/source/history';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
 import { purchaseForSku } from '@/lib/planning/purchase';
@@ -52,6 +53,7 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
     today: inputs.today,
   });
   const projections = projectSku({ stock, forecast, orders, policy, shares, today: inputs.today });
+  const history = await fetchHistory(skuBase);
 
   return (
     <div>
@@ -117,6 +119,7 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
           policy={policy}
           shares={shares}
           today={inputs.today}
+          history={history}
         />
       </div>
 

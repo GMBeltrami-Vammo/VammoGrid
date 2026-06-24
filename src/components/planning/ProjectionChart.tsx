@@ -22,6 +22,7 @@ export function ProjectionChart({
   stockoutDate,
   overlayTimeline,
   overlayLabel = 'Simulado',
+  overlayColor = 'var(--color-alert-success)',
   history,
   height = 300,
 }: {
@@ -29,6 +30,7 @@ export function ProjectionChart({
   stockoutDate?: string | null;
   overlayTimeline?: ProjectionPoint[] | null;
   overlayLabel?: string;
+  overlayColor?: string;
   history?: { date: string; stock: number }[] | null;
   height?: number;
 }) {
@@ -98,7 +100,7 @@ export function ProjectionChart({
           {overlayTimeline && (
             <Line
               dataKey="sim"
-              stroke="var(--color-alert-success)"
+              stroke={overlayColor}
               strokeWidth={2}
               strokeDasharray="5 3"
               dot={false}

@@ -210,3 +210,35 @@ export async function projectOne(skuBase: string): Promise<SkuProjections | null
     today: inp.today,
   });
 }
+
+/** Projection for one SKU plus a "no recovery" baseline, so the chart can show the
+ *  reconditioning uplift as a separate line. `baseline` is null when the SKU isn't
+ *  repairable or has a 0% recovery rate (there'd be nothing to compare). Recovery is
+ *  credited to the global + Osasco streams only. */
+export async function projectOneCompare(
+  skuBase: string,
+): Promise<{ projections: SkuProjections; baseline: SkuProjections | null } | null> {
+  const inp = await loadPlanningInputs();
+  const stock = inp.stocks.find((s) => s.skuBase === skuBase);
+  if (!stock) return null;
+  const policy =
+    inp.policies.get(skuBase) ??
+    defaultPolicyFor(skuBase, stock, inp.forecasts.get(skuBase)?.abcClass ?? 'C', inp.today);
+  const forecast = inp.forecasts.get(skuBase) ?? null;
+  const orders = inp.ordersBySku.get(skuBase) ?? [];
+  const shares = resolveShares(stock, inp.shares.get(skuBase));
+
+  const projections = projectSku({ stock, forecast, orders, policy, shares, today: inp.today });
+  const hasRecovery = policy.isRepairable && policy.recoveryRate > 0;
+  const baseline = hasRecovery
+    ? projectSku({
+        stock,
+        forecast,
+        orders,
+        policy: { ...policy, recoveryRate: 0 },
+        shares,
+        today: inp.today,
+      })
+    : null;
+  return { projections, baseline };
+}

@@ -21,6 +21,7 @@ export function ProjectionView({
   options,
   selected,
   projections,
+  baseline,
   history,
   scope: controlledScope,
   onScopeChange,
@@ -29,6 +30,8 @@ export function ProjectionView({
   options: { skuBase: string; skuName: string }[];
   selected: string;
   projections: SkuProjections | null;
+  /** "No recovery" projection — overlaid as a reference line on global/Osasco. */
+  baseline?: SkuProjections | null;
   history?: {
     global: { date: string; stock: number }[];
     byHub: Record<HubId, { date: string; stock: number }[]>;
@@ -47,6 +50,15 @@ export function ProjectionView({
       ? projections.global
       : projections.byHub[scope]
     : null;
+
+  // Reconditioning is credited to the global + Osasco streams, so the "without
+  // recovery" reference line is only meaningful there.
+  const baseProj = baseline
+    ? scope === 'global'
+      ? baseline.global
+      : baseline.byHub[scope]
+    : null;
+  const showRecoveryOverlay = !!baseProj && (scope === 'global' || scope === 'osasco');
 
   const scopeHistory = history
     ? scope === 'global'
@@ -134,12 +146,18 @@ export function ProjectionView({
           <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
             <ProjectionChart
               timeline={proj.timeline}
+              overlayTimeline={showRecoveryOverlay ? baseProj!.timeline : undefined}
+              overlayLabel="Sem recuperação"
+              overlayColor="var(--color-muted-foreground)"
               stockoutDate={proj.stockoutDate}
               history={scopeHistory}
               height={340}
             />
             <p className="mt-2 text-[11px] text-muted-foreground">
               {scopeHistory && scopeHistory.length > 0 ? 'Antes de "hoje" = histórico real. ' : ''}
+              {showRecoveryOverlay
+                ? 'Linha sólida = com recuperação (recondicionados entram em Osasco/global). Tracejada cinza = sem recuperação. '
+                : ''}
               Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
               horizonte do modelo.
             </p>

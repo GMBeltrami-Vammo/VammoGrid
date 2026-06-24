@@ -151,6 +151,22 @@ export function RecoveryPanel({
               onChange={(e) => setRate(clamp(Number(e.target.value), 0, 100))}
               className="mt-1 block h-8 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-brand-500 disabled:opacity-40"
             />
+            {historicalRate && (
+              <span className="mt-1 block text-[10px] font-normal text-muted-foreground">
+                Real (IMS {historicalRate.lookbackDays}d):{' '}
+                <span className="font-semibold text-foreground">
+                  {Math.round(historicalRate.rate * 100)}%
+                </span>{' '}
+                <button
+                  type="button"
+                  onClick={() => setRate(clamp(Math.round(historicalRate.rate * 100), 0, 100))}
+                  disabled={!isRepairable}
+                  className="font-medium text-brand-600 hover:underline disabled:opacity-40"
+                >
+                  usar
+                </button>
+              </span>
+            )}
           </label>
           <label className="text-xs font-medium text-muted-foreground">
             Turnaround (dias)
@@ -199,6 +215,11 @@ export function RecoveryPanel({
               <p className="mt-0.5 text-base font-bold tabular-nums">{fmtInt(historicalRate.consumed)} un</p>
             </div>
           </div>
+          <p className="mt-2 text-[10px] leading-snug text-muted-foreground">
+            Taxa real medida no ledger do IMS: unidades recondicionadas ÷ consumidas nos últimos{' '}
+            {historicalRate.lookbackDays} dias. Use-a como referência para definir a taxa de
+            recuperação acima.
+          </p>
         </div>
       )}
 

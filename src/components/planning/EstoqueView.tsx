@@ -22,11 +22,14 @@ export function EstoqueView({
   options,
   selected,
   projections,
+  baseline,
   history,
 }: {
   options: { skuBase: string; skuName: string }[];
   selected: string;
   projections: SkuProjections | null;
+  /** "No recovery" projection, to overlay the reconditioning uplift. */
+  baseline?: SkuProjections | null;
   history: StockHistory;
 }) {
   const router = useRouter();
@@ -94,6 +97,7 @@ export function EstoqueView({
         options={options}
         selected={selected}
         projections={projections}
+        baseline={baseline}
         history={history}
         scope={scope}
         onScopeChange={setScope}

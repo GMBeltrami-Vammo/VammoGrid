@@ -1,4 +1,4 @@
-import { loadPlanningInputs, projectOne } from '@/lib/planning/load';
+import { loadPlanningInputs, projectOneCompare } from '@/lib/planning/load';
 import { fetchStockHistory } from '@/lib/planning/source/history';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
@@ -41,10 +41,12 @@ export default async function EstoquePage({
     defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
-  const [projections, history] = await Promise.all([
-    projectOne(selected),
+  const [compare, history] = await Promise.all([
+    projectOneCompare(selected),
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
   ]);
+  const projections = compare?.projections ?? null;
+  const baseline = compare?.baseline ?? null;
 
   return (
     <div>
@@ -59,6 +61,7 @@ export default async function EstoquePage({
         options={options}
         selected={selected}
         projections={projections}
+        baseline={baseline}
         history={history}
       />
 

@@ -54,6 +54,13 @@ export function buildDailyDemand(
   return { yhat, lo, hi, horizon, length: days };
 }
 
+/** Mean daily demand over the first `n` forecast days (for cover / risk estimates). */
+export function meanDailyDemand(fc: SkuForecast | null, n = 30): number {
+  if (!fc || fc.points.length === 0) return 0;
+  const slice = fc.points.slice(0, n);
+  return slice.reduce((s, p) => s + p.yhat, 0) / slice.length;
+}
+
 /** Cumulative sum; out[i] = Σ arr[0..i]. */
 export function cumsum(arr: number[]): number[] {
   const out = new Array<number>(arr.length).fill(0);

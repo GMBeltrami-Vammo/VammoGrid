@@ -32,6 +32,15 @@ import {
   skuPasses,
   type PlanningFilter,
 } from './filter';
+import {
+  EMPTY_SCENARIO,
+  SCENARIO_COOKIE,
+  delayOrder,
+  isScenarioActive,
+  parseScenarioCookie,
+  scaleForecast,
+  type PlanningScenario,
+} from './scenario';
 
 // Single per-request load of all engine inputs, then the engine runs. Wrapped in
 // React `cache()` so every Server Component in one render shares one fetch+compute.
@@ -48,6 +57,7 @@ export interface PlanningInputs {
   policies: Map<string, SkuPolicy>;
   alerts: PlanningAlert[];
   filter: PlanningFilter;
+  scenario: PlanningScenario;
 }
 
 function emptyInputs(today: string): PlanningInputs {
@@ -63,6 +73,7 @@ function emptyInputs(today: string): PlanningInputs {
     policies: new Map(),
     alerts: [],
     filter: EMPTY_FILTER,
+    scenario: EMPTY_SCENARIO,
   };
 }
 
@@ -71,12 +82,13 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
   const nowIso = new Date().toISOString();
   const cookieStore = await cookies();
   const filter = parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value);
+  const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
   // No warehouse credentials configured → render the shell with empty states
   // instead of throwing (keeps the app building + usable before secrets are set).
-  if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter };
+  if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter, scenario };
 
-  const [allStocks, forecastBundle, shares, orders, alerts, compatModels] = await Promise.all([
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels] = await Promise.all([
     fetchStockStates(nowIso),
     fetchForecasts(),
     fetchHubShares(),
@@ -91,7 +103,16 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
     ? allStocks.filter((s) => skuPasses(filter, s, compatModels))
     : allStocks;
 
-  const forecasts = forecastBundle.bySku;
+  // Apply the what-if scenario (read-only): scale demand, delay open POs. Done here
+  // so the entire app reflects the simulation without touching production data.
+  const active = isScenarioActive(scenario);
+  const forecasts = active
+    ? new Map(
+        [...forecastBundle.bySku].map(([k, fc]) => [k, scaleForecast(fc, scenario.demandPct)]),
+      )
+    : forecastBundle.bySku;
+  const orders = active ? rawOrders.map((o) => delayOrder(o, scenario.poDelayDays)) : rawOrders;
+
   const policies = buildPolicies({ stocks, forecasts, nowIso });
 
   return {
@@ -106,6 +127,7 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
     policies,
     alerts,
     filter,
+    scenario,
   };
 });
 

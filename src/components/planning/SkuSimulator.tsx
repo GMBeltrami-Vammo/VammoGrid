@@ -9,10 +9,18 @@ import type {
   StockState,
   TransportModal,
 } from '@/types/planning';
+import dynamic from 'next/dynamic';
 import { projectSku } from '@/lib/planning/projection';
 import { addDays } from '@/lib/planning/dates';
-import { ProjectionChart } from './ProjectionChart';
+import { scaleForecast, delayOrder } from '@/lib/planning/scenario';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
+
+// Lazy-load the Recharts chart so it stays out of the initial JS bundle
+// (vercel-react-best-practices: bundle-dynamic-imports).
+const ProjectionChart = dynamic(
+  () => import('./ProjectionChart').then((m) => ({ default: m.ProjectionChart })),
+  { ssr: false, loading: () => <div className="h-[300px] animate-pulse rounded-lg bg-muted/40" /> },
+);
 
 // Procurement what-if: re-runs the (pure) projection engine in the browser with a
 // hypothetical inbound PO, overlaying the simulated curve on the baseline so the
@@ -38,6 +46,8 @@ export function SkuSimulator({
   const [qty, setQty] = useState(100);
   const [arrivalDays, setArrivalDays] = useState(policy.leadTimeDays);
   const [modal, setModal] = useState<TransportModal>('sea');
+  const [demandPct, setDemandPct] = useState(0);
+  const [delayDays, setDelayDays] = useState(0);
 
   const baseline = useMemo(
     () => projectSku({ stock, forecast, orders, policy, shares, today }).global,
@@ -45,24 +55,31 @@ export function SkuSimulator({
   );
 
   const simulated = useMemo(() => {
-    if (qty <= 0) return baseline;
-    const simOrder: OpenPurchaseOrder = {
-      id: -1,
-      vo: 'SIM',
-      skuCode: stock.skuBase,
-      skuBase: stock.skuBase,
-      skuName: stock.skuName,
-      qty,
-      orderDate: today,
-      eta: addDays(today, Math.max(0, arrivalDays)),
-      leadTimeDays: arrivalDays,
-      modal,
-      status: 'ordered',
-      hubId: 'osasco',
-      source: 'sim',
-    };
-    return projectSku({ stock, forecast, orders: [...orders, simOrder], policy, shares, today }).global;
-  }, [baseline, qty, arrivalDays, modal, stock, forecast, orders, policy, shares, today]);
+    const simForecast = forecast ? scaleForecast(forecast, demandPct) : null;
+    const delayedOrders = orders.map((o) => delayOrder(o, delayDays));
+    const simOrders: OpenPurchaseOrder[] =
+      qty > 0
+        ? [
+            ...delayedOrders,
+            {
+              id: -1,
+              vo: 'SIM',
+              skuCode: stock.skuBase,
+              skuBase: stock.skuBase,
+              skuName: stock.skuName,
+              qty,
+              orderDate: today,
+              eta: addDays(today, Math.max(0, arrivalDays)),
+              leadTimeDays: arrivalDays,
+              modal,
+              status: 'ordered',
+              hubId: 'osasco',
+              source: 'sim',
+            },
+          ]
+        : delayedOrders;
+    return projectSku({ stock, forecast: simForecast, orders: simOrders, policy, shares, today }).global;
+  }, [qty, arrivalDays, modal, demandPct, delayDays, stock, forecast, orders, policy, shares, today]);
 
   const averted =
     baseline.stockoutDate && !simulated.stockoutDate
@@ -111,6 +128,29 @@ export function SkuSimulator({
             <option value="air">Aéreo</option>
           </select>
         </label>
+        <label className="text-xs font-medium text-muted-foreground">
+          Demanda
+          <select
+            value={demandPct}
+            onChange={(e) => setDemandPct(Number(e.target.value))}
+            className="mt-1 block h-8 w-24 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-brand-500"
+          >
+            {[-20, -10, 0, 10, 20, 50].map((d) => (
+              <option key={d} value={d}>
+                {d > 0 ? `+${d}` : d}%
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-medium text-muted-foreground">
+          Atrasar pedidos (d)
+          <input
+            type="number"
+            value={delayDays}
+            onChange={(e) => setDelayDays(Number(e.target.value) || 0)}
+            className="mt-1 block h-8 w-24 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-brand-500"
+          />
+        </label>
         <div className="ml-auto text-right">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Resultado</p>
           <p className="text-sm font-semibold text-alert-success">{averted}</p>
@@ -126,8 +166,10 @@ export function SkuSimulator({
         height={300}
       />
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Linha cheia = projeção atual · linha tracejada verde = com o pedido simulado chegando em{' '}
-        {fmtDate(addDays(today, arrivalDays))}.
+        Linha cheia = projeção atual · tracejada verde = cenário simulado
+        {qty > 0 ? ` (pedido +${fmtInt(qty)} un em ${arrivalDays}d` : ' ('}
+        {demandPct !== 0 ? `, demanda ${demandPct > 0 ? '+' : ''}${demandPct}%` : ''}
+        {delayDays !== 0 ? `, atraso pedidos ${delayDays}d` : ''}). Simulação local — não afeta produção.
       </p>
     </div>
   );

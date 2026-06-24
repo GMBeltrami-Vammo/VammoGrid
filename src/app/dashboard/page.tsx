@@ -2,15 +2,19 @@ import Link from 'next/link';
 import { safeComputeSnapshot } from '@/lib/planning/load';
 import {
   actionablePurchases,
+  computeHubRisk,
   countByStatus,
+  delayedShipments,
   healthScore,
   networkOnHand,
+  supplyMix,
   totalOrderCost,
   transfersByHub,
   upcomingStockouts,
 } from '@/lib/planning/selectors';
+import { resolveShares } from '@/lib/planning/allocation';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
-import { HUB_LIST } from '@/constants/planningHubs';
+import { HUBS } from '@/constants/planningHubs';
 import {
   EmptyState,
   FreshnessBanner,
@@ -32,6 +36,19 @@ export default async function ExecutiveDashboard() {
   const cost = totalOrderCost(actionable.filter((p) => p.orderQty > 0));
   const tByHub = transfersByHub(snap.transfers);
   const net = networkOnHand(snap.stocks);
+  const purchasesBySku = new Map(snap.purchases.map((p) => [p.skuBase, p]));
+  const hubRisk = computeHubRisk({
+    stocks: snap.stocks,
+    forecasts: snap.forecasts,
+    sharesFor: (s) => resolveShares(s, snap.shares.get(s.skuBase)),
+  });
+  const delayed = delayedShipments(snap.orders, purchasesBySku, snap.today);
+  const mix = supplyMix({
+    purchases: snap.purchases,
+    forecasts: snap.forecasts,
+    policies: snap.policies,
+  });
+  const mixTotal = mix.procurement + mix.recovery;
 
   const skuHref = (sku: string) => `/dashboard/sku/${encodeURIComponent(sku)}`;
 
@@ -84,30 +101,62 @@ export default async function ExecutiveDashboard() {
             />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {HUB_LIST.map((h) => (
-              <Link
-                key={h.id}
-                href={`/dashboard/hub/${h.id}`}
-                className="block rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-colors hover:ring-brand-500/40"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">{h.name}</p>
-                  {h.isCentral && (
-                    <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-brand-500/15 text-brand-600">
-                      Central
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-xl font-bold tabular-nums">{fmtInt(net.byHub[h.id])}</p>
-                <p className="text-xs text-muted-foreground">unidades em estoque</p>
-                {tByHub[h.id].count > 0 && (
-                  <p className="mt-1 text-xs text-brand-600">
-                    ↓ {fmtInt(tByHub[h.id].qty)} un. a receber ({tByHub[h.id].count} transf.)
+          <p className="mt-6 mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Hubs por risco
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {hubRisk.map((hr) => {
+              const h = HUBS[hr.hub];
+              return (
+                <Link
+                  key={hr.hub}
+                  href={`/dashboard/hub/${hr.hub}`}
+                  className="block rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-colors hover:ring-brand-500/40"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold">{h.name}</p>
+                    {hr.atRisk > 0 ? (
+                      <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-alert-error/15 text-alert-error">
+                        {hr.atRisk} em risco
+                      </span>
+                    ) : h.isCentral ? (
+                      <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-brand-500/15 text-brand-600">
+                        Central
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-xl font-bold tabular-nums">{fmtInt(net.byHub[hr.hub])}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {hr.skus} SKUs
+                    {hr.worstCover != null ? ` · pior cobertura ${fmtInt(hr.worstCover)}d` : ''}
                   </p>
-                )}
-              </Link>
-            ))}
+                  {tByHub[hr.hub].count > 0 && (
+                    <p className="mt-1 text-xs text-brand-600">
+                      ↓ {fmtInt(tByHub[hr.hub].qty)} un. a receber ({tByHub[hr.hub].count} transf.)
+                    </p>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+            <SectionTitle>Origem do suprimento (próximos 150d)</SectionTitle>
+            <div className="flex flex-wrap items-center gap-8">
+              <div>
+                <p className="text-2xl font-bold tabular-nums text-brand-500">{fmtInt(mix.procurement)}</p>
+                <p className="text-xs text-muted-foreground">un. via compras (pedidos abertos)</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold tabular-nums text-alert-success">{fmtInt(mix.recovery)}</p>
+                <p className="text-xs text-muted-foreground">un. via recuperação</p>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {mixTotal > 0
+                  ? `${Math.round((100 * mix.recovery) / mixTotal)}% do suprimento previsto vem de recuperação`
+                  : 'Sem suprimento previsto no horizonte'}
+              </div>
+            </div>
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -130,6 +179,50 @@ export default async function ExecutiveDashboard() {
               <RiskTable rows={stockouts.slice(0, 8)} today={snap.today} skuHref={skuHref} kind="stockout" />
             </div>
           </div>
+
+          {delayed.length > 0 && (
+            <div className="mt-6">
+              <SectionTitle>Embarques atrasados ({delayed.length})</SectionTitle>
+              <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">SKU</th>
+                      <th className="px-3 py-2 font-medium">VO</th>
+                      <th className="px-3 py-2 text-right font-medium">Atraso</th>
+                      <th className="px-3 py-2 text-right font-medium">Qtd</th>
+                      <th className="px-3 py-2 font-medium">Status SKU</th>
+                      <th className="px-3 py-2 text-right font-medium">Ruptura</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-foreground/5">
+                    {delayed.slice(0, 10).map((d, i) => (
+                      <tr key={`${d.order.id}-${i}`} className="hover:bg-muted/40">
+                        <td className="px-3 py-2">
+                          <Link
+                            href={skuHref(d.order.skuBase)}
+                            className="font-medium text-foreground hover:text-brand-600"
+                          >
+                            {d.skuName}
+                          </Link>
+                          <div className="text-[11px] text-muted-foreground">{d.order.skuBase}</div>
+                        </td>
+                        <td className="px-3 py-2">{d.order.vo ?? '—'}</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums text-alert-error">
+                          {d.daysLate}d
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtInt(d.order.qty)}</td>
+                        <td className="px-3 py-2">
+                          {d.status ? <StatusPill status={d.status} /> : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtDate(d.stockoutDate)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

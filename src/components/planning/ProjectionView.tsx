@@ -1,11 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import type { HubId } from '@/types/planning';
 import type { SkuProjections } from '@/lib/planning/projection';
-import { ProjectionChart } from './ProjectionChart';
 import { KpiCard } from './ui';
+
+// Lazy-load Recharts (bundle-dynamic-imports) — keeps it off the initial bundle.
+const ProjectionChart = dynamic(
+  () => import('./ProjectionChart').then((m) => ({ default: m.ProjectionChart })),
+  { ssr: false, loading: () => <div className="h-[340px] animate-pulse rounded-lg bg-muted/40" /> },
+);
 import { fmtDate, fmtInt, fmtNum } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 

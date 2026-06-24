@@ -43,7 +43,7 @@ export default async function EstoquePage({
 
   const [projections, history] = await Promise.all([
     projectOne(selected),
-    fetchStockHistory(selStock.skuName, 30, selStock.byHub),
+    fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
   ]);
 
   return (

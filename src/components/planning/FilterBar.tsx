@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Search, Bike, X } from 'lucide-react';
 import { MODEL_LABELS } from '@/constants/models';
 import { BIKE_MODELS } from '@/types';
-import { FILTER_COOKIE, type PlanningFilter } from '@/lib/planning/filter';
+import { type PlanningFilter } from '@/lib/planning/filter';
+import { writeFilterCookie } from '@/lib/planning/applyFilter';
 import { cn } from '@/lib/utils';
 
 // App-wide filter bar. Writes the `vg:filter` cookie and refreshes so the server
@@ -26,8 +27,7 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
   const [open, setOpen] = useState(false);
 
   function apply(next: PlanningFilter) {
-    // eslint-disable-next-line react-hooks/immutability -- event-handler side effect, not a render mutation
-    document.cookie = `${FILTER_COOKIE}=${encodeURIComponent(JSON.stringify(next))}; path=/; max-age=31536000`;
+    writeFilterCookie(next);
     router.refresh();
   }
   const setCat = (v: string | null) => {

@@ -49,7 +49,7 @@ export default async function SkusPage() {
       {rows.length === 0 ? (
         <EmptyState title="Sem dados" hint="Configure a fonte de dados para listar os SKUs." />
       ) : (
-        <SkuTable rows={rows} />
+        <SkuTable rows={rows} filter={snap.filter} />
       )}
     </div>
   );

@@ -14,7 +14,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-6">
-        <FilterBar initial={filter} />
+        {/* key tied to the filter → remounts (re-seeds its local state) whenever the
+            shared cookie changes, so the bar reflects edits made from other controls
+            (e.g. the category chips on the SKUs page). */}
+        <FilterBar
+          key={`${filter.category ?? ''}|${filter.models.join(',')}|${filter.q}`}
+          initial={filter}
+        />
         <ScenarioBar initial={scenario} />
         {children}
       </main>

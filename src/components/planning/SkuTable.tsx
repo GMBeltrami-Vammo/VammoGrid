@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { PurchaseStatus } from '@/types/planning';
+import type { PlanningFilter } from '@/lib/planning/filter';
+import { writeFilterCookie } from '@/lib/planning/applyFilter';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 
@@ -36,29 +39,46 @@ const ABC_CLASS: Record<string, string> = {
   C: 'text-muted-foreground',
 };
 
-export function SkuTable({ rows }: { rows: SkuRow[] }) {
+// App-wide category options — same set + values as the top FilterBar, so the two
+// controls drive the one shared `vg:filter` cookie and stay in sync.
+const CATEGORIES: { v: string | null; label: string }[] = [
+  { v: null, label: 'Tudo' },
+  { v: 'BIKE', label: 'Moto' },
+  { v: 'BATTERY', label: 'Bateria' },
+];
+
+export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFilter }) {
+  const router = useRouter();
   const [search, setSearch] = useState('');
-  const [catFilter, setCatFilter] = useState<string | null>(null);
   const [abcFilter, setAbcFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
 
-  const categories = useMemo(() => {
-    const seen = new Set<string>();
-    for (const r of rows) if (r.category) seen.add(r.category);
-    return [...seen].sort();
-  }, [rows]);
+  // Category is the APP-WIDE filter (drives every page + syncs with the top bar):
+  // write the shared cookie and refresh so the server re-renders the narrowed set.
+  const setCategory = (v: string | null) => {
+    writeFilterCookie({ models: filter.models, category: v, q: filter.q });
+    router.refresh();
+  };
 
+  // ABC / status / search are local refinements within the already-narrowed set.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q))
         return false;
-      if (catFilter && r.category !== catFilter) return false;
       if (abcFilter && r.abcClass !== abcFilter) return false;
       if (statusFilter && r.status !== statusFilter) return false;
       return true;
     });
-  }, [rows, search, catFilter, abcFilter, statusFilter]);
+  }, [rows, search, abcFilter, statusFilter]);
+
+  const localActive = abcFilter || statusFilter || search;
+  const clearAll = () => {
+    setAbcFilter(null);
+    setStatusFilter(null);
+    setSearch('');
+    if (filter.category != null) setCategory(null);
+  };
 
   return (
     <div>
@@ -72,23 +92,28 @@ export function SkuTable({ rows }: { rows: SkuRow[] }) {
           className="h-8 w-48 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
 
-        {/* Category chips */}
-        {categories.map((cat) => (
+        {/* Category chips — app-wide (Moto/Bateria), synced with the top filter bar */}
+        <span className="ml-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+          Categoria
+        </span>
+        {CATEGORIES.map((c) => (
           <button
-            key={cat}
-            onClick={() => setCatFilter(catFilter === cat ? null : cat)}
+            key={c.label}
+            onClick={() => setCategory(c.v)}
             className={cn(
               'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-              catFilter === cat
+              filter.category === c.v
                 ? 'bg-brand-500/20 text-brand-600'
                 : 'bg-muted/60 text-muted-foreground hover:bg-muted',
             )}
           >
-            {cat}
+            {c.label}
           </button>
         ))}
 
-        {/* ABC chips */}
+        <span className="mx-1 h-4 w-px bg-border" />
+
+        {/* ABC chips — local refinement */}
         {['A', 'B', 'C'].map((cls) => (
           <button
             key={cls}
@@ -104,7 +129,7 @@ export function SkuTable({ rows }: { rows: SkuRow[] }) {
           </button>
         ))}
 
-        {/* Status chips */}
+        {/* Status chips — local refinement */}
         {(['CRITICAL', 'REORDER', 'OK'] as PurchaseStatus[]).map((s) => (
           <button
             key={s}
@@ -118,14 +143,9 @@ export function SkuTable({ rows }: { rows: SkuRow[] }) {
           </button>
         ))}
 
-        {(catFilter || abcFilter || statusFilter || search) && (
+        {(localActive || filter.category != null) && (
           <button
-            onClick={() => {
-              setCatFilter(null);
-              setAbcFilter(null);
-              setStatusFilter(null);
-              setSearch('');
-            }}
+            onClick={clearAll}
             className="text-[11px] text-muted-foreground hover:text-foreground"
           >
             Limpar filtros

@@ -130,8 +130,9 @@ begin
   end loop;
 end $$;
 
--- 8. Retire superseded objects — daily stock history now comes from the warehouse
--- (analytics.mart_inventory_snapshot_daily). The daily snapshot cron + route that
--- wrote these is removed in the same change, so nothing repopulates them.
-drop table if exists fleet.piece_stock_hub;
-drop table if exists fleet.piece_stock_hub_monthly;
+-- 8. KEEP fleet.piece_stock_hub — it is the PER-HUB daily history source (the
+-- warehouse mart only keeps network totals, so per-hub history must come from here).
+-- The daily snapshot cron repopulates it (~09:00 UTC). The projection/SKU charts read
+-- it for true per-hub history (D-30). Only piece_stock_hub_monthly is currently unused;
+-- left in place, can be retired later if confirmed.
+-- (No drops — retirement reversed once per-hub history was confirmed to live here.)

@@ -20,7 +20,10 @@ export function ProjectionView({
   options: { skuBase: string; skuName: string }[];
   selected: string;
   projections: SkuProjections | null;
-  history?: { date: string; stock: number }[];
+  history?: {
+    global: { date: string; stock: number }[];
+    byHub: Record<HubId, { date: string; stock: number }[]>;
+  };
 }) {
   const router = useRouter();
   const [scope, setScope] = useState<Scope>('global');
@@ -30,6 +33,12 @@ export function ProjectionView({
       ? projections.global
       : projections.byHub[scope]
     : null;
+
+  const scopeHistory = history
+    ? scope === 'global'
+      ? history.global
+      : history.byHub[scope]
+    : undefined;
 
   const scopes: { key: Scope; label: string }[] = [
     { key: 'global', label: 'Global' },
@@ -90,13 +99,11 @@ export function ProjectionView({
             <ProjectionChart
               timeline={proj.timeline}
               stockoutDate={proj.stockoutDate}
-              history={scope === 'global' ? history : undefined}
+              history={scopeHistory}
               height={340}
             />
             <p className="mt-2 text-[11px] text-muted-foreground">
-              {scope === 'global' && history && history.length > 0
-                ? 'Antes de "hoje" = histórico real (rede). '
-                : ''}
+              {scopeHistory && scopeHistory.length > 0 ? 'Antes de "hoje" = histórico real. ' : ''}
               Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
               horizonte do modelo.
             </p>

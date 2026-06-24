@@ -1,3 +1,9 @@
 {
-  "regions": ["gru1"]
+  "regions": ["gru1"],
+  "crons": [
+    {
+      "path": "/api/inventory/snapshot",
+      "schedule": "0 9 * * *"
+    }
+  ]
 }

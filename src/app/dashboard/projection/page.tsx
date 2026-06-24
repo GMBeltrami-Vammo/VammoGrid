@@ -1,5 +1,5 @@
 import { loadPlanningInputs, projectOne } from '@/lib/planning/load';
-import { fetchHistory } from '@/lib/planning/source/history';
+import { fetchStockHistory } from '@/lib/planning/source/history';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { ProjectionView } from '@/components/planning/ProjectionView';
 
@@ -28,7 +28,11 @@ export default async function ProjectionPage({
     .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
   const selected =
     sp.sku && inputs.stocks.some((s) => s.skuBase === sp.sku) ? sp.sku : options[0].skuBase;
-  const [projections, history] = await Promise.all([projectOne(selected), fetchHistory(selected)]);
+  const selStock = inputs.stocks.find((s) => s.skuBase === selected);
+  const [projections, history] = await Promise.all([
+    projectOne(selected),
+    fetchStockHistory(selStock?.skuName ?? ''),
+  ]);
 
   return (
     <div>

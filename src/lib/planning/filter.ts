@@ -49,7 +49,9 @@ export function skuPasses(
       return false;
     }
   }
-  if (f.models.length > 0) {
+  // Fail-open when no compat data is loaded (empty map = table not yet seeded):
+  // hiding ALL SKUs when the user selects a model is confusing and unhelpful.
+  if (f.models.length > 0 && compatModels.size > 0) {
     const set = compatModels.get(stock.skuBase);
     if (!set || !f.models.some((m) => set.has(m))) return false;
   }

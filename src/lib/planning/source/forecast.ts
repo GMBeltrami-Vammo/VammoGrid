@@ -27,6 +27,34 @@ SELECT sku_base, abc_class, model_version, as_of_date, target_date,
 FROM dev.sop_predictions_daily
 WHERE as_of_date = (SELECT max(as_of_date) FROM dev.sop_predictions_daily)`;
 
+// The forecast is ~90 rows/SKU × hundreds of SKUs (tens of thousands of rows).
+// The Metabase fallback caps native-query results at ~2000 rows, which would
+// silently truncate the forecast to ~20 SKUs (and make every other SKU look
+// zero-demand). Fetch in sku_base batches small enough to stay under any cap,
+// in parallel, then merge. ~18 SKUs × 90 days ≈ 1620 rows per batch.
+const FORECAST_BATCH_SKUS = 18;
+
+async function fetchForecastRows(): Promise<ForecastRow[]> {
+  const baseRows = await chQuery<{ sku_base: string }>(
+    `SELECT DISTINCT sku_base FROM dev.sop_predictions_daily
+     WHERE as_of_date = (SELECT max(as_of_date) FROM dev.sop_predictions_daily)`,
+  );
+  const bases = baseRows.map((r) => String(r.sku_base)).filter(Boolean);
+  if (bases.length === 0) return [];
+
+  const batches: string[][] = [];
+  for (let i = 0; i < bases.length; i += FORECAST_BATCH_SKUS) {
+    batches.push(bases.slice(i, i + FORECAST_BATCH_SKUS));
+  }
+  const results = await Promise.all(
+    batches.map((batch) => {
+      const inList = batch.map((b) => `'${b.replace(/'/g, "''")}'`).join(',');
+      return chQuery<ForecastRow>(`${FORECAST_SQL} AND sku_base IN (${inList})`);
+    }),
+  );
+  return results.flat();
+}
+
 function asAbc(s: string): AbcClass {
   return s === 'A' || s === 'B' ? s : 'C';
 }
@@ -39,7 +67,7 @@ export interface ForecastBundle {
 }
 
 export async function fetchForecasts(): Promise<ForecastBundle> {
-  const rows = await chQuery<ForecastRow>(FORECAST_SQL);
+  const rows = await fetchForecastRows();
 
   const bySku = new Map<string, SkuForecast>();
   let asOfDate = '';

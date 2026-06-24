@@ -79,6 +79,7 @@ export function EstoqueView({
           <StockWindowChart
             history={history}
             projections={projections}
+            baseline={baseline}
             scope={scope}
             onScopeChange={setScope}
           />

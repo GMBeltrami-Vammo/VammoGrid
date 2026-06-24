@@ -17,6 +17,7 @@ import {
   CalendarRange,
   Clock,
   Workflow,
+  BookOpen,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
@@ -100,6 +101,12 @@ export function Sidebar() {
         </NavSection>
 
         <NavSection label="Sistema">
+          <NavLink
+            href="/dashboard/guia"
+            label="Guia do Usuário"
+            icon={BookOpen}
+            active={isActive('/dashboard/guia')}
+          />
           <NavLink href="/dashboard/alertas" label="Alertas" icon={Bell} active={isActive('/dashboard/alertas')} />
           <NavLink
             href="/dashboard/compatibilidade"

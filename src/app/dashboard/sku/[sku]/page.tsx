@@ -55,7 +55,7 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
     today: inputs.today,
   });
   const projections = projectSku({ stock, forecast, orders, policy, shares, today: inputs.today });
-  const history = await fetchStockHistory(stock.skuName);
+  const history = await fetchStockHistory(stock.skuName, 30, stock.byHub);
 
   return (
     <div>

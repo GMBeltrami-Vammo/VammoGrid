@@ -1,12 +1,18 @@
 import 'server-only';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { chQuery } from '@/lib/clickhouse/reader';
+import { HUB_BY_LOCATION, HUB_LOCATION_IDS } from '@/constants/planningHubs';
 import { addDays, todayUtc } from '../dates';
 import type { HubId } from '@/types/planning';
 
-// Per-hub + global historical on-hand from Supabase fleet.piece_stock_hub (the daily
-// per-hub snapshot, keyed by sku_name + hub_id + snapshot_date). This is the real
-// per-hub history (the warehouse mart only keeps network totals), so the projection
-// chart can show true per-hub history (D-30) before the projection.
+// Historical on-hand (last `days` days) per hub + global.
+//
+// Primary: IMS ledger (ClickHouse). Reconstructs daily stock by starting from
+// today's live on-hand and subtracting cumulative net-deltas going backwards.
+// net_delta(day) = Σ(led.delta) for all STORAGE movements at hub locations.
+//
+// Fallback: Supabase fleet.piece_stock_hub (legacy daily snapshot cron; empty
+// on most environments, kept for backwards compat).
 
 export interface HistoryPoint {
   date: string;
@@ -31,9 +37,109 @@ function toSeries(m: Map<string, number>): HistoryPoint[] {
     .map(([date, stock]) => ({ date, stock: Math.round(stock) }));
 }
 
-/** Historical on-hand for a SKU (matched by item name) over the last `days`. */
-export async function fetchStockHistory(skuName: string, days = 30): Promise<StockHistory> {
+interface LedgerDeltaRow {
+  dt: string;
+  location_id: string | number;
+  net_delta: string | number;
+}
+
+export async function fetchStockHistory(
+  skuName: string,
+  days = 30,
+  currentByHub?: Record<HubId, number>,
+): Promise<StockHistory> {
   if (!skuName) return emptyHistory();
+
+  if (currentByHub) {
+    try {
+      return await fetchHistoryFromLedger(skuName, days, currentByHub);
+    } catch {
+      // fall through to Supabase
+    }
+  }
+
+  return fetchHistoryFromSupabase(skuName, days);
+}
+
+async function fetchHistoryFromLedger(
+  skuName: string,
+  days: number,
+  currentByHub: Record<HubId, number>,
+): Promise<StockHistory> {
+  const safeName = skuName.replace(/'/g, "''");
+  const sql = `
+SELECT
+  toDate(led.created_at) AS dt,
+  loc.location_id,
+  sum(toFloat64(led.delta)) AS net_delta
+FROM analytics.stg_ims_r__ledger led
+JOIN analytics.stg_ims_r__inventory inv ON inv.inventory_id = led.inventory_id
+JOIN analytics.stg_ims_r__deposit dep ON dep.deposit_id = inv.deposit_id
+  AND dep.deposit_type = 'STORAGE'
+JOIN analytics.stg_ims_r__location loc ON loc.location_id = dep.location_id
+  AND loc.location_id IN (${HUB_LOCATION_IDS})
+JOIN analytics.stg_ims_r__item it ON it.item_id = inv.item_id
+JOIN analytics.stg_ims_r__item_group ig ON ig.item_group_id = it.item_group_id
+WHERE ig.item_group_name = '${safeName}'
+  AND led.created_at >= now() - INTERVAL ${days} DAY
+GROUP BY dt, location_id
+ORDER BY dt DESC`;
+
+  const rows = await chQuery<LedgerDeltaRow>(sql);
+
+  // Build deltasByDate: date → hub → net change that day
+  const deltasByDate = new Map<string, Record<HubId, number>>();
+  for (const row of rows) {
+    const dt = String(row.dt).slice(0, 10);
+    const hub = HUB_BY_LOCATION[Number(row.location_id)];
+    if (!hub) continue;
+    let m = deltasByDate.get(dt);
+    if (!m) {
+      m = { osasco: 0, mooca: 0, sbc: 0 };
+      deltasByDate.set(dt, m);
+    }
+    m[hub] += Number(row.net_delta) || 0;
+  }
+
+  // Reconstruct backwards from current stock.
+  // stock(today - k) = currentByHub - Σ(delta(day) for day from today down to today-(k-1))
+  const today = todayUtc();
+  const byHubMaps: Record<HubId, Map<string, number>> = {
+    osasco: new Map(),
+    mooca: new Map(),
+    sbc: new Map(),
+  };
+  const globalByDate = new Map<string, number>();
+  const cumDelta: Record<HubId, number> = { osasco: 0, mooca: 0, sbc: 0 };
+
+  for (let daysBack = 0; daysBack <= days; daysBack++) {
+    const d = addDays(today, -daysBack);
+    let global = 0;
+    for (const hub of HUBS) {
+      const s = Math.max(0, (currentByHub[hub] ?? 0) - cumDelta[hub]);
+      byHubMaps[hub].set(d, s);
+      global += s;
+    }
+    globalByDate.set(d, global);
+
+    // Accumulate this day's delta before moving to the next (earlier) day
+    const dayDelta = deltasByDate.get(d);
+    if (dayDelta) {
+      for (const hub of HUBS) cumDelta[hub] += dayDelta[hub];
+    }
+  }
+
+  return {
+    global: toSeries(globalByDate),
+    byHub: {
+      osasco: toSeries(byHubMaps.osasco),
+      mooca: toSeries(byHubMaps.mooca),
+      sbc: toSeries(byHubMaps.sbc),
+    },
+  };
+}
+
+async function fetchHistoryFromSupabase(skuName: string, days: number): Promise<StockHistory> {
   try {
     const supabase = createServerSupabase();
     const cutoff = addDays(todayUtc(), -Math.abs(days));

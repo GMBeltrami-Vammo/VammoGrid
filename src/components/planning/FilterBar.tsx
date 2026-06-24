@@ -16,7 +16,6 @@ const CATEGORIES: { v: string | null; label: string }[] = [
   { v: null, label: 'Tudo' },
   { v: 'BIKE', label: 'Moto' },
   { v: 'BATTERY', label: 'Bateria' },
-  { v: 'BOX', label: 'Baú' },
 ];
 
 export function FilterBar({ initial }: { initial: PlanningFilter }) {

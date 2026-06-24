@@ -87,8 +87,13 @@ export type LeadTimeSource = 'national-file' | 'international-default' | 'manual
 
 export interface SkuPolicy {
   skuBase: string;
+  /** Effective lead time used by the engines = the default modal's value. */
   leadTimeDays: number;
   leadTimeSource: LeadTimeSource;
+  /** Modal-split lead times (days). Effective leadTimeDays is derived from defaultModal. */
+  leadTimeSeaDays: number | null;
+  leadTimeAirDays: number | null;
+  defaultModal: TransportModal;
   abcClass: AbcClass;
   /** Target days-of-inventory (order-up-to cover beyond lead time). */
   targetDoi: number;
@@ -167,6 +172,42 @@ export interface StockProjection {
   daysUntilStockout: number | null;
   incomingUnits: number;
   timeline: ProjectionPoint[];
+}
+
+// ─── Weekly stockout grid (projection sampled at week marks) ──────────────────
+
+/** One column of the weekly grid. */
+export interface WeekMeta {
+  /** 1-based week number. */
+  idx: number;
+  /** Day offset from today at this week's end (7, 14, … 56). */
+  dayOffset: number;
+  /** YYYY-MM-DD date at week end. */
+  endDate: string;
+}
+
+/** One SKU × week cell: end-of-week projected state. */
+export interface WeekCell {
+  stock: number;
+  /** Days-of-hand at week end = stock / that day's daily demand; null when no demand. */
+  doh: number | null;
+  /** Units arriving (open POs) during the week. */
+  inbound: number;
+  /** Recovered units credited during the week. */
+  recovery: number;
+  isOut: boolean;
+  isLow: boolean;
+}
+
+export interface WeekGridRow {
+  skuBase: string;
+  skuName: string;
+  leadTimeSource: LeadTimeSource;
+  status: PurchaseStatus;
+  isLate: boolean;
+  /** Week column the buy-by date falls in (null = no buy-by, or beyond the grid). */
+  buyByWeekIdx: number | null;
+  cells: WeekCell[];
 }
 
 // ─── Purchase recommendation ──────────────────────────────────────────────────

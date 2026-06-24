@@ -1,5 +1,5 @@
 import type { AbcClass, SkuForecast, SkuPolicy, StockState } from '@/types/planning';
-import { ABC_TARGET_DOI, DEFAULT_LEAD_TIME_DAYS } from './constants';
+import { ABC_TARGET_DOI, DEFAULT_LEAD_TIME_DAYS, INTERNATIONAL_AIR_LEAD_DAYS } from './constants';
 import { NATIONAL_LEAD_TIMES } from './seed/nationalLeadTimes';
 
 // Resolves the effective planning policy per SKU. Precedence:
@@ -16,10 +16,17 @@ export function defaultPolicyFor(
   nowIso: string,
 ): SkuPolicy {
   const national = NATIONAL_LEAD_TIMES[skuBase];
+  // National parts ship domestically (modal moot → sea = air = the seed). International
+  // parts default to sea (110d) with a faster air option (40d).
+  const seaDays = national ?? DEFAULT_LEAD_TIME_DAYS;
+  const airDays = national ?? INTERNATIONAL_AIR_LEAD_DAYS;
   return {
     skuBase,
-    leadTimeDays: national ?? DEFAULT_LEAD_TIME_DAYS,
+    leadTimeDays: seaDays, // defaultModal = 'sea'
     leadTimeSource: national != null ? 'national-file' : 'international-default',
+    leadTimeSeaDays: seaDays,
+    leadTimeAirDays: airDays,
+    defaultModal: 'sea',
     abcClass,
     targetDoi: ABC_TARGET_DOI[abcClass],
     recoveryRate: 0,
@@ -47,12 +54,19 @@ export function buildPolicies(args: {
       continue;
     }
     const abcFinal = ov.abcClass ?? base.abcClass;
-    map.set(s.skuBase, {
+    const merged: SkuPolicy = {
       ...base,
       ...ov,
       abcClass: abcFinal,
       targetDoi: ov.targetDoi ?? ABC_TARGET_DOI[abcFinal],
-    });
+    };
+    // Effective lead time follows the default modal's sea/air value. An explicit
+    // leadTimeDays override (manual) still wins when sea/air aren't both set.
+    const sea = merged.leadTimeSeaDays;
+    const air = merged.leadTimeAirDays;
+    const modalDays = merged.defaultModal === 'air' ? air : sea;
+    if (modalDays != null && ov.leadTimeDays == null) merged.leadTimeDays = modalDays;
+    map.set(s.skuBase, merged);
   }
   return map;
 }

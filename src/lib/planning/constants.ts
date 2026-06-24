@@ -9,8 +9,11 @@ export const ABC_Z: Record<AbcClass, number> = { A: 1.96, B: 1.65, C: 1.28 };
 /** Target days-of-inventory by ABC class (order-up-to cover beyond lead time). */
 export const ABC_TARGET_DOI: Record<AbcClass, number> = { A: 30, B: 45, C: 60 };
 
-/** Procurement lead time when no per-SKU value is known (international parts). */
+/** Procurement lead time when no per-SKU value is known (international parts, sea). */
 export const DEFAULT_LEAD_TIME_DAYS = 110;
+
+/** Default air-freight lead time for international parts (faster, costlier modal). */
+export const INTERNATIONAL_AIR_LEAD_DAYS = 40;
 
 /** Default planning horizon (days) for projections. Brief target = 150. */
 export const HORIZON_DAYS = 150;

@@ -14,6 +14,7 @@ import {
   LogOut,
   Settings,
   Package,
+  CalendarRange,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
@@ -57,6 +58,12 @@ export function Sidebar() {
             label="Estoque"
             icon={TrendingUp}
             active={isActive('/dashboard/estoque')}
+          />
+          <NavLink
+            href="/dashboard/semanas"
+            label="Semanas"
+            icon={CalendarRange}
+            active={isActive('/dashboard/semanas')}
           />
           <NavLink
             href="/dashboard/skus"

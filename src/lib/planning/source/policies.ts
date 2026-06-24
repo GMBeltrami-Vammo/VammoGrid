@@ -1,5 +1,5 @@
 import 'server-only';
-import type { SkuPolicy } from '@/types/planning';
+import type { SkuPolicy, TransportModal } from '@/types/planning';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 // Reads per-SKU policy overrides from fleet.sku_policy (Supabase).
@@ -10,6 +10,9 @@ interface PolicyRow {
   sku_base: string;
   lead_time_days: number | null;
   lead_time_source: string | null;
+  lead_time_sea_days: number | null;
+  lead_time_air_days: number | null;
+  default_modal: string | null;
   abc_class: string | null;
   target_doi: number | null;
   recovery_rate: number;
@@ -39,6 +42,9 @@ export async function fetchSkuPolicies(): Promise<Map<string, Partial<SkuPolicy>
       if (r.lead_time_days != null) override.leadTimeDays = r.lead_time_days;
       if (r.lead_time_source != null)
         override.leadTimeSource = r.lead_time_source as SkuPolicy['leadTimeSource'];
+      if (r.lead_time_sea_days != null) override.leadTimeSeaDays = r.lead_time_sea_days;
+      if (r.lead_time_air_days != null) override.leadTimeAirDays = r.lead_time_air_days;
+      if (r.default_modal != null) override.defaultModal = r.default_modal as TransportModal;
       if (r.abc_class != null)
         override.abcClass = r.abc_class.trim() as SkuPolicy['abcClass'];
       if (r.target_doi != null) override.targetDoi = r.target_doi;

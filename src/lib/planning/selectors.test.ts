@@ -92,7 +92,7 @@ describe('supplyMix', () => {
     const purchases = [{ incomingUnits: 100 } as PurchaseSuggestion];
     const forecasts = new Map([['X', fc(2, 150)]]); // 2/day × 150 = 300
     const policies = new Map<string, SkuPolicy>([
-      ['X', { skuBase: 'X', isRepairable: true, recoveryRate: 0.5, leadTimeDays: 110, leadTimeSource: 'international-default', abcClass: 'C', targetDoi: 60, recoveryTurnaroundDays: 14, safetyOverride: null, updatedBy: null, updatedAt: TODAY }],
+      ['X', { skuBase: 'X', isRepairable: true, recoveryRate: 0.5, leadTimeDays: 110, leadTimeSource: 'international-default', leadTimeSeaDays: 110, leadTimeAirDays: 40, defaultModal: 'sea', abcClass: 'C', targetDoi: 60, recoveryTurnaroundDays: 14, safetyOverride: null, updatedBy: null, updatedAt: TODAY }],
     ]);
     const mix = supplyMix({ purchases, forecasts, policies, horizon: 150 });
     expect(mix.procurement).toBe(100);

@@ -26,8 +26,12 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
   const [models, setModels] = useState<string[]>(initial.models);
   const [open, setOpen] = useState(false);
 
-  function apply(next: PlanningFilter) {
-    writeFilterCookie(next);
+  // The hand-picked SKU selection is managed on the SKUs page; the bar preserves it
+  // across category/model/search edits and offers a one-click clear.
+  const skus = initial.skus;
+
+  function apply(next: Omit<PlanningFilter, 'skus'>) {
+    writeFilterCookie({ ...next, skus });
     router.refresh();
   }
   const setCat = (v: string | null) => {
@@ -43,10 +47,16 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
     setQ('');
     setCategory(null);
     setModels([]);
-    apply({ models: [], category: null, q: '' });
+    // "Limpar filtro" clears everything, including the hand-picked selection.
+    writeFilterCookie({ models: [], category: null, q: '', skus: [] });
+    router.refresh();
+  };
+  const clearSelection = () => {
+    writeFilterCookie({ models, category, q, skus: [] });
+    router.refresh();
   };
 
-  const active = models.length > 0 || category != null || q.trim().length > 0;
+  const active = models.length > 0 || category != null || q.trim().length > 0 || skus.length > 0;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-card p-2 ring-1 ring-foreground/10">
@@ -113,6 +123,19 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
           </>
         )}
       </div>
+
+      {skus.length > 0 && (
+        <span className="flex items-center gap-1.5 rounded-md bg-brand-500/15 px-2.5 py-1.5 text-xs font-medium text-brand-600">
+          {skus.length} SKU{skus.length > 1 ? 's' : ''} selecionado{skus.length > 1 ? 's' : ''}
+          <button
+            onClick={clearSelection}
+            aria-label="Limpar seleção de SKUs"
+            className="rounded p-0.5 hover:bg-brand-500/20"
+          >
+            <X size={12} />
+          </button>
+        </span>
+      )}
 
       {active && (
         <button

@@ -3,8 +3,9 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Check } from 'lucide-react';
 import type { PurchaseStatus } from '@/types/planning';
-import type { PlanningFilter } from '@/lib/planning/filter';
+import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie } from '@/lib/planning/applyFilter';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
@@ -53,10 +54,42 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
   const [abcFilter, setAbcFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
 
-  // Category is the APP-WIDE filter (drives every page + syncs with the top bar):
-  // write the shared cookie and refresh so the server re-renders the narrowed set.
+  // Hand-picked focus set (single-SKU control). Lives in the shared `vg:filter`
+  // cookie so it narrows every other analysis. This page is exempt from that
+  // narrowing (it's the manager), so toggling only writes the cookie + updates
+  // local state — no server refresh needed, keeping checkboxes instant.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(filter.skus));
+  const [capHit, setCapHit] = useState(false);
+
+  const persist = (next: Set<string>) => {
+    setSelected(next);
+    writeFilterCookie({
+      models: filter.models,
+      category: filter.category,
+      q: filter.q,
+      skus: [...next],
+    });
+  };
+
+  const toggle = (skuBase: string) => {
+    const next = new Set(selected);
+    if (next.has(skuBase)) {
+      next.delete(skuBase);
+    } else {
+      if (next.size >= MAX_SELECTED_SKUS) {
+        setCapHit(true);
+        return;
+      }
+      next.add(skuBase);
+    }
+    setCapHit(false);
+    persist(next);
+  };
+
+  // Category is the APP-WIDE scope filter (drives every page + syncs with the top
+  // bar): write the shared cookie and refresh so the server re-renders the set.
   const setCategory = (v: string | null) => {
-    writeFilterCookie({ models: filter.models, category: v, q: filter.q });
+    writeFilterCookie({ models: filter.models, category: v, q: filter.q, skus: [...selected] });
     router.refresh();
   };
 
@@ -71,6 +104,28 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
       return true;
     });
   }, [rows, search, abcFilter, statusFilter]);
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.skuBase));
+  const toggleAllVisible = () => {
+    const next = new Set(selected);
+    if (allVisibleSelected) {
+      for (const r of filtered) next.delete(r.skuBase);
+    } else {
+      for (const r of filtered) {
+        if (next.size >= MAX_SELECTED_SKUS) {
+          setCapHit(true);
+          break;
+        }
+        next.add(r.skuBase);
+      }
+    }
+    persist(next);
+  };
+
+  const clearSelection = () => {
+    setCapHit(false);
+    persist(new Set());
+  };
 
   const localActive = abcFilter || statusFilter || search;
   const clearAll = () => {
@@ -157,11 +212,44 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
         </span>
       </div>
 
+      {/* Selection summary — the hand-picked set that focuses every other analysis */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand-500/10 px-3 py-2 text-xs ring-1 ring-brand-500/20">
+          <Check size={14} className="text-brand-600" />
+          <span className="font-medium text-brand-600">
+            {selected.size} SKU{selected.size > 1 ? 's' : ''} selecionado{selected.size > 1 ? 's' : ''} — análises focadas neste conjunto
+          </span>
+          <span className="text-muted-foreground">
+            (Estoque, Semanas, Compras, Transferências, Alertas)
+          </span>
+          <button
+            onClick={clearSelection}
+            className="ml-auto rounded px-2 py-0.5 font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            Limpar seleção
+          </button>
+        </div>
+      )}
+      {capHit && (
+        <p className="mb-3 rounded-lg bg-alert-warning/10 px-3 py-1.5 text-xs text-[color:var(--color-alert-warning)] ring-1 ring-alert-warning/30">
+          Limite de {MAX_SELECTED_SKUS} SKUs selecionados. Use os filtros de categoria/classe para conjuntos maiores.
+        </p>
+      )}
+
       {/* Table */}
       <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <th className="w-8 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  aria-label="Selecionar todos visíveis"
+                  checked={allVisibleSelected}
+                  onChange={toggleAllVisible}
+                  className="size-3.5 cursor-pointer accent-brand-500 align-middle"
+                />
+              </th>
               <th className="px-3 py-2.5 font-medium">SKU</th>
               <th className="px-3 py-2.5 font-medium">Nome</th>
               <th className="px-3 py-2.5 font-medium">Categ.</th>
@@ -175,66 +263,79 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={9} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
             ) : (
-              filtered.map((r) => (
-                <tr key={r.skuBase} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/dashboard/sku/${encodeURIComponent(r.skuBase)}`}
-                      className="font-mono text-xs text-brand-500 hover:text-brand-400 transition-colors"
-                    >
-                      {r.skuBase}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 max-w-[200px]">
-                    <Link
-                      href={`/dashboard/sku/${encodeURIComponent(r.skuBase)}`}
-                      className="truncate block text-foreground hover:text-brand-500 transition-colors"
-                    >
-                      {r.skuName}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">
-                    {r.category ?? '—'}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                        ABC_CLASS[r.abcClass] ?? 'text-muted-foreground',
+              filtered.map((r) => {
+                const isSel = selected.has(r.skuBase);
+                return (
+                  <tr
+                    key={r.skuBase}
+                    className={cn('transition-colors', isSel ? 'bg-brand-500/5' : 'hover:bg-muted/30')}
+                  >
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${r.skuBase}`}
+                        checked={isSel}
+                        onChange={() => toggle(r.skuBase)}
+                        className="size-3.5 cursor-pointer accent-brand-500 align-middle"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Link
+                        href={`/dashboard/sku/${encodeURIComponent(r.skuBase)}`}
+                        className="font-mono text-xs text-brand-500 hover:text-brand-400 transition-colors"
+                      >
+                        {r.skuBase}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 max-w-[200px]">
+                      <Link
+                        href={`/dashboard/sku/${encodeURIComponent(r.skuBase)}`}
+                        className="truncate block text-foreground hover:text-brand-500 transition-colors"
+                      >
+                        {r.skuName}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground">{r.category ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                          ABC_CLASS[r.abcClass] ?? 'text-muted-foreground',
+                        )}
+                      >
+                        {r.abcClass}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.onHand)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                      {r.dohDays != null ? `${fmtInt(r.dohDays)}d` : '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                          STATUS_CLASS[r.status],
+                        )}
+                      >
+                        {STATUS_LABEL[r.status]}
+                        {r.isLate && ' ⚠'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 tabular-nums text-xs">
+                      {r.stockoutDate ? (
+                        <span className="text-alert-error">{fmtDate(r.stockoutDate)}</span>
+                      ) : (
+                        <span className="text-alert-success">—</span>
                       )}
-                    >
-                      {r.abcClass}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.onHand)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                    {r.dohDays != null ? `${fmtInt(r.dohDays)}d` : '—'}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                        STATUS_CLASS[r.status],
-                      )}
-                    >
-                      {STATUS_LABEL[r.status]}
-                      {r.isLate && ' ⚠'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-xs">
-                    {r.stockoutDate ? (
-                      <span className="text-alert-error">{fmtDate(r.stockoutDate)}</span>
-                    ) : (
-                      <span className="text-alert-success">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

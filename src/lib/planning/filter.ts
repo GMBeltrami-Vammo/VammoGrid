@@ -8,10 +8,17 @@ export interface PlanningFilter {
   models: string[];
   category: string | null;
   q: string;
+  /** Hand-picked sku_bases (single-SKU focus set). Empty = no selection. When
+   *  non-empty, only these SKUs pass — narrows every aggregate analysis. */
+  skus: string[];
 }
 
 export const FILTER_COOKIE = 'vg:filter';
-export const EMPTY_FILTER: PlanningFilter = { models: [], category: null, q: '' };
+export const EMPTY_FILTER: PlanningFilter = { models: [], category: null, q: '', skus: [] };
+
+/** Cap on the hand-picked set, to keep the cookie well under the ~4KB limit
+ *  (a 15-char sku_base encodes to ~24 bytes in the cookie → 100 ≈ 2.4KB). */
+export const MAX_SELECTED_SKUS = 100;
 
 export function parseFilterCookie(raw: string | undefined): PlanningFilter {
   if (!raw) return EMPTY_FILTER;
@@ -27,6 +34,7 @@ export function parseFilterCookie(raw: string | undefined): PlanningFilter {
       models: Array.isArray(o.models) ? o.models.map(String) : [],
       category: o.category ? String(o.category) : null,
       q: typeof o.q === 'string' ? o.q : '',
+      skus: Array.isArray(o.skus) ? o.skus.map(String) : [],
     };
   } catch {
     return EMPTY_FILTER;
@@ -34,7 +42,9 @@ export function parseFilterCookie(raw: string | undefined): PlanningFilter {
 }
 
 export function isFilterActive(f: PlanningFilter): boolean {
-  return f.models.length > 0 || f.category != null || f.q.trim().length > 0;
+  return (
+    f.models.length > 0 || f.category != null || f.q.trim().length > 0 || f.skus.length > 0
+  );
 }
 
 export function skuPasses(
@@ -42,6 +52,9 @@ export function skuPasses(
   stock: StockState,
   compatModels: Map<string, Set<string>>,
 ): boolean {
+  // Hand-picked focus set: only the selected sku_bases pass (composes AND with the
+  // scope filters below).
+  if (f.skus.length > 0 && !f.skus.includes(stock.skuBase)) return false;
   if (f.category && stock.category !== f.category) return false;
   if (f.q.trim()) {
     const n = f.q.trim().toLowerCase();

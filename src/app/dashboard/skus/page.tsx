@@ -5,7 +5,10 @@ import { SkuTable, type SkuRow } from '@/components/planning/SkuTable';
 export const dynamic = 'force-dynamic';
 
 export default async function SkusPage() {
-  const snap = await safeComputeSnapshot();
+  // ignoreSkuSelection: the SKUs page is the selection MANAGER — it must list the
+  // full (scoped) catalog so the user can check/uncheck any SKU. The hand-picked
+  // set narrows every other analysis, not this table.
+  const snap = await safeComputeSnapshot(true);
 
   const stockByBase = new Map(snap.stocks.map((s) => [s.skuBase, s]));
 

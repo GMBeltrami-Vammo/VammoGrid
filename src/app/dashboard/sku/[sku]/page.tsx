@@ -25,7 +25,9 @@ export const dynamic = 'force-dynamic';
 export default async function SkuDetailPage({ params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params;
   const skuBase = decodeURIComponent(sku);
-  const inputs = await loadPlanningInputs();
+  // ignoreSkuSelection: a direct SKU link must resolve even when it's outside the
+  // current hand-picked focus set.
+  const inputs = await loadPlanningInputs(true);
   const stock = inputs.stocks.find((s) => s.skuBase === skuBase);
 
   if (!stock) {

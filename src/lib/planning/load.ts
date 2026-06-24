@@ -83,7 +83,7 @@ function emptyInputs(today: string): PlanningInputs {
   };
 }
 
-export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
+export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Promise<PlanningInputs> => {
   const today = todayUtc();
   const nowIso = new Date().toISOString();
   const cookieStore = await cookies();
@@ -108,8 +108,11 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
 
   // Apply the app-wide filter once, here, so every downstream surface (dashboard,
   // projection, procurement, transfers) operates on the same narrowed SKU set.
-  const stocks = isFilterActive(filter)
-    ? allStocks.filter((s) => skuPasses(filter, s, compatModels))
+  // The SKU manager + single-SKU detail views pass ignoreSkuSelection so they can
+  // still list/show every SKU; all aggregate analyses respect the hand-picked set.
+  const narrowFilter = ignoreSkuSelection ? { ...filter, skus: [] } : filter;
+  const stocks = isFilterActive(narrowFilter)
+    ? allStocks.filter((s) => skuPasses(narrowFilter, s, compatModels))
     : allStocks;
 
   // Apply the what-if scenario (read-only): scale demand, delay open POs. Done here
@@ -146,8 +149,8 @@ export interface PlanningSnapshot extends PlanningInputs {
   transfers: TransferSuggestion[];
 }
 
-export const computeSnapshot = cache(async (): Promise<PlanningSnapshot> => {
-  const inp = await loadPlanningInputs();
+export const computeSnapshot = cache(async (ignoreSkuSelection = false): Promise<PlanningSnapshot> => {
+  const inp = await loadPlanningInputs(ignoreSkuSelection);
 
   const purchases = purchaseForAll({
     stocks: inp.stocks,
@@ -173,9 +176,11 @@ export const computeSnapshot = cache(async (): Promise<PlanningSnapshot> => {
 
 /** computeSnapshot that never throws — returns empty + an error note on failure,
  *  so pages can render the shell + a banner instead of crashing. */
-export async function safeComputeSnapshot(): Promise<PlanningSnapshot & { error?: string }> {
+export async function safeComputeSnapshot(
+  ignoreSkuSelection = false,
+): Promise<PlanningSnapshot & { error?: string }> {
   try {
-    return await computeSnapshot();
+    return await computeSnapshot(ignoreSkuSelection);
   } catch (e) {
     const today = todayUtc();
     return {

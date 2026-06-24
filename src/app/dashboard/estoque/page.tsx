@@ -1,7 +1,10 @@
 import { loadPlanningInputs, projectOne } from '@/lib/planning/load';
 import { fetchStockHistory } from '@/lib/planning/source/history';
-import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
+import { resolveShares } from '@/lib/planning/allocation';
+import { defaultPolicyFor } from '@/lib/planning/policy';
+import { EmptyState, FreshnessBanner, PageHeader, SectionTitle } from '@/components/planning/ui';
 import { EstoqueView } from '@/components/planning/EstoqueView';
+import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,11 +33,17 @@ export default async function EstoquePage({
   const selected =
     sp.sku && inputs.stocks.some((s) => s.skuBase === sp.sku) ? sp.sku : options[0].skuBase;
 
-  const selStock = inputs.stocks.find((s) => s.skuBase === selected);
+  const selStock = inputs.stocks.find((s) => s.skuBase === selected)!;
+  const forecast = inputs.forecasts.get(selected) ?? null;
+  const orders = inputs.ordersBySku.get(selected) ?? [];
+  const policy =
+    inputs.policies.get(selected) ??
+    defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
+  const shares = resolveShares(selStock, inputs.shares.get(selected));
 
   const [projections, history] = await Promise.all([
     projectOne(selected),
-    fetchStockHistory(selStock?.skuName ?? ''),
+    fetchStockHistory(selStock.skuName),
   ]);
 
   return (
@@ -45,12 +54,26 @@ export default async function EstoquePage({
         subtitle="Janela D-30→D+30 e horizonte D0→D+150 — histórico real, projeção e banda lo–hi por SKU e hub"
       />
       <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
+
       <EstoqueView
         options={options}
         selected={selected}
         projections={projections}
         history={history}
       />
+
+      <div className="mt-8">
+        <SectionTitle>Recuperação (global — todos os hubs)</SectionTitle>
+        <RecoveryPanel
+          skuBase={selected}
+          stock={selStock}
+          forecast={forecast}
+          orders={orders}
+          policy={policy}
+          shares={shares}
+          today={inputs.today}
+        />
+      </div>
     </div>
   );
 }

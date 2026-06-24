@@ -21,6 +21,7 @@ import { transferForAll } from './transfer';
 import { fetchSopAlerts } from './source/alerts';
 import { fetchForecasts } from './source/forecast';
 import { fetchOpenOrders, ordersBySkuBase } from './source/orders';
+import { fetchSkuPolicies } from './source/policies';
 import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
@@ -88,14 +89,16 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
   // instead of throwing (keeps the app building + usable before secrets are set).
   if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter, scenario };
 
-  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels] = await Promise.all([
-    fetchStockStates(nowIso),
-    fetchForecasts(),
-    fetchHubShares(),
-    fetchOpenOrders(),
-    fetchSopAlerts(),
-    fetchCompatModels(),
-  ]);
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides] =
+    await Promise.all([
+      fetchStockStates(nowIso),
+      fetchForecasts(),
+      fetchHubShares(),
+      fetchOpenOrders(),
+      fetchSopAlerts(),
+      fetchCompatModels(),
+      fetchSkuPolicies(),
+    ]);
 
   // Apply the app-wide filter once, here, so every downstream surface (dashboard,
   // projection, procurement, transfers) operates on the same narrowed SKU set.
@@ -113,7 +116,7 @@ export const loadPlanningInputs = cache(async (): Promise<PlanningInputs> => {
     : forecastBundle.bySku;
   const orders = active ? rawOrders.map((o) => delayOrder(o, scenario.poDelayDays)) : rawOrders;
 
-  const policies = buildPolicies({ stocks, forecasts, nowIso });
+  const policies = buildPolicies({ stocks, forecasts, overrides: policyOverrides, nowIso });
 
   return {
     today,

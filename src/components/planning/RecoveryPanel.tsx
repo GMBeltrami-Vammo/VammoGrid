@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import dynamic from 'next/dynamic';
 import type { HistoricalRecovery, HubId, OpenPurchaseOrder, SkuForecast, SkuPolicy, StockState } from '@/types/planning';
 import { projectSku } from '@/lib/planning/projection';
-import { fmtInt, fmtNum } from '@/lib/planning/format';
+import { fmtDateLong, fmtInt, fmtNum } from '@/lib/planning/format';
 import { updateRecoveryPolicy } from '@/app/dashboard/sku/[sku]/actions';
 
 // Recovery panel: editable recovery params (rate, turnaround, is_repairable) +
@@ -29,6 +29,7 @@ export function RecoveryPanel({
   shares,
   today,
   historicalRate,
+  refreshedAt,
 }: {
   skuBase: string;
   stock: StockState;
@@ -38,6 +39,8 @@ export function RecoveryPanel({
   shares: Record<HubId, number>;
   today: string;
   historicalRate?: HistoricalRecovery | null;
+  /** When the weekly IMS recovery-rate refresh last ran (ISO). */
+  refreshedAt?: string | null;
 }) {
   // Editable policy state (matches current saved values on mount)
   const [rate, setRate] = useState(Math.round(policy.recoveryRate * 100));
@@ -117,6 +120,12 @@ export function RecoveryPanel({
 
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10 space-y-4">
+
+      {refreshedAt && (
+        <p className="text-[10px] text-muted-foreground">
+          Taxas observadas (IMS) atualizadas em {fmtDateLong(refreshedAt.slice(0, 10))} · atualização semanal
+        </p>
+      )}
 
       {/* Editable params */}
       <div>

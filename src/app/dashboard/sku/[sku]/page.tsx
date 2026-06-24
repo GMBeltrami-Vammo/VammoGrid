@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { loadPlanningInputs } from '@/lib/planning/load';
 import { fetchStockHistory } from '@/lib/planning/source/history';
+import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
 import { purchaseForSku } from '@/lib/planning/purchase';
@@ -57,7 +58,10 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
     today: inputs.today,
   });
   const projections = projectSku({ stock, forecast, orders, policy, shares, today: inputs.today });
-  const history = await fetchStockHistory(stock.skuBase, stock.byHub, 30);
+  const [history, recoveryRefreshedAt] = await Promise.all([
+    fetchStockHistory(stock.skuBase, stock.byHub, 30),
+    fetchRecoveryRefreshedAt(),
+  ]);
 
   return (
     <div>
@@ -178,6 +182,7 @@ export default async function SkuDetailPage({ params }: { params: Promise<{ sku:
             shares={shares}
             today={inputs.today}
             historicalRate={inputs.recoveryRates.get(skuBase) ?? null}
+            refreshedAt={recoveryRefreshedAt}
           />
           <div className="mt-3 grid grid-cols-2 gap-3">
             <KpiCard label="Consumo diário (global)" value={fmtNum(projections.global.dailyDemand)} hint="un/dia" />

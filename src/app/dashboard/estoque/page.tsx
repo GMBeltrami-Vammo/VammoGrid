@@ -1,5 +1,6 @@
 import { loadPlanningInputs, projectOneCompare } from '@/lib/planning/load';
 import { fetchStockHistory } from '@/lib/planning/source/history';
+import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
 import { EmptyState, FreshnessBanner, PageHeader, SectionTitle } from '@/components/planning/ui';
@@ -41,9 +42,10 @@ export default async function EstoquePage({
     defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
-  const [compare, history] = await Promise.all([
+  const [compare, history, recoveryRefreshedAt] = await Promise.all([
     projectOneCompare(selected),
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
+    fetchRecoveryRefreshedAt(),
   ]);
   const projections = compare?.projections ?? null;
   const baseline = compare?.baseline ?? null;
@@ -76,6 +78,7 @@ export default async function EstoquePage({
           shares={shares}
           today={inputs.today}
           historicalRate={inputs.recoveryRates.get(selected) ?? null}
+          refreshedAt={recoveryRefreshedAt}
         />
       </div>
     </div>

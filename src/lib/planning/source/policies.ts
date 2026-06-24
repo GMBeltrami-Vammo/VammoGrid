@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SkuPolicy, TransportModal } from '@/types/planning';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { createServiceSupabase } from '@/lib/supabase/service';
 
 // Reads per-SKU policy overrides from fleet.sku_policy (Supabase).
 // Only columns present in the row override the defaults — missing columns
@@ -25,7 +25,9 @@ interface PolicyRow {
 
 export async function fetchSkuPolicies(): Promise<Map<string, Partial<SkuPolicy>>> {
   try {
-    const supabase = createServerSupabase();
+    // Service role: sku_policy is server-only planning metadata and is not exposed
+    // to the public anon key (which also lacks table grants on it).
+    const supabase = createServiceSupabase();
     const { data, error } = await supabase
       .schema('fleet')
       .from('sku_policy')

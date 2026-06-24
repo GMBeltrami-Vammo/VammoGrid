@@ -91,13 +91,18 @@ export function RecoveryPanel({
     setSaveError(null);
     startTransition(async () => {
       try {
-        await updateRecoveryPolicy(skuBase, {
+        const res = await updateRecoveryPolicy(skuBase, {
           recoveryRate: rate / 100,
           recoveryTurnaroundDays: turnaround,
           isRepairable,
         });
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 3000);
+        if (res.ok) {
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 3000);
+        } else {
+          setSaveStatus('error');
+          setSaveError(res.error ?? 'Erro desconhecido');
+        }
       } catch (e) {
         setSaveStatus('error');
         setSaveError(e instanceof Error ? e.message : 'Erro desconhecido');

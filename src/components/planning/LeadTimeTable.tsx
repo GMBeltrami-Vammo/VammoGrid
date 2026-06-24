@@ -100,9 +100,18 @@ function Row({ row }: { row: LeadTimeRow }) {
     setError(null);
     startTransition(async () => {
       try {
-        await updateLeadTimePolicy(row.skuBase, { seaDays: sea, airDays: air, defaultModal: modal });
-        setStatus('saved');
-        setTimeout(() => setStatus('idle'), 3000);
+        const res = await updateLeadTimePolicy(row.skuBase, {
+          seaDays: sea,
+          airDays: air,
+          defaultModal: modal,
+        });
+        if (res.ok) {
+          setStatus('saved');
+          setTimeout(() => setStatus('idle'), 3000);
+        } else {
+          setStatus('error');
+          setError(res.error ?? 'Erro desconhecido');
+        }
       } catch (e) {
         setStatus('error');
         setError(e instanceof Error ? e.message : 'Erro desconhecido');

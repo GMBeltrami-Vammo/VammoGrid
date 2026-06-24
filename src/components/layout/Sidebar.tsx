@@ -16,6 +16,7 @@ import {
   Package,
   CalendarRange,
   Clock,
+  Workflow,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
@@ -105,6 +106,12 @@ export function Sidebar() {
             label="Compatibilidade"
             icon={Bike}
             active={isActive('/dashboard/compatibilidade')}
+          />
+          <NavLink
+            href="/dashboard/fontes"
+            label="Fontes & Fórmulas"
+            icon={Workflow}
+            active={isActive('/dashboard/fontes')}
           />
           {session?.user?.isHead && (
             <NavLink

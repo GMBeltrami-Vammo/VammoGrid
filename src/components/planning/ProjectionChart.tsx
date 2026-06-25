@@ -38,12 +38,19 @@ export function ProjectionChart({
   history?: { date: string; stock: number }[] | null;
   height?: number;
 }) {
-  const histData = (history ?? []).map((h) => ({
-    date: h.date,
-    stock: h.stock,
-    band: undefined as [number, number] | undefined,
-    sim: undefined as number | undefined,
-  }));
+  const todayMarker = timeline[0]?.date;
+  // Drop history's "today" point: timeline[0] is also today, and a DUPLICATE category
+  // on Recharts' x-axis silently breaks ReferenceLine positioning — the "hoje" divider,
+  // the green pedido-arrival lines and the stockout marker all fail to render. Keeping
+  // history strictly before today makes every date unique so the markers come back.
+  const histData = (history ?? [])
+    .filter((h) => !todayMarker || h.date < todayMarker)
+    .map((h) => ({
+      date: h.date,
+      stock: h.stock,
+      band: undefined as [number, number] | undefined,
+      sim: undefined as number | undefined,
+    }));
   const projData = timeline.map((p, i) => ({
     date: p.date,
     stock: p.stock,
@@ -51,7 +58,6 @@ export function ProjectionChart({
     sim: overlayTimeline?.[i]?.stock,
   }));
   const data = [...histData, ...projData];
-  const todayMarker = timeline[0]?.date;
 
   // Pedido arrivals visible within this chart's window — mark the cause of bumps.
   const projDates = new Set(projData.map((d) => d.date));
@@ -158,7 +164,7 @@ export function ProjectionChart({
               }}
             />
           ))}
-          {history && history.length > 0 && todayMarker && (
+          {histData.length > 0 && todayMarker && (
             <ReferenceLine
               x={todayMarker}
               stroke="var(--color-muted-foreground)"

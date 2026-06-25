@@ -257,8 +257,12 @@ export interface TransferSuggestion {
   toHub: HubId;
   /** Date the destination hub is projected to need the stock by. */
   needByDate: string | null;
-  /** 0–1 confidence from forecast band width + data freshness. */
+  /** 0–1 trust score = precision × freshness (clamped 0.05–0.95). */
   confidence: number;
+  /** 0–1 forecast precision over the window: 1/(1+cv) of cumulative demand. */
+  precision: number;
+  /** 0–1 forecast freshness: decays linearly to 0.3 by 30 days stale. */
+  freshness: number;
   /** Transfer cycle: 1 = this week (Tuesday), 2 = next week. */
   cycle: number;
   reason: string;

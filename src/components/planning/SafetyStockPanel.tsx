@@ -5,6 +5,7 @@ import type { AbcClass } from '@/types/planning';
 import { ABC_Z } from '@/lib/planning/constants';
 import { fmtInt, fmtNum } from '@/lib/planning/format';
 import { updateSafetyStock } from '@/app/dashboard/sku/[sku]/actions';
+import { InfoHint } from '@/components/planning/InfoHint';
 
 // Safety stock is a GLOBAL (network-level) value per SKU. By default it's
 // ABC_Z[class] × σ_L (σ_L from the forecast band); a manual override replaces it.
@@ -65,7 +66,7 @@ export function SafetyStockPanel({
         {/* Effective value — prominent */}
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Estoque de segurança (global){isOverride ? ' · manual' : ' · calculado'}
+            <span className="inline-flex items-center gap-1">Estoque de segurança (global) <InfoHint id="safety" /></span>{isOverride ? ' · manual' : ' · calculado'}
           </p>
           <p className="mt-0.5 text-3xl font-bold tabular-nums text-foreground">{fmtInt(effective)}<span className="ml-1 text-sm font-medium text-muted-foreground">un</span></p>
         </div>
@@ -104,13 +105,13 @@ export function SafetyStockPanel({
 
       {/* Formula */}
       <p className="mt-3 rounded-md bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/80">
-        SS calculado = Z(classe {abcClass} = {z}) × σ_L ({fmtNum(sigmaL)}) = {fmtInt(computed)} un
+        SS calculado = Z(classe {abcClass} <InfoHint id="abc-class" /> = {z}) × σ_L <InfoHint id="sigma-l" /> ({fmtNum(sigmaL)}) = {fmtInt(computed)} un
         {isOverride && <span className="text-muted-foreground"> · override manual em uso ({fmtInt(parsed)} un)</span>}
       </p>
 
       {/* How it feeds the purchase suggestion */}
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Base da recompra: <span className="font-medium text-foreground">ROP = demanda no lead ({fmtInt(expectedLeadTimeDemand)}) + estoque de segurança ({fmtInt(effective)}) = {fmtInt(expectedLeadTimeDemand + effective)} un</span>
+        Base da recompra: <span className="font-medium text-foreground">ROP <InfoHint id="rop" /> = demanda no lead <InfoHint id="expected-lead-demand" /> ({fmtInt(expectedLeadTimeDemand)}) + estoque de segurança ({fmtInt(effective)}) = {fmtInt(expectedLeadTimeDemand + effective)} un</span>
         {dirty ? ' — recalcula ao salvar.' : `. ROP atual: ${fmtInt(rop)} un.`}
       </p>
 

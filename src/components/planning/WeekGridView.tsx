@@ -6,6 +6,7 @@ import type { HubId, WeekGridRow } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
+import { InfoHint } from '@/components/planning/InfoHint';
 
 // Weekly stockout grid: rows = SKUs, columns = W1..W8 (end-of-week projected stock +
 // DOH + color). Scope toggle + search + per-week new-stockout summary bar. Read-only —
@@ -210,21 +211,21 @@ function GridRow({ row }: { row: WeekGridRow }) {
 
 function Legend() {
   const items = [
-    { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)' },
-    { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: 'Cobertura < 14d' },
-    { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido (+un)' },
-    { cls: 'bg-brand-500/10 text-brand-600', label: 'Recuperação (♻)' },
+    { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' as const },
+    { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: 'Cobertura < 14d', hint: 'week-doh' as const },
+    { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido (+un)', hint: 'week-inbound' as const },
+    { cls: 'bg-brand-500/10 text-brand-600', label: 'Recuperação (♻)', hint: 'recovery-line' as const },
   ];
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
       {items.map((it) => (
         <span key={it.label} className="flex items-center gap-1.5">
           <span className={cn('inline-block h-3 w-3 rounded-sm', it.cls)} />
-          {it.label}
+          {it.label} <InfoHint id={it.hint} />
         </span>
       ))}
       <span className="flex items-center gap-1.5">
-        <span className="font-bold text-alert-warning">⚑</span> Semana-limite de compra
+        <span className="font-bold text-alert-warning">⚑</span> Semana-limite de compra <InfoHint id="buy-by-week" />
       </span>
     </div>
   );

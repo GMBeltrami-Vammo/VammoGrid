@@ -10,6 +10,7 @@ import type {
   TransportModal,
 } from '@/types/planning';
 import dynamic from 'next/dynamic';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { projectSku } from '@/lib/planning/projection';
 import { addDays } from '@/lib/planning/dates';
 import { scaleForecast, delayOrder } from '@/lib/planning/scenario';
@@ -152,7 +153,9 @@ export function SkuSimulator({
           />
         </label>
         <div className="ml-auto text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Resultado</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Resultado <InfoHint id="stockout-date" />
+          </p>
           <p className="text-sm font-semibold text-alert-success">{averted}</p>
         </div>
       </div>
@@ -166,7 +169,8 @@ export function SkuSimulator({
         height={300}
       />
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Linha cheia = projeção atual · tracejada verde = cenário simulado
+        Linha cheia = projeção atual <InfoHint id="projection-line" /> · tracejada verde = cenário simulado{' '}
+        <InfoHint id="recovery-line" />
         {qty > 0 ? ` (pedido +${fmtInt(qty)} un em ${arrivalDays}d` : ' ('}
         {demandPct !== 0 ? `, demanda ${demandPct > 0 ? '+' : ''}${demandPct}%` : ''}
         {delayDays !== 0 ? `, atraso pedidos ${delayDays}d` : ''}). Simulação local — não afeta produção.

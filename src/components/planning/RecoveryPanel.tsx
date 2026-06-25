@@ -6,6 +6,7 @@ import type { HistoricalRecovery, HubId, OpenPurchaseOrder, SkuForecast, SkuPoli
 import { projectSku } from '@/lib/planning/projection';
 import { fmtDateLong, fmtInt, fmtNum } from '@/lib/planning/format';
 import { updateRecoveryPolicy } from '@/app/dashboard/sku/[sku]/actions';
+import { InfoHint } from '@/components/planning/InfoHint';
 
 // Recovery panel: editable recovery params (rate, turnaround, is_repairable) +
 // a what-if simulator that re-runs the projection engine client-side to show
@@ -150,7 +151,7 @@ export function RecoveryPanel({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <label className="text-xs font-medium text-muted-foreground">
-            Taxa de recuperação (%)
+            Taxa de recuperação (%) <InfoHint id="recovery-rate" />
             <input
               type="number"
               min={0}
@@ -162,7 +163,7 @@ export function RecoveryPanel({
             />
             {historicalRate && (
               <span className="mt-1 block text-[10px] font-normal text-muted-foreground">
-                Real (IMS {historicalRate.lookbackDays}d):{' '}
+                Real (IMS {historicalRate.lookbackDays}d) <InfoHint id="recovery-observed" />:{' '}
                 <span className="font-semibold text-foreground">
                   {Math.round(historicalRate.rate * 100)}%
                 </span>{' '}
@@ -178,7 +179,7 @@ export function RecoveryPanel({
             )}
           </label>
           <label className="text-xs font-medium text-muted-foreground">
-            Turnaround (dias)
+            Turnaround (dias) <InfoHint id="recovery-turnaround" />
             <input
               type="number"
               min={1}
@@ -236,7 +237,7 @@ export function RecoveryPanel({
       {policy.isRepairable && (
         <div className="grid grid-cols-3 gap-3 rounded-lg bg-muted/30 p-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Rec. 30d</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Rec. 30d <InfoHint id="recovery-line" /></p>
             <p className="mt-0.5 text-base font-bold tabular-nums">{fmtInt(baseRec30)} un</p>
           </div>
           <div>
@@ -244,7 +245,7 @@ export function RecoveryPanel({
             <p className="mt-0.5 text-base font-bold tabular-nums">{fmtInt(baseRec90)} un</p>
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Consumo/dia</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Consumo/dia <InfoHint id="daily-demand" /></p>
             <p className="mt-0.5 text-base font-bold tabular-nums">{fmtNum(baseline.dailyDemand)} un</p>
           </div>
         </div>

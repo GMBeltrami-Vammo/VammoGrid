@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import type { HubId } from '@/types/planning';
 import type { PoArrival, SkuProjections } from '@/lib/planning/projection';
 import type { StockHistory } from '@/lib/planning/source/history';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
 // D-30→D+30 focused stock window. Joins real history (left) to projection (right)
@@ -97,10 +98,23 @@ export function StockWindowChart({
         history={hist.length > 0 ? hist : undefined}
         height={240}
       />
-      <p className="mt-1.5 text-[10px] text-muted-foreground">
-        Histórico real (esquerda de &quot;hoje&quot;) · Projeção com banda lo–hi (direita)
-        {isGlobalOrOsasco ? ' · linha verde = chegada de pedido (VO)' : ''}
-        {showRecoveryOverlay ? ' · tracejada cinza = sem recuperação' : ''}
+      <p className="mt-1.5 inline-flex flex-wrap items-center gap-x-1 text-[10px] text-muted-foreground">
+        Histórico real (esquerda de &quot;hoje&quot;) · Projeção <InfoHint id="projection-line" /> com
+        banda lo–hi <InfoHint id="band" /> (direita)
+        {isGlobalOrOsasco ? (
+          <>
+            {' · linha verde = chegada de pedido (VO)'} <InfoHint id="incoming" />
+          </>
+        ) : (
+          ''
+        )}
+        {showRecoveryOverlay ? (
+          <>
+            {' · tracejada cinza = sem recuperação'} <InfoHint id="recovery-line" />
+          </>
+        ) : (
+          ''
+        )}
       </p>
     </div>
   );

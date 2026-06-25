@@ -9,6 +9,7 @@ import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie } from '@/lib/planning/applyFilter';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
+import { InfoHint } from '@/components/planning/InfoHint';
 
 export interface SkuRow {
   skuBase: string;
@@ -248,11 +249,21 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
               <th className="px-3 py-2.5 font-medium">SKU</th>
               <th className="px-3 py-2.5 font-medium">Nome</th>
               <th className="px-3 py-2.5 font-medium">Categ.</th>
-              <th className="px-3 py-2.5 font-medium">Classe</th>
-              <th className="px-3 py-2.5 text-right font-medium">Estoque</th>
-              <th className="px-3 py-2.5 text-right font-medium">Cobertura</th>
-              <th className="px-3 py-2.5 font-medium">Status</th>
-              <th className="px-3 py-2.5 font-medium">Ruptura</th>
+              <th className="px-3 py-2.5 font-medium">
+                <span className="inline-flex items-center gap-1">Classe <InfoHint id="abc-class" /></span>
+              </th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Estoque <InfoHint id="onhand" /></span>
+              </th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Cobertura <InfoHint id="sku-doh" /></span>
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <span className="inline-flex items-center gap-1">Status <InfoHint id="purchase-status" /></span>
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <span className="inline-flex items-center gap-1">Ruptura <InfoHint id="stockout-date" /></span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-foreground/5">

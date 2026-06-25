@@ -164,7 +164,18 @@ export default async function GuiaPage() {
             'sobra de Osasco = máx(0, estoque Osasco − demanda de Osasco no ciclo)',
             'transferir = mín(falta do hub, parte proporcional da sobra de Osasco)',
           ]}
-          note="Confiança da sugestão cai com a largura da banda da previsão e com a defasagem da previsão (semanal)."
+          note="Cada sugestão também ganha uma Confiança (0–100%) — veja abaixo."
+        />
+        <Calc
+          title="Confiança da transferência"
+          plain="Quanto confiar na sugestão. Combina a precisão da previsão na janela (quão estreita é a banda em relação à demanda acumulada) com o frescor dos dados (há quantos dias a previsão foi gerada). É exibida como “prec X% · fresc Y%” na coluna Confiança."
+          formula={[
+            'cv = (banda acumulada na janela ÷ 1,28) ÷ demanda acumulada na janela',
+            'precisão = 1 ÷ (1 + cv)            (cv 0 → 100% · cv 1 → 50% · cv 3 → 25%)',
+            'frescor = limita(1 − dias_desatualizado ÷ 30, entre 30% e 100%)',
+            'confiança = limita(precisão × frescor, entre 5% e 95%)',
+          ]}
+          note="Usa a demanda ACUMULADA da janela (não o dia-a-dia, que dispara em peças de baixo volume e prendia tudo perto de 10%). O fallback spoke-to-spoke aplica ×0,7. Não é probabilidade de ruptura — é um índice de confiança."
         />
         <Calc
           title="Grade semanal (Semanas)"

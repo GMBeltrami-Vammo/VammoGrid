@@ -4,6 +4,7 @@ import { isFilterActive } from '@/lib/planning/filter';
 import { fmtDate, fmtInt, HUB_SHORT } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { TransferMap } from '@/components/planning/TransferMap';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -54,10 +55,18 @@ export default async function TransfersPage() {
                   <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-2 font-medium">Ciclo</th>
                     <th className="px-3 py-2 font-medium">SKU</th>
-                    <th className="px-3 py-2 font-medium">Rota</th>
-                    <th className="px-3 py-2 text-right font-medium">Qtd</th>
-                    <th className="px-3 py-2 text-right font-medium">Precisa até</th>
-                    <th className="px-3 py-2 text-right font-medium">Confiança</th>
+                    <th className="px-3 py-2 font-medium">
+                      <span className="inline-flex items-center gap-1">Rota <InfoHint id="transfer-route" /></span>
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      <span className="inline-flex items-center gap-1">Qtd <InfoHint id="transfer-qty" /></span>
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      <span className="inline-flex items-center gap-1">Precisa até <InfoHint id="transfer-need" /></span>
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      <span className="inline-flex items-center justify-end gap-1">Confiança <InfoHint id="transfer-confidence" /></span>
+                    </th>
                     <th className="px-3 py-2 font-medium">Motivo</th>
                   </tr>
                 </thead>
@@ -92,7 +101,12 @@ export default async function TransfersPage() {
                       </td>
                       <td className="px-3 py-2 text-right font-semibold tabular-nums">{fmtInt(t.qty)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtDate(t.needByDate)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{Math.round(t.confidence * 100)}%</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        <span className="font-medium">{Math.round(t.confidence * 100)}%</span>
+                        <div className="text-[10px] font-normal text-muted-foreground">
+                          prec {Math.round(t.precision * 100)}% · fresc {Math.round(t.freshness * 100)}%
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{t.reason}</td>
                     </tr>
                   ))}

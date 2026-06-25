@@ -7,6 +7,7 @@ import {
 import { fmtBRL, fmtInt } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { ProcurementTable } from '@/components/planning/ProcurementTable';
+import { InfoHint } from '@/components/planning/InfoHint';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,10 +31,27 @@ export default async function ProcurementPage() {
       ) : (
         <>
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <KpiCard label="Críticos" value={fmtInt(counts.critical)} tone="danger" />
-            <KpiCard label="Recompra" value={fmtInt(counts.reorder)} tone="warning" />
-            <KpiCard label="Compras atrasadas" value={fmtInt(counts.late)} hint="buy-by no passado" tone="danger" />
-            <KpiCard label="Custo total sugerido" value={fmtBRL(cost)} tone="brand" />
+            <KpiCard
+              label={<span className="inline-flex items-center gap-1">Críticos <InfoHint id="purchase-status" /></span>}
+              value={fmtInt(counts.critical)}
+              tone="danger"
+            />
+            <KpiCard
+              label={<span className="inline-flex items-center gap-1">Recompra <InfoHint id="rop" /></span>}
+              value={fmtInt(counts.reorder)}
+              tone="warning"
+            />
+            <KpiCard
+              label={<span className="inline-flex items-center gap-1">Compras atrasadas <InfoHint id="buy-by" /></span>}
+              value={fmtInt(counts.late)}
+              hint="buy-by no passado"
+              tone="danger"
+            />
+            <KpiCard
+              label={<span className="inline-flex items-center gap-1">Custo total sugerido <InfoHint id="est-cost" /></span>}
+              value={fmtBRL(cost)}
+              tone="brand"
+            />
           </div>
 
           {counts.late > 0 && (

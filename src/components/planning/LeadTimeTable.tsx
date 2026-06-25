@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import type { LeadTimeSource, TransportModal } from '@/types/planning';
 import { updateLeadTimePolicy } from '@/app/dashboard/lead-times/actions';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
 // Editable per-SKU lead-time table (marítimo / aéreo / modal padrão). The default
@@ -63,7 +64,9 @@ export function LeadTimeTable({ rows }: { rows: LeadTimeRow[] }) {
               <th className="px-3 py-2 text-right font-medium">Marítimo (d)</th>
               <th className="px-3 py-2 text-right font-medium">Aéreo (d)</th>
               <th className="px-3 py-2 text-center font-medium">Padrão</th>
-              <th className="px-3 py-2 text-right font-medium">Efetivo</th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Efetivo <InfoHint id="lead-time" /></span>
+              </th>
               <th className="px-3 py-2 font-medium" />
             </tr>
           </thead>

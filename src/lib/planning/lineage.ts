@@ -539,12 +539,13 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         ref: 'src/lib/planning/transfer.ts:147-186',
       },
       {
-        name: 'Confiança (frescor + incerteza de banda)',
+        name: 'Confiança = precisão × frescor (recalibrada)',
         source: 'src/lib/planning/transfer.ts',
         formula:
-          'freshness = clamp(1 − max(0, diffDays(asOfDate, today))/30, 0.3, 1); bandRel = média de (hi−lo)×share / max(yhat×share, 0.001); confidence = clamp((1 − bandRel/2) × freshness, 0.1, 0.95)',
-        notes: 'Forecast >30d → freshness 0.3; alta variância → menor confiança. Spoke-to-spoke aplica ×0.7.',
-        ref: 'src/lib/planning/transfer.ts:74-179',
+          'cumYhat = Σ yhat[1..coverage] (frota); cumHalfBand = Σ (hi−lo)/2; cv = (cumHalfBand / 1,28) / max(cumYhat, 1e-6); precision = clamp(1/(1+cv), 0.05, 1); freshness = clamp(1 − max(0, diffDays(asOfDate, today))/30, 0.3, 1); confidence = clamp(precision × freshness, 0.05, 0.95)',
+        notes:
+          'Usa o CV da demanda ACUMULADA na janela — não a média do (hi−lo)/yhat diário, que disparava em peças de baixo volume e prendia a confiança no piso. precision e freshness são expostos separadamente na UI (coluna Confiança mostra “prec X% · fresc Y%”). Spoke-to-spoke aplica ×0.7 em confidence e precision.',
+        ref: 'src/lib/planning/transfer.ts:60-205',
       },
     ],
   },

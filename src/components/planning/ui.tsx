@@ -76,7 +76,7 @@ export function KpiCard({
   hint,
   tone = 'default',
 }: {
-  label: string;
+  label: ReactNode;
   value: ReactNode;
   hint?: ReactNode;
   tone?: 'default' | 'danger' | 'warning' | 'success' | 'brand';

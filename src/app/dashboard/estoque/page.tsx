@@ -16,6 +16,7 @@ import {
   SectionTitle,
   StatusPill,
 } from '@/components/planning/ui';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { EstoqueView } from '@/components/planning/EstoqueView';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 import { SafetyStockPanel } from '@/components/planning/SafetyStockPanel';
@@ -116,7 +117,11 @@ export default async function EstoquePage({
           <div className="mt-8">
             <SectionTitle>Estoque por hub</SectionTitle>
             <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <KpiCard label="Total" value={fmtInt(selStock.total)} tone="brand" />
+              <KpiCard
+                label={<span className="inline-flex items-center gap-1">Total <InfoHint id="onhand" /></span>}
+                value={fmtInt(selStock.total)}
+                tone="brand"
+              />
               {HUB_LIST.map((h) => (
                 <KpiCard
                   key={h.id}
@@ -142,13 +147,28 @@ export default async function EstoquePage({
               <span className="text-sm text-muted-foreground">{purchase.reasoning}</span>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              <Metric label="Ponto recompra" value={fmtInt(purchase.rop)} />
-              <Metric label="Estoque segurança" value={fmtInt(purchase.safetyStock)} />
-              <Metric label="Demanda no lead" value={fmtInt(purchase.expectedLeadTimeDemand)} />
-              <Metric label="Comprar (qtd)" value={purchase.orderQty > 0 ? fmtInt(purchase.orderQty) : '—'} />
-              <Metric label="Comprar até" value={fmtDate(purchase.buyByDate)} />
               <Metric
-                label="Custo estimado"
+                label={<span className="inline-flex items-center gap-1">Ponto recompra <InfoHint id="rop" /></span>}
+                value={fmtInt(purchase.rop)}
+              />
+              <Metric
+                label={<span className="inline-flex items-center gap-1">Estoque segurança <InfoHint id="safety" /></span>}
+                value={fmtInt(purchase.safetyStock)}
+              />
+              <Metric
+                label={<span className="inline-flex items-center gap-1">Demanda no lead <InfoHint id="expected-lead-demand" /></span>}
+                value={fmtInt(purchase.expectedLeadTimeDemand)}
+              />
+              <Metric
+                label={<span className="inline-flex items-center gap-1">Comprar (qtd) <InfoHint id="order-qty" /></span>}
+                value={purchase.orderQty > 0 ? fmtInt(purchase.orderQty) : '—'}
+              />
+              <Metric
+                label={<span className="inline-flex items-center gap-1">Comprar até <InfoHint id="buy-by" /></span>}
+                value={fmtDate(purchase.buyByDate)}
+              />
+              <Metric
+                label={<span className="inline-flex items-center gap-1">Custo estimado <InfoHint id="est-cost" /></span>}
                 value={purchase.estCost != null && purchase.orderQty > 0 ? fmtBRL(purchase.estCost) : '—'}
               />
             </div>
@@ -229,9 +249,13 @@ export default async function EstoquePage({
                 refreshedAt={recoveryRefreshedAt}
               />
               <div className="mt-3 grid grid-cols-2 gap-3">
-                <KpiCard label="Consumo diário (global)" value={fmtNum(projections.global.dailyDemand)} hint="un/dia" />
                 <KpiCard
-                  label="Cobertura atual"
+                  label={<span className="inline-flex items-center gap-1">Consumo diário (global) <InfoHint id="daily-demand" /></span>}
+                  value={fmtNum(projections.global.dailyDemand)}
+                  hint="un/dia"
+                />
+                <KpiCard
+                  label={<span className="inline-flex items-center gap-1">Cobertura atual <InfoHint id="doh" /></span>}
                   value={projections.global.dohNow != null ? `${fmtInt(projections.global.dohNow)}d` : '—'}
                 />
               </div>
@@ -243,7 +267,7 @@ export default async function EstoquePage({
   );
 }
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+function Metric({ label, value }: { label: React.ReactNode; value: React.ReactNode }) {
   return (
     <div>
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>

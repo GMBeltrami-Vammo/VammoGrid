@@ -6,6 +6,7 @@ import type { PurchaseSuggestion } from '@/types/planning';
 import { byUrgency } from '@/lib/planning/selectors';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { LatePill, StatusPill } from './ui';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
 type Filter = 'all' | 'critical' | 'reorder' | 'late';
@@ -68,14 +69,30 @@ export function ProcurementTable({ rows }: { rows: PurchaseSuggestion[] }) {
           <thead>
             <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2 font-medium">SKU</th>
-              <th className="px-3 py-2 font-medium">Status</th>
-              <th className="px-3 py-2 text-right font-medium">Estoque</th>
-              <th className="px-3 py-2 text-right font-medium">Lead</th>
-              <th className="px-3 py-2 text-right font-medium">ROP</th>
-              <th className="px-3 py-2 text-right font-medium">Ruptura</th>
-              <th className="px-3 py-2 text-right font-medium">Comprar até</th>
-              <th className="px-3 py-2 text-right font-medium">Qtd</th>
-              <th className="px-3 py-2 text-right font-medium">Custo est.</th>
+              <th className="px-3 py-2 font-medium">
+                <span className="inline-flex items-center gap-1">Status <InfoHint id="purchase-status" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Estoque <InfoHint id="onhand" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Lead <InfoHint id="lead-time" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">ROP <InfoHint id="rop" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Ruptura <InfoHint id="stockout-date" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Comprar até <InfoHint id="buy-by" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Qtd <InfoHint id="order-qty" /></span>
+              </th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Custo est. <InfoHint id="est-cost" /></span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-foreground/5">

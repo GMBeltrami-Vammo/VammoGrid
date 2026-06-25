@@ -15,6 +15,7 @@ import {
 import { resolveShares } from '@/lib/planning/allocation';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { HUBS } from '@/constants/planningHubs';
+import { InfoHint } from '@/components/planning/InfoHint';
 import {
   EmptyState,
   FreshnessBanner,
@@ -191,8 +192,12 @@ export default async function ExecutiveDashboard() {
                       <th className="px-3 py-2 font-medium">VO</th>
                       <th className="px-3 py-2 text-right font-medium">Atraso</th>
                       <th className="px-3 py-2 text-right font-medium">Qtd</th>
-                      <th className="px-3 py-2 font-medium">Status SKU</th>
-                      <th className="px-3 py-2 text-right font-medium">Ruptura</th>
+                      <th className="px-3 py-2 font-medium">
+                        <span className="inline-flex items-center gap-1">Status SKU <InfoHint id="purchase-status" /></span>
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        <span className="inline-flex items-center justify-end gap-1">Ruptura <InfoHint id="stockout-date" /></span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-foreground/5">
@@ -248,9 +253,23 @@ function RiskTable({
         <thead>
           <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
             <th className="px-3 py-2 font-medium">SKU</th>
-            <th className="px-3 py-2 font-medium">Status</th>
-            <th className="px-3 py-2 text-right font-medium">{kind === 'purchase' ? 'Qtd' : 'Ruptura'}</th>
-            <th className="px-3 py-2 text-right font-medium">{kind === 'purchase' ? 'Comprar até' : 'Estoque'}</th>
+            <th className="px-3 py-2 font-medium">
+              <span className="inline-flex items-center gap-1">Status <InfoHint id="purchase-status" /></span>
+            </th>
+            <th className="px-3 py-2 text-right font-medium">
+              {kind === 'purchase' ? (
+                <span className="inline-flex items-center justify-end gap-1">Qtd <InfoHint id="order-qty" /></span>
+              ) : (
+                <span className="inline-flex items-center justify-end gap-1">Ruptura <InfoHint id="stockout-date" /></span>
+              )}
+            </th>
+            <th className="px-3 py-2 text-right font-medium">
+              {kind === 'purchase' ? (
+                <span className="inline-flex items-center justify-end gap-1">Comprar até <InfoHint id="buy-by" /></span>
+              ) : (
+                <span className="inline-flex items-center justify-end gap-1">Estoque <InfoHint id="onhand" /></span>
+              )}
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-foreground/5">

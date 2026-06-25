@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { HubId } from '@/types/planning';
 import type { PoArrival, SkuProjections } from '@/lib/planning/projection';
 import { KpiCard } from './ui';
+import { InfoHint } from '@/components/planning/InfoHint';
 
 // Lazy-load Recharts (bundle-dynamic-imports) — keeps it off the initial bundle.
 const ProjectionChart = dynamic(
@@ -114,14 +115,21 @@ export function ProjectionView({
       {proj ? (
         <>
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <KpiCard label="Estoque atual" value={fmtInt(proj.currentStock)} />
-            <KpiCard label="Consumo diário" value={fmtNum(proj.dailyDemand)} hint="un/dia (méd. 30d)" />
             <KpiCard
-              label="Cobertura"
+              label={<span className="inline-flex items-center gap-1">Estoque atual <InfoHint id="onhand" /></span>}
+              value={fmtInt(proj.currentStock)}
+            />
+            <KpiCard
+              label={<span className="inline-flex items-center gap-1">Consumo diário <InfoHint id="daily-demand" /></span>}
+              value={fmtNum(proj.dailyDemand)}
+              hint="un/dia (méd. 30d)"
+            />
+            <KpiCard
+              label={<span className="inline-flex items-center gap-1">Cobertura <InfoHint id="doh" /></span>}
               value={proj.dohNow != null ? `${fmtInt(proj.dohNow)}d` : '—'}
             />
             <KpiCard
-              label="Ruptura prevista"
+              label={<span className="inline-flex items-center gap-1">Ruptura prevista <InfoHint id="stockout-date" /></span>}
               value={fmtDate(proj.stockoutDate)}
               tone={proj.stockoutDate ? 'danger' : 'success'}
               hint={proj.incomingUnits > 0 ? `${fmtInt(proj.incomingUnits)} un. a chegar` : undefined}
@@ -133,7 +141,9 @@ export function ProjectionView({
               return (
                 <div key={d} className="rounded-lg bg-muted/40 p-2 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Em {d} dias
+                    <span className="inline-flex items-center gap-1">
+                      Em {d} dias <InfoHint id="projection-line" />
+                    </span>
                   </p>
                   <p
                     className={cn(
@@ -160,12 +170,23 @@ export function ProjectionView({
             />
             <p className="mt-2 text-[11px] text-muted-foreground">
               {scopeHistory && scopeHistory.length > 0 ? 'Antes de "hoje" = histórico real. ' : ''}
-              {showRecoveryOverlay
-                ? 'Linha sólida = com recuperação (recondicionados entram em Osasco/global). Tracejada cinza = sem recuperação. '
-                : ''}
-              {isGlobalOrOsasco ? 'Linha verde tracejada = chegada de pedido (VO + qtd). ' : ''}
-              Faixa sombreada = banda lo–hi da previsão. Sombreamento após ~90d é extrapolado além do
-              horizonte do modelo.
+              {showRecoveryOverlay ? (
+                <>
+                  Linha sólida = com recuperação (recondicionados entram em Osasco/global).{' '}
+                  <InfoHint id="recovery-line" /> Tracejada cinza = sem recuperação.{' '}
+                </>
+              ) : (
+                ''
+              )}
+              {isGlobalOrOsasco ? (
+                <>
+                  Linha verde tracejada = chegada de pedido (VO + qtd). <InfoHint id="incoming" />{' '}
+                </>
+              ) : (
+                ''
+              )}
+              Faixa sombreada = banda lo–hi da previsão. <InfoHint id="band" /> Sombreamento após ~90d
+              é extrapolado além do horizonte do modelo.
             </p>
           </div>
         </>

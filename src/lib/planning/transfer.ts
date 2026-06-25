@@ -1,6 +1,7 @@
 import type { HubId, SkuForecast, StockState, TransferSuggestion } from '@/types/planning';
 import { addDays, diffDays } from './dates';
 import { buildDailyDemand, type DailyDemand } from './forecast';
+import { BAND_Z } from './constants';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transfer Recommendation Engine — hub-and-spoke via Osasco, TWO weekly cycles.
@@ -53,7 +54,12 @@ interface HubNeed {
   hub: HubId;
   need: number;
   needByDate: string | null;
+  /** Final 0–1 trust score = precision × freshness (clamped). */
   confidence: number;
+  /** How tight the forecast is over the window (band-driven), 0–1. */
+  precision: number;
+  /** How recent the forecast run is, 0–1 (decays to 0.3 by 30 days stale). */
+  freshness: number;
 }
 
 // Demand over [dayStart+1 .. dayStart+coverage] at this hub's share.
@@ -70,25 +76,42 @@ function computeHubNeed(
   let demandCov = 0;
   let cum = 0;
   let stockoutK: number | null = null;
-  let bandRelSum = 0;
+  // Fleet-level CUMULATIVE demand + band over the coverage window. We deliberately
+  // do NOT average the daily (hi−lo)/yhat ratio: daily forecasts of low, intermittent
+  // parts have a band that dwarfs a near-zero daily mean, which pinned the old metric
+  // to its 0.1 floor for almost every SKU. Cumulative coverage-window demand is far
+  // less volatile in relative terms. The hub share cancels in the ratio, so we keep
+  // these fleet-level (also avoids the tiny-hub denominator blowing up).
+  let cumYhatFleet = 0;
+  let cumHalfBandFleet = 0;
   for (let k = 1; k <= coverage; k++) {
     const d = dayStart + k;
     const yh = (fleet.yhat[d] ?? 0) * share;
     demandCov += yh;
     cum += yh;
     if (stockoutK === null && cum >= onHand && yh > 0) stockoutK = k;
-    const band = ((fleet.hi[d] ?? 0) - (fleet.lo[d] ?? 0)) * share;
-    bandRelSum += band / Math.max(yh, 0.001);
+    cumYhatFleet += fleet.yhat[d] ?? 0;
+    cumHalfBandFleet += ((fleet.hi[d] ?? 0) - (fleet.lo[d] ?? 0)) / 2;
   }
-  const bandRel = coverage > 0 ? bandRelSum / coverage : 1;
+  // σ of cumulative demand ≈ (cumulative half-band)/Z (same band→σ recovery the
+  // purchase engine uses); cv = σ / mean is the coefficient of variation.
+  const sigmaCum = cumHalfBandFleet / BAND_Z;
+  const cv = sigmaCum / Math.max(cumYhatFleet, 1e-6);
+  // Precision: a smooth squash of cv into (0,1]. cv 0→1, cv 1→0.5, cv 3→0.25.
+  // Never negative (the old (1 − bandRel/2) went negative whenever bandRel ≥ 2).
+  const precision = clamp(1 / (1 + cv), 0.05, 1);
+  // Freshness: how recent the forecast run is. Kept separate (and surfaced in the
+  // UI) so a stale forecast is visible rather than silently halving the score.
   const daysStale = Math.max(0, diffDays(asOfDate, today));
   const freshness = clamp(1 - daysStale / 30, 0.3, 1);
-  const confidence = clamp((1 - bandRel / 2) * freshness, 0.1, 0.95);
+  const confidence = clamp(precision * freshness, 0.05, 0.95);
   return {
     hub,
     need: Math.max(0, demandCov - onHand),
     needByDate: stockoutK != null ? addDays(today, dayStart + stockoutK) : null,
     confidence,
+    precision,
+    freshness,
   };
 }
 
@@ -130,6 +153,8 @@ function cycleSuggestions(
         toHub: n.hub,
         needByDate: n.needByDate,
         confidence: Math.round(n.confidence * 100) / 100,
+        precision: Math.round(n.precision * 100) / 100,
+        freshness: Math.round(n.freshness * 100) / 100,
         cycle,
         reason:
           `${HUB_LABEL[n.hub]} projeta faltar ${Math.round(n.need)} un. até ` +
@@ -170,7 +195,11 @@ function cycleSuggestions(
         fromHub: fromSpoke,
         toHub: toSpoke,
         needByDate: toNeed.needByDate,
+        // Spoke-to-spoke is a lower-trust fallback (Osasco couldn't supply): discount
+        // both the headline confidence and the precision component by 0.7.
         confidence: Math.round(toNeed.confidence * 0.7 * 100) / 100,
+        precision: Math.round(toNeed.precision * 0.7 * 100) / 100,
+        freshness: Math.round(toNeed.freshness * 100) / 100,
         cycle,
         reason:
           `Osasco sem estoque disponível; ${HUB_LABEL[fromSpoke]} tem ${Math.round(fromAvailable)} ` +

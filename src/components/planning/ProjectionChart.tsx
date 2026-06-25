@@ -66,7 +66,7 @@ export function ProjectionChart({
   return (
     <div style={{ width: '100%', height }}>
       <ResponsiveContainer>
-        <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+        <ComposedChart data={data} margin={{ top: 24, right: 12, bottom: 4, left: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
           <XAxis
             dataKey="date"

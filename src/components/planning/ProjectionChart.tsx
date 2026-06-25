@@ -57,6 +57,19 @@ export function ProjectionChart({
   const projDates = new Set(projData.map((d) => d.date));
   const arrivalMarkers = (arrivals ?? []).filter((a) => projDates.has(a.date));
 
+  // Stock ENTRIES detected in the real history (left of "hoje"): a positive step in
+  // on-hand is a receipt / pedido arriving. The orders table often lacks the received
+  // PO, so we read it straight from the inventory series — any jump up that beats
+  // normal day-to-day drift is flagged with a 📦 marker + the qty that came in.
+  const entryMarkers: { date: string; delta: number }[] = [];
+  for (let i = 1; i < histData.length; i++) {
+    const prev = histData[i - 1].stock;
+    const delta = histData[i].stock - prev;
+    if (delta > 0 && delta >= Math.max(15, 0.2 * Math.max(prev, 1))) {
+      entryMarkers.push({ date: histData[i].date, delta });
+    }
+  }
+
   return (
     <div style={{ width: '100%', height }}>
       <ResponsiveContainer>
@@ -115,6 +128,21 @@ export function ProjectionChart({
               isAnimationActive={false}
             />
           )}
+          {/* Detected stock entries (received pedidos) in the real history */}
+          {entryMarkers.map((e) => (
+            <ReferenceLine
+              key={`entry-${e.date}`}
+              x={e.date}
+              stroke="var(--color-alert-success)"
+              strokeDasharray="3 2"
+              label={{
+                value: `📦 +${fmtInt(e.delta)}`,
+                position: 'insideTopLeft',
+                fontSize: 9,
+                fill: 'var(--color-alert-success)',
+              }}
+            />
+          ))}
           {/* Pedido arrivals: a green line at each arrival date, labeled with VO + qty */}
           {arrivalMarkers.map((a) => (
             <ReferenceLine

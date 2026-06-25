@@ -54,6 +54,12 @@ export const EXPLAINERS = {
     formula: 'yhat, yhat_lo, yhat_hi por dia · as_of = último run',
     source: 'ClickHouse · sop_predictions_daily',
   },
+  'stock-entry': {
+    title: 'Entrada de estoque (pedido)',
+    what: 'Um salto para cima no estoque histórico = uma entrada — pedido recebido (ou transferência). Marcado com 📦 e a quantidade que entrou no dia. Detectado direto do estoque real, mesmo quando o pedido não está registrado.',
+    formula: 'marca o dia em que estoque(d) − estoque(d−1) ≥ máx(15, 20% do estoque anterior)',
+    source: 'ClickHouse · mart_inventory_snapshot_daily',
+  },
   band: {
     title: 'Banda otimista / pessimista',
     what: 'Faixa de incerteza da projeção. A linha de cima usa a demanda baixa (lo); a de baixo, a demanda alta (hi). Largura ≈ 1,28σ.',

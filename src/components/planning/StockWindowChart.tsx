@@ -99,8 +99,9 @@ export function StockWindowChart({
         height={240}
       />
       <p className="mt-1.5 inline-flex flex-wrap items-center gap-x-1 text-[10px] text-muted-foreground">
-        Histórico real (esquerda de &quot;hoje&quot;) · Projeção <InfoHint id="projection-line" /> com
-        banda lo–hi <InfoHint id="band" /> (direita)
+        Histórico real (esquerda de &quot;hoje&quot;) · 📦 = entrada de pedido{' '}
+        <InfoHint id="stock-entry" /> · Projeção <InfoHint id="projection-line" /> com banda lo–hi{' '}
+        <InfoHint id="band" /> (direita)
         {isGlobalOrOsasco ? (
           <>
             {' · linha verde = chegada de pedido (VO)'} <InfoHint id="incoming" />

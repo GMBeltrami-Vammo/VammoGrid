@@ -1,6 +1,7 @@
 import 'server-only';
+import { unstable_cache } from 'next/cache';
 import type { AbcClass, ForecastPoint, SkuForecast } from '@/types/planning';
-import { chQuery } from '@/lib/clickhouse/reader';
+import { activeBackendKind, chQuery } from '@/lib/clickhouse/reader';
 
 // Consume the upstream demand forecast (dev.sop_predictions_daily) at its latest run.
 // Fleet-level daily yhat/lo/hi per sku_base; we do not re-forecast — swapping the
@@ -34,7 +35,13 @@ WHERE as_of_date = (SELECT max(as_of_date) FROM dev.sop_predictions_daily)`;
 // in parallel, then merge. ~18 SKUs × 90 days ≈ 1620 rows per batch.
 const FORECAST_BATCH_SKUS = 18;
 
-async function fetchForecastRows(): Promise<ForecastRow[]> {
+async function fetchForecastRowsUncached(): Promise<ForecastRow[]> {
+  // ClickHouse-direct has no row cap → fetch the whole forecast in one query.
+  if (activeBackendKind() === 'clickhouse') {
+    return chQuery<ForecastRow>(FORECAST_SQL);
+  }
+
+  // Metabase fallback caps native results at ~2000 rows → batch by sku_base.
   const baseRows = await chQuery<{ sku_base: string }>(
     `SELECT DISTINCT sku_base FROM dev.sop_predictions_daily
      WHERE as_of_date = (SELECT max(as_of_date) FROM dev.sop_predictions_daily)`,
@@ -54,6 +61,14 @@ async function fetchForecastRows(): Promise<ForecastRow[]> {
   );
   return results.flat();
 }
+
+// The forecast is the single most expensive read (a DISTINCT + ~15 batched Metabase
+// round-trips). It only changes when a new model run lands (daily/weekly), so cache
+// the whole row set for an hour across requests; revalidateTag('forecast') to bust.
+const fetchForecastRows = unstable_cache(fetchForecastRowsUncached, ['forecast-rows'], {
+  revalidate: 3600,
+  tags: ['forecast'],
+});
 
 function asAbc(s: string): AbcClass {
   return s === 'A' || s === 'B' ? s : 'C';

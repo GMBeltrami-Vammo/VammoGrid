@@ -1,4 +1,5 @@
 import 'server-only';
+import { unstable_cache } from 'next/cache';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Read-only analytics access. Per the plan: prefer a DIRECT ClickHouse connection
@@ -118,4 +119,22 @@ export function activeBackendKind(): 'clickhouse' | 'metabase' | 'none' {
 /** Run a read-only native SQL query against the analytics warehouse. */
 export function chQuery<T = Row>(sql: string): Promise<T[]> {
   return backend().query<T>(sql);
+}
+
+/**
+ * Cached read: same as chQuery but persists the rows in Next's data cache across
+ * requests and users (the warehouse data is identical for everyone and changes
+ * slowly). Keyed by the SQL string; expires after `revalidateSeconds` or when one
+ * of `tags` is passed to revalidateTag(). Errors are NOT cached (they throw, so the
+ * next request retries). Rows are plain serializable objects — never cache Maps.
+ */
+export function cachedChQuery<T = Row>(
+  sql: string,
+  revalidateSeconds: number,
+  tags: string[],
+): Promise<T[]> {
+  return unstable_cache(() => chQuery<T>(sql), ['ch-query', sql], {
+    revalidate: revalidateSeconds,
+    tags,
+  })() as Promise<T[]>;
 }

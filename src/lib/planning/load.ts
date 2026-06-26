@@ -198,9 +198,15 @@ export async function safeComputeSnapshot(
   }
 }
 
-/** Full per-hub + global projection for one SKU (for the SKU detail + projection page). */
-export async function projectOne(skuBase: string): Promise<SkuProjections | null> {
-  const inp = await loadPlanningInputs();
+/** Full per-hub + global projection for one SKU (for the SKU detail + projection page).
+ *  Pass `provided` to reuse inputs the caller already loaded (avoids a second full
+ *  fetch+build); otherwise loads with the focus selection ignored so any deep-linked
+ *  SKU resolves even when a hand-picked filter is active. */
+export async function projectOne(
+  skuBase: string,
+  provided?: PlanningInputs,
+): Promise<SkuProjections | null> {
+  const inp = provided ?? (await loadPlanningInputs(true));
   const stock = inp.stocks.find((s) => s.skuBase === skuBase);
   if (!stock) return null;
   const policy =
@@ -222,8 +228,9 @@ export async function projectOne(skuBase: string): Promise<SkuProjections | null
  *  credited to the global + Osasco streams only. */
 export async function projectOneCompare(
   skuBase: string,
+  provided?: PlanningInputs,
 ): Promise<{ projections: SkuProjections; baseline: SkuProjections | null } | null> {
-  const inp = await loadPlanningInputs();
+  const inp = provided ?? (await loadPlanningInputs(true));
   const stock = inp.stocks.find((s) => s.skuBase === skuBase);
   if (!stock) return null;
   const policy =

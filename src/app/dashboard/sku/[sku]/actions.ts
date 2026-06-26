@@ -1,5 +1,6 @@
 'use server';
 
+import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
 import { createServiceSupabase } from '@/lib/supabase/service';
 
@@ -33,6 +34,7 @@ export async function updateRecoveryPolicy(
       );
 
     if (error) return { ok: false, error: error.message };
+    updateTag('policies'); // read-your-own-writes: refresh cached sku_policy rows now
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
@@ -63,6 +65,7 @@ export async function updateSafetyStock(
       );
 
     if (error) return { ok: false, error: error.message };
+    updateTag('policies'); // read-your-own-writes: refresh cached sku_policy rows now
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };

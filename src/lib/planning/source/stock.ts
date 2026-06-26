@@ -1,7 +1,7 @@
 import 'server-only';
 import type { HubId, StockState } from '@/types/planning';
 import { HUB_BY_LOCATION, HUB_LOCATION_IDS } from '@/constants/planningHubs';
-import { chQuery } from '@/lib/clickhouse/reader';
+import { cachedChQuery } from '@/lib/clickhouse/reader';
 import { toSkuBase } from '../sku';
 
 // Per-hub on-hand: AVAILABLE inventory in STORAGE deposits at the three hub
@@ -42,7 +42,8 @@ function zeroHubs(): Record<HubId, number> {
 }
 
 export async function fetchStockStates(nowIso: string): Promise<StockState[]> {
-  const rows = await chQuery<StockRow>(STOCK_SQL);
+  // On-hand changes a few times/day → cache 10 min across requests.
+  const rows = await cachedChQuery<StockRow>(STOCK_SQL, 600, ['stock']);
 
   const bySku = new Map<string, StockState>();
   for (const r of rows) {

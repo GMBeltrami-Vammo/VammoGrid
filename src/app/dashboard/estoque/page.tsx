@@ -65,7 +65,7 @@ export default async function EstoquePage({
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
   const [compare, history, recoveryRefreshedAt] = await Promise.all([
-    projectOneCompare(selected),
+    projectOneCompare(selected, inputs), // reuse inputs — avoids a 2nd full load
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
     fetchRecoveryRefreshedAt(),
   ]);

@@ -1,5 +1,5 @@
 import 'server-only';
-import { chQuery } from '@/lib/clickhouse/reader';
+import { cachedChQuery } from '@/lib/clickhouse/reader';
 import type { HubId } from '@/types/planning';
 
 // Historical on-hand (last `days` days), keyed by sku_base.
@@ -59,7 +59,8 @@ ORDER BY snapshot_date`;
 
   let rows: MartRow[] = [];
   try {
-    rows = await chQuery<MartRow>(sql);
+    // Per-SKU daily snapshot; cache 10 min (keyed by the SQL → per sku_base + window).
+    rows = await cachedChQuery<MartRow>(sql, 600, ['stock']);
   } catch {
     return emptyHistory();
   }

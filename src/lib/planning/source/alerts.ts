@@ -1,6 +1,6 @@
 import 'server-only';
 import type { AlertCode, AlertSeverity, HubId, PlanningAlert } from '@/types/planning';
-import { chQuery } from '@/lib/clickhouse/reader';
+import { cachedChQuery } from '@/lib/clickhouse/reader';
 
 // Consume the upstream coverage alerts (dev.sop_alerts) at the latest run. location
 // is currently 'ALL' (fleet-level); we surface it as-is and the engines add per-hub
@@ -52,7 +52,8 @@ function parseMetrics(raw: string): Record<string, number> {
 }
 
 export async function fetchSopAlerts(): Promise<PlanningAlert[]> {
-  const rows = await chQuery<AlertRow>(ALERTS_SQL);
+  // Alerts come from the same daily SOP run → cache 10 min across requests.
+  const rows = await cachedChQuery<AlertRow>(ALERTS_SQL, 600, ['alerts']);
   const out: PlanningAlert[] = [];
   for (const r of rows) {
     const code = String(r.alert_code) as AlertCode;

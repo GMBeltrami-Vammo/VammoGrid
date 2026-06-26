@@ -1,4 +1,5 @@
 import 'server-only';
+import { unstable_cache } from 'next/cache';
 import type { SkuPolicy, TransportModal } from '@/types/planning';
 import { createServiceSupabase } from '@/lib/supabase/service';
 
@@ -23,20 +24,27 @@ interface PolicyRow {
   updated_at: string;
 }
 
-export async function fetchSkuPolicies(): Promise<Map<string, Partial<SkuPolicy>>> {
-  try {
+// Cache the raw policy rows across requests; revalidateTag('policies') fires on every
+// in-app edit (lead-time / safety / recovery actions) and the recovery cron, so edits
+// show immediately. Throws on error so failures are not cached.
+const fetchPolicyRows = unstable_cache(
+  async (): Promise<PolicyRow[]> => {
     // Service role: sku_policy is server-only planning metadata and is not exposed
     // to the public anon key (which also lacks table grants on it).
     const supabase = createServiceSupabase();
-    const { data, error } = await supabase
-      .schema('fleet')
-      .from('sku_policy')
-      .select('*');
+    const { data, error } = await supabase.schema('fleet').from('sku_policy').select('*');
+    if (error) throw error;
+    return (data ?? []) as PolicyRow[];
+  },
+  ['sku-policy-rows'],
+  { revalidate: 300, tags: ['policies'] },
+);
 
-    if (error || !data) return new Map();
-
+export async function fetchSkuPolicies(): Promise<Map<string, Partial<SkuPolicy>>> {
+  try {
+    const rows = await fetchPolicyRows();
     const map = new Map<string, Partial<SkuPolicy>>();
-    for (const r of data as PolicyRow[]) {
+    for (const r of rows) {
       const override: Partial<SkuPolicy> = {
         recoveryRate: Number(r.recovery_rate) || 0,
         recoveryTurnaroundDays: Number(r.recovery_turnaround_days) || 14,

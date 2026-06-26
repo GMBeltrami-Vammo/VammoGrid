@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { z } from 'zod';
 import { createServiceSupabase } from '@/lib/supabase/service';
 
@@ -157,6 +158,8 @@ export async function POST(req: Request) {
     console.error('[/api/orders/ingest] insert', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  revalidateTag('orders', 'max'); // mark cached purchase_order rows stale
 
   return NextResponse.json({
     ok: true,

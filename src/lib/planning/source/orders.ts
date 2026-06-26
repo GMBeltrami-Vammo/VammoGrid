@@ -1,4 +1,5 @@
 import 'server-only';
+import { unstable_cache } from 'next/cache';
 import type {
   HubId,
   OpenPurchaseOrder,
@@ -27,16 +28,28 @@ interface PoRow {
   source: string;
 }
 
-export async function fetchOpenOrders(): Promise<OpenPurchaseOrder[]> {
-  try {
+// Cache the raw rows across requests (rows are serializable; the mapped type isn't a
+// concern since we map after). Short TTL + revalidateTag('orders') on n8n ingest so
+// edits show promptly. Throws on error so failures are not cached.
+const fetchOrderRows = unstable_cache(
+  async (): Promise<PoRow[]> => {
     const supabase = createServerSupabase();
     const { data, error } = await supabase
       .schema('fleet')
       .from('purchase_order')
       .select('*')
       .order('order_date', { ascending: false });
-    if (error || !data) return [];
-    return (data as PoRow[]).map((r) => ({
+    if (error) throw error;
+    return (data ?? []) as PoRow[];
+  },
+  ['purchase-order-rows'],
+  { revalidate: 120, tags: ['orders'] },
+);
+
+export async function fetchOpenOrders(): Promise<OpenPurchaseOrder[]> {
+  try {
+    const data = await fetchOrderRows();
+    return data.map((r) => ({
       id: r.id,
       vo: r.vo,
       skuCode: r.sku,

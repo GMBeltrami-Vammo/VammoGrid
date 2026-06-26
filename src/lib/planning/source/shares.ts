@@ -1,7 +1,7 @@
 import 'server-only';
 import type { HubId } from '@/types/planning';
 import { HUB_BY_LOCATION, HUB_LOCATION_IDS } from '@/constants/planningHubs';
-import { chQuery } from '@/lib/clickhouse/reader';
+import { cachedChQuery } from '@/lib/clickhouse/reader';
 import { toSkuBase } from '../sku';
 
 // Per-hub demand allocation key: each SKU's trailing-30d consumption share by hub,
@@ -32,7 +32,8 @@ GROUP BY sku_code, location_id`;
 export async function fetchHubShares(): Promise<Map<string, Record<HubId, number>>> {
   let rows: ShareRow[] = [];
   try {
-    rows = await chQuery<ShareRow>(SHARES_SQL);
+    // 30-day consumption window → cache 1h across requests.
+    rows = await cachedChQuery<ShareRow>(SHARES_SQL, 3600, ['shares']);
   } catch {
     return new Map(); // ledger query unavailable → callers fall back to on-hand share
   }

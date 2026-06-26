@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { auth } from '@/auth';
 import { refreshRecoveryRates } from '@/lib/planning/recoveryRefresh';
 
@@ -22,6 +23,7 @@ async function runRefresh(req: Request) {
 
   try {
     const result = await refreshRecoveryRates();
+    revalidateTag('policies', 'max'); // recovery rates live in sku_policy → mark stale
     return NextResponse.json({ ok: true, ...result, at: new Date().toISOString() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

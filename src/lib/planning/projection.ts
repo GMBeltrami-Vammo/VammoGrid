@@ -108,8 +108,14 @@ export function projectStream(i: StreamInput): StockProjection {
   const { horizon } = i;
   const timeline: ProjectionPoint[] = [];
   let stock = i.startStock;
-  let stockLo = i.startStock;
-  let stockHi = i.startStock;
+  // Band via error propagation, NOT a linear sum of daily bands. Treating each day's
+  // forecast band as an independent uncertainty, the cumulative demand uncertainty
+  // grows as the root-sum-of-squares (≈√horizon), not the linear sum (≈horizon). The
+  // old walk added (hi−lo) every day → a worst-case "demand high every single day"
+  // envelope that fanned out ~√horizon too wide. We accumulate the squared daily
+  // deviations and take the sqrt as the band half-width around the central walk.
+  let sumSqLo = 0; // Σ (yhat − lo)² → optimistic upper band (demand below forecast)
+  let sumSqHi = 0; // Σ (hi − yhat)² → pessimistic lower band (demand above forecast)
   let stockoutDay: number | null = null;
   let incomingUnits = 0;
 
@@ -120,8 +126,6 @@ export function projectStream(i: StreamInput): StockProjection {
 
   for (let d = 0; d <= horizon; d++) {
     const demand = d === 0 ? 0 : i.demand.yhat[d];
-    const demandHi = d === 0 ? 0 : i.demand.hi[d];
-    const demandLo = d === 0 ? 0 : i.demand.lo[d];
     const inbound = i.receipts[d] ?? 0;
     incomingUnits += inbound;
     const recovery =
@@ -129,9 +133,16 @@ export function projectStream(i: StreamInput): StockProjection {
         ? i.recoveryRate * (i.demand.yhat[d - i.recoveryTurnaround] ?? 0)
         : 0;
 
+    // Central walk on the expected demand (yhat). POs + recovery are treated as known.
     stock = stock + inbound + recovery - demand;
-    stockHi = stockHi + inbound + recovery - demandLo; // low demand → more stock left
-    stockLo = stockLo + inbound + recovery - demandHi; // high demand → less stock left
+    if (d > 0) {
+      const devLo = Math.max(0, i.demand.yhat[d] - i.demand.lo[d]);
+      const devHi = Math.max(0, i.demand.hi[d] - i.demand.yhat[d]);
+      sumSqLo += devLo * devLo;
+      sumSqHi += devHi * devHi;
+    }
+    const stockHi = stock + Math.sqrt(sumSqLo); // low demand → more stock left
+    const stockLo = stock - Math.sqrt(sumSqHi); // high demand → less stock left
 
     if (stockoutDay === null && d > 0 && stock <= 0 && avgDaily > 0) stockoutDay = d;
 

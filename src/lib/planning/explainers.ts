@@ -56,9 +56,9 @@ export const EXPLAINERS = {
   },
   band: {
     title: 'Banda otimista / pessimista',
-    what: 'Faixa de incerteza da projeção. A linha de cima usa a demanda baixa (lo); a de baixo, a demanda alta (hi). Largura ≈ 1,28σ.',
-    formula: 'stockHi: usa demandaLo · stockLo: usa demandaHi',
-    source: 'Motor de projeção',
+    what: 'Faixa de incerteza da projeção, por propagação de erro: a incerteza acumulada cresce com √dias (dias tratados como independentes), não linearmente — por isso a faixa não estoura no longo prazo. A linha de cima assume demanda abaixo da prevista; a de baixo, acima. Depois de ~90d usa banda extrapolada.',
+    formula: 'stockHi = stock + √Σ(yhat−lo)²\nstockLo = stock − √Σ(hi−yhat)²',
+    source: 'Motor de projeção · banda do ClickHouse',
   },
 
   // ── Projeção ─────────────────────────────────────────────────────────────────

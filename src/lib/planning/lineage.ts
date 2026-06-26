@@ -310,17 +310,19 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         name: 'Stock walk diário (equação central)',
         source: 'src/lib/planning/projection.ts',
         formula:
-          'stock = stock + inbound + recovery − demand; stockHi = stockHi + inbound + recovery − demandLo; stockLo = stockLo + inbound + recovery − demandHi',
+          'stock(d) = stock(d−1) + inbound + recovery − yhat[d]. A banda vem por propagação de erro (RSS), não pela soma linear das bandas diárias — ver linha "Bandas".',
         notes:
-          'Walk recursivo d=0..horizon. d=0: demand/recovery=0 → só inbound. stockHi usa demanda baixa (otimista); stockLo usa demanda alta (pessimista). transferIn/Out hardcoded 0.',
-        ref: 'src/lib/planning/projection.ts:89-119',
+          'Walk recursivo d=0..horizon sobre a demanda esperada (yhat). d=0: demand/recovery=0 → só inbound. POs e recuperação tratados como certos. transferIn/Out hardcoded 0.',
+        ref: 'src/lib/planning/projection.ts:107-151',
       },
       {
         name: 'Bandas (stockLo pessimista / stockHi otimista)',
         source: 'src/lib/planning/projection.ts',
-        formula: 'demandHi/Lo = d===0?0:demand.hi/lo[d]; saída clampada: max(0, round(…))',
-        notes: 'Banda ≈ 1,28σ (aprox. quantil 80%). Negativos clampados a 0.',
-        ref: 'src/lib/planning/projection.ts:91-111',
+        formula:
+          'stockHi = stock + √(Σ (yhat−lo)²); stockLo = stock − √(Σ (hi−yhat)²); saída clampada: max(0, round(…))',
+        notes:
+          'Propagação de erro: a incerteza acumulada cresce com √horizonte (dias independentes), não com a soma linear das bandas diárias — que inflava a faixa ~√horizonte e assumia "demanda alta todo dia". Após o horizonte do modelo (~90d) usa lo/hi extrapolados (tail-mean). Negativos clampados a 0.',
+        ref: 'src/lib/planning/projection.ts:110-151',
       },
       {
         name: 'Crédito de recuperação (recovery)',

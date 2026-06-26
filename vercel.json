@@ -2,10 +2,6 @@
   "regions": ["gru1"],
   "crons": [
     {
-      "path": "/api/inventory/snapshot",
-      "schedule": "0 9 * * *"
-    },
-    {
       "path": "/api/recovery/refresh",
       "schedule": "0 6 * * 1"
     }

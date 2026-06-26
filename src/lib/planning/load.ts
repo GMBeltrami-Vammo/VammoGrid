@@ -20,7 +20,7 @@ import { projectSku, type SkuProjections } from './projection';
 import { purchaseForAll } from './purchase';
 import { transferForAll } from './transfer';
 import { fetchSopAlerts } from './source/alerts';
-import { fetchForecasts } from './source/forecast';
+import { fetchForecasts, fetchForecastMeta, fetchOneForecast } from './source/forecast';
 import { fetchOpenOrders, ordersBySkuBase } from './source/orders';
 import { fetchSkuPolicies } from './source/policies';
 import { fetchRecoveryRates } from './source/recovery';
@@ -254,3 +254,97 @@ export async function projectOneCompare(
     : null;
   return { projections, baseline };
 }
+
+/**
+ * Single-SKU fast path for the Estoque (SKU deep-dive) page. It returns the SAME
+ * PlanningInputs shape the page already consumes, but builds only ONE SKU's forecast
+ * + policy instead of materializing the whole catalog (hundreds of SkuForecast objects
+ * with ~90 points each, plus a policy per SKU) on every request. The selector still
+ * lists every (scoped) SKU — that only needs the lightweight stock list, not forecasts.
+ *
+ * Resolves the selected SKU itself (requested → falls back to the first scoped SKU by
+ * name) so the caller doesn't need the full inputs to pick a default.
+ */
+export const loadSkuView = cache(
+  async (requestedSku?: string): Promise<{ inputs: PlanningInputs; selected: string }> => {
+    const today = todayUtc();
+    const nowIso = new Date().toISOString();
+    const cookieStore = await cookies();
+    const filter = parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value);
+    const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
+
+    if (activeBackendKind() === 'none') {
+      return { inputs: { ...emptyInputs(today), filter, scenario }, selected: '' };
+    }
+
+    // Cheap, cross-request-cached sources only (no per-SKU heavy materialization).
+    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta] =
+      await Promise.all([
+        fetchStockStates(nowIso),
+        fetchHubShares(),
+        fetchOpenOrders(),
+        fetchSkuPolicies(),
+        fetchRecoveryRates(),
+        fetchCompatModels(),
+        fetchForecastMeta(),
+      ]);
+
+    // Selector scope honors category/models/q + "com previsão", but NOT the hand-picked
+    // skus[] (a single-SKU view resolves any SKU — same as ignoreSkuSelection).
+    const scopeFilter: PlanningFilter = { ...filter, skus: [] };
+    const scoped = isFilterActive(scopeFilter)
+      ? allStocks.filter(
+          (s) =>
+            skuPasses(scopeFilter, s, compatModels) &&
+            (!scopeFilter.withForecast || fcMeta.skuBases.has(s.skuBase)),
+        )
+      : allStocks;
+    const stocks = (scoped.length > 0 ? scoped : allStocks)
+      .slice()
+      .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
+
+    if (stocks.length === 0) {
+      return {
+        inputs: { ...emptyInputs(today), backend: activeBackendKind(), filter, scenario },
+        selected: '',
+      };
+    }
+
+    const selected =
+      requestedSku && stocks.some((s) => s.skuBase === requestedSku)
+        ? requestedSku
+        : stocks[0].skuBase;
+    const selStock = stocks.find((s) => s.skuBase === selected)!;
+
+    // ONE forecast (one cached query), not the whole catalog. Apply the what-if only
+    // when active (same gate as loadPlanningInputs).
+    const rawForecast = await fetchOneForecast(selected);
+    const active = isScenarioActive(scenario);
+    const forecast = active && rawForecast ? scaleForecast(rawForecast, scenario.demandPct) : rawForecast;
+
+    const selOrders0 = rawOrders.filter((o) => o.skuBase === selected);
+    const selOrders = active ? selOrders0.map((o) => delayOrder(o, scenario.poDelayDays)) : selOrders0;
+
+    // ONE policy (buildPolicies over a single-element stock list reuses the exact logic).
+    const forecasts = new Map<string, SkuForecast>();
+    if (forecast) forecasts.set(selected, forecast);
+    const policies = buildPolicies({ stocks: [selStock], forecasts, overrides: policyOverrides, nowIso });
+
+    const inputs: PlanningInputs = {
+      today,
+      asOfDate: forecast?.asOfDate || fcMeta.asOfDate || today,
+      backend: activeBackendKind(),
+      stocks,
+      forecasts,
+      shares,
+      orders: selOrders,
+      ordersBySku: new Map([[selected, selOrders]]),
+      policies,
+      alerts: [],
+      filter,
+      scenario,
+      recoveryRates,
+    };
+    return { inputs, selected };
+  },
+);

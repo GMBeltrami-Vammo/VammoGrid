@@ -1,4 +1,4 @@
-import { loadPlanningInputs, projectOneCompare } from '@/lib/planning/load';
+import { loadSkuView, projectOneCompare } from '@/lib/planning/load';
 import { computeArrivals } from '@/lib/planning/projection';
 import { purchaseForSku } from '@/lib/planning/purchase';
 import { fetchStockHistory } from '@/lib/planning/source/history';
@@ -35,9 +35,10 @@ export default async function EstoquePage({
   searchParams: Promise<{ sku?: string }>;
 }) {
   const sp = await searchParams;
-  // ignoreSkuSelection: deep-links resolve any SKU, and the selector lists the full
-  // (scoped) catalog rather than only the hand-picked focus set.
-  const inputs = await loadPlanningInputs(true);
+  // Single-SKU fast path: builds only the selected SKU's forecast + policy (not the
+  // whole catalog). It resolves the selection and lists the scoped catalog for the
+  // selector. Deep-links resolve any SKU; the hand-picked focus set is ignored here.
+  const { inputs, selected } = await loadSkuView(sp.sku);
 
   if (inputs.stocks.length === 0) {
     return (
@@ -49,12 +50,9 @@ export default async function EstoquePage({
     );
   }
 
-  const options = inputs.stocks
-    .map((s) => ({ skuBase: s.skuBase, skuName: s.skuName }))
-    .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
-
-  const selected =
-    sp.sku && inputs.stocks.some((s) => s.skuBase === sp.sku) ? sp.sku : options[0].skuBase;
+  // inputs.stocks is already the scoped catalog, sorted by name, and `selected` is
+  // already resolved by loadSkuView.
+  const options = inputs.stocks.map((s) => ({ skuBase: s.skuBase, skuName: s.skuName }));
 
   const selStock = inputs.stocks.find((s) => s.skuBase === selected)!;
   const forecast = inputs.forecasts.get(selected) ?? null;

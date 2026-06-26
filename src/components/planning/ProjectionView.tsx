@@ -185,8 +185,8 @@ export function ProjectionView({
               ) : (
                 ''
               )}
-              Faixa sombreada = banda lo–hi da previsão. <InfoHint id="band" /> Sombreamento após ~90d
-              é extrapolado além do horizonte do modelo.
+              Faixa azul = banda lo–hi da previsão. <InfoHint id="band" /> Faixa cinza (após o “limite
+              do modelo”, ~90d) = extrapolação, menos confiável.
             </p>
           </div>
         </>

@@ -49,15 +49,28 @@ export function ProjectionChart({
       date: h.date,
       stock: h.stock,
       band: undefined as [number, number] | undefined,
+      bandExtrap: undefined as [number, number] | undefined,
       sim: undefined as number | undefined,
     }));
-  const projData = timeline.map((p, i) => ({
-    date: p.date,
-    stock: p.stock,
-    band: [p.stockLo, p.stockHi] as [number, number] | undefined,
-    sim: overlayTimeline?.[i]?.stock,
-  }));
+  // Split the band at the model horizon: the in-model portion (brand) vs the
+  // extrapolated tail (grey), so the made-up-beyond-the-model uncertainty reads as
+  // distinct. The boundary point belongs to BOTH series so the two areas touch.
+  const projData = timeline.map((p, i) => {
+    const nextExtrap = i + 1 < timeline.length ? timeline[i + 1].extrapolated : false;
+    const isBoundary = !p.extrapolated && nextExtrap;
+    const band = [p.stockLo, p.stockHi] as [number, number];
+    return {
+      date: p.date,
+      stock: p.stock,
+      band: p.extrapolated ? (undefined as [number, number] | undefined) : band,
+      bandExtrap: p.extrapolated || isBoundary ? band : (undefined as [number, number] | undefined),
+      sim: overlayTimeline?.[i]?.stock,
+    };
+  });
   const data = [...histData, ...projData];
+
+  // Where the model horizon ends and extrapolation begins (null if all in-model).
+  const horizonBoundary = timeline.find((p) => p.extrapolated)?.date ?? null;
 
   // Pedido arrivals visible within this chart's window — mark the cause of bumps.
   const projDates = new Set(projData.map((d) => d.date));
@@ -84,8 +97,11 @@ export function ProjectionChart({
           <Tooltip
             labelFormatter={(l) => fmtDate(String(l))}
             formatter={(value: unknown, name: unknown) => {
-              if (name === 'band' && Array.isArray(value)) {
-                return [`${fmtInt(value[0])} – ${fmtInt(value[1])}`, 'Faixa (lo–hi)'];
+              if ((name === 'band' || name === 'bandExtrap') && Array.isArray(value)) {
+                return [
+                  `${fmtInt(value[0])} – ${fmtInt(value[1])}`,
+                  name === 'bandExtrap' ? 'Faixa (extrapolada)' : 'Faixa (lo–hi)',
+                ];
               }
               if (name === 'sim') return [fmtInt(Number(value)), overlayLabel];
               return [fmtInt(Number(value)), 'Estoque previsto'];
@@ -102,6 +118,14 @@ export function ProjectionChart({
             stroke="none"
             fill="var(--color-brand-500)"
             fillOpacity={0.18}
+            isAnimationActive={false}
+          />
+          {/* Extrapolated tail (beyond the model horizon): greyed so it reads as less certain */}
+          <Area
+            dataKey="bandExtrap"
+            stroke="none"
+            fill="var(--color-muted-foreground)"
+            fillOpacity={0.12}
             isAnimationActive={false}
           />
           <Line
@@ -136,6 +160,19 @@ export function ProjectionChart({
               }}
             />
           ))}
+          {horizonBoundary && (
+            <ReferenceLine
+              x={horizonBoundary}
+              stroke="var(--color-muted-foreground)"
+              strokeDasharray="1 3"
+              label={{
+                value: 'limite do modelo',
+                fill: 'var(--color-muted-foreground)',
+                fontSize: 9,
+                position: 'insideTopRight',
+              }}
+            />
+          )}
           {histData.length > 0 && todayMarker && (
             <ReferenceLine
               x={todayMarker}

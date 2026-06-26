@@ -111,24 +111,28 @@ export default async function GuiaPage() {
 
         <h4 className="mt-6 mb-2 text-sm font-bold text-foreground">Recomendação de compra (política s,S)</h4>
         <Calc
-          title="Demanda no lead time"
-          plain="Quanto se espera consumir enquanto o pedido não chega (lead time L)."
-          formula="D_L = soma da previsão (yhat) do dia 1 até o dia L"
+          title="Estoque mínimo (demanda no lead time)"
+          plain="Quanto se espera consumir enquanto o pedido não chega (lead time L, padrão 110 dias). É o piso para aguentar a reposição — sem nenhum colchão."
+          formula="estoque mínimo = soma da previsão (yhat) do dia 1 até o dia L"
         />
         <Calc
-          title="Incerteza da previsão (σ_L)"
-          plain="O tamanho da “margem de erro” da previsão ao longo do lead time, tirado da banda alta da previsão."
-          formula="σ_L = ( previsão_alta_acumulada(L) − D_L ) ÷ 1,28"
+          title="Incerteza do consumo (σ mensal e σ_L)"
+          plain="A “margem de erro” do consumo. Parte do desvio-padrão do consumo dos próximos 30 dias (σ mensal, tirado da banda da previsão) e escala para o lead time pela raiz do lead em meses — dias tratados como independentes (propagação de erro), não somando a banda dia a dia."
+          formula={[
+            'σ_d (diário) = ( previsão_alta(d) − yhat(d) ) ÷ 1,28',
+            'σ_mês = √( soma dos σ_d² nos próximos 30 dias )',
+            'σ_L = σ_mês × √( lead time ÷ 30 )        (lead em meses)',
+          ]}
         />
         <Calc
           title="Estoque de segurança (SS)"
-          plain="Colchão para absorver variação. Quanto mais crítica a peça (classe A>B>C), maior. Pode ser fixado manualmente."
-          formula="SS = Z(classe) × σ_L      —  Z: A=1,96 · B=1,65 · C=1,28   (ou override manual)"
+          plain="Colchão que absorve a variabilidade do CONSUMO no lead time. Quanto mais crítica a peça (classe A>B>C) e maior a incerteza, maior. Pode ser fixado manualmente por SKU."
+          formula="SS = Z(classe) × σ_mês × √(lead em meses)   —  Z: A=1,96 · B=1,65 · C=1,28   (ou override manual)"
         />
         <Calc
           title="Ponto de recompra (ROP)"
-          plain="Quando o estoque cai abaixo disto, é hora de comprar."
-          formula="ROP = D_L + SS"
+          plain="Estoque mínimo + colchão de segurança. Quando o estoque cai abaixo disto, é hora de comprar."
+          formula="ROP = estoque mínimo + SS"
         />
         <Calc
           title="Nível-alvo e quanto comprar"
@@ -215,9 +219,10 @@ export default async function GuiaPage() {
           <Term t="Hub">Centro de estoque: Osasco (central + recuperação), Mooca, SBC.</Term>
           <Term t="DOH / cobertura">Dias que o estoque dura no ritmo atual de consumo.</Term>
           <Term t="Lead time (L)">Dias entre pedir e a peça chegar.</Term>
-          <Term t="ROP">Ponto de recompra — gatilho para comprar.</Term>
-          <Term t="Estoque de segurança (SS)">Colchão contra variação da demanda/atraso.</Term>
-          <Term t="σ_L">Margem de erro da previsão no lead time.</Term>
+          <Term t="ROP">Ponto de recompra = estoque mínimo + segurança — gatilho para comprar.</Term>
+          <Term t="Estoque mínimo">Consumo previsto durante o lead time — o piso sem colchão.</Term>
+          <Term t="Estoque de segurança (SS)">Colchão sobre o mínimo: Z × σ_mês × √(lead em meses).</Term>
+          <Term t="σ mensal / σ_L">Desvio-padrão do consumo em 30 dias / ao longo do lead time.</Term>
           <Term t="Classe ABC">Importância da peça (A mais crítica). Define o nível de serviço (Z) e a cobertura-alvo (DOI).</Term>
           <Term t="yhat / banda (lo–hi)">Previsão central de consumo e seu intervalo otimista–pessimista.</Term>
           <Term t="VO / pedido">Ordem de compra em aberto.</Term>

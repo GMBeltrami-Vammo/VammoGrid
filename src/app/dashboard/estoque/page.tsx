@@ -156,7 +156,7 @@ export default async function EstoquePage({
                 value={fmtInt(purchase.safetyStock)}
               />
               <Metric
-                label={<span className="inline-flex items-center gap-1">Demanda no lead <InfoHint id="expected-lead-demand" /></span>}
+                label={<span className="inline-flex items-center gap-1">Estoque mínimo <InfoHint id="estoque-minimo" /></span>}
                 value={fmtInt(purchase.expectedLeadTimeDemand)}
               />
               <Metric
@@ -180,7 +180,9 @@ export default async function EstoquePage({
             <SafetyStockPanel
               skuBase={selected}
               abcClass={policy.abcClass}
+              sigmaMonthly={purchase.sigmaMonthly}
               sigmaL={purchase.sigmaL}
+              leadTimeDays={purchase.leadTimeDays}
               safetyOverride={policy.safetyOverride}
               expectedLeadTimeDemand={purchase.expectedLeadTimeDemand}
               rop={purchase.rop}

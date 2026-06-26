@@ -70,7 +70,9 @@ describe('toSkuBase', () => {
 });
 
 describe('purchaseForSku — ports the lab (s,S) policy', () => {
-  // yhat=2/day, hi=4 → over L=10: expected_lt=20, sigma=(40-20)/1.28, safety=1.28*sigma=20, ROP=40.
+  // yhat=2/day over L=10 → expected_lt (estoque mínimo) = 20. Safety is pinned with an
+  // override so this test exercises the (s,S) MECHANICS regardless of the σ formula:
+  // safety=20, ROP = mínimo + safety = 40. (The σ formula itself is tested below.)
   it('computes ROP, order-up-to and reorder qty', () => {
     const p = purchaseForSku({
       skuBase: 'X',
@@ -78,7 +80,7 @@ describe('purchaseForSku — ports the lab (s,S) policy', () => {
       forecast: forecast(2, 4),
       stock: stock(30),
       orders: [],
-      policy: policy(),
+      policy: policy({ safetyOverride: 20 }),
       today: TODAY,
     });
     expect(p.expectedLeadTimeDemand).toBe(20);
@@ -114,10 +116,30 @@ describe('purchaseForSku — ports the lab (s,S) policy', () => {
       orderDate: TODAY, eta: addDays(TODAY, 5), leadTimeDays: 5, modal: 'air',
       status: 'ordered', hubId: 'osasco', source: 'test',
     };
-    const base = purchaseForSku({ skuBase: 'X', skuName: 'X', forecast: forecast(2, 4), stock: stock(30), orders: [], policy: policy(), today: TODAY });
-    const withPo = purchaseForSku({ skuBase: 'X', skuName: 'X', forecast: forecast(2, 4), stock: stock(30), orders: [order], policy: policy(), today: TODAY });
+    const base = purchaseForSku({ skuBase: 'X', skuName: 'X', forecast: forecast(2, 4), stock: stock(30), orders: [], policy: policy({ safetyOverride: 20 }), today: TODAY });
+    const withPo = purchaseForSku({ skuBase: 'X', skuName: 'X', forecast: forecast(2, 4), stock: stock(30), orders: [order], policy: policy({ safetyOverride: 20 }), today: TODAY });
     expect(withPo.incomingUnits).toBe(50);
     expect(withPo.orderQty).toBe(base.orderQty - 50);
+  });
+
+  // Safety stock = Z × σ_mês × √(lead em meses), σ from the forecast band by error
+  // propagation (NOT the linear sum of daily bands). yhat=2, hi=4 → σ_d=(4−2)/1.28.
+  it('sizes safety stock by error propagation (Z × σ_mês × √(lead/30))', () => {
+    const p = purchaseForSku({
+      skuBase: 'X',
+      skuName: 'Peça X',
+      forecast: forecast(2, 4), // σ_d = 2/1.28 ≈ 1.5625/day
+      stock: stock(100),
+      orders: [],
+      policy: policy({ abcClass: 'C', leadTimeDays: 10 }), // Z(C)=1.28
+      today: TODAY,
+    });
+    // σ_mês = √(30 · 1.5625²) ≈ 8.56 ; σ_L = σ_mês · √(10/30) ≈ 4.94 ; safety = 1.28 · σ_L ≈ 6.3
+    expect(p.sigmaMonthly).toBeCloseTo(8.6, 1);
+    expect(p.sigmaL).toBeCloseTo(4.9, 1);
+    expect(p.safetyStock).toBeCloseTo(6.3, 1);
+    // Much tighter than the old linear-sum σ_L (which gave safety ≈ 20 for the same input).
+    expect(p.safetyStock).toBeLessThan(10);
   });
 });
 

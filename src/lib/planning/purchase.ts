@@ -17,10 +17,11 @@ import { buildDailyDemand, cumsum } from './forecast';
 // Deterministic (s,S) inventory policy, ported from the forecast-lab
 // (build_purchase_plan.py + the order-plan tab). Per SKU, with lead time L:
 //
-//   expected_lt = Σ yhat over L
-//   σ_L         = (cum_hi[L] − cum_yhat[L]) / 1.28
-//   safety      = ABC_Z[class] × σ_L          (or a per-SKU override)
-//   ROP         = expected_lt + safety        (the reorder trigger)
+//   estoque_mínimo = Σ yhat over L            (consumption integrated over the lead time)
+//   σ_mês          = √(Σ_{d=1..30} σ_d²)       (σ of the next 30d, σ_d = (hi−yhat)/1.28)
+//   σ_L            = σ_mês × √(L / 30)         (scaled to the lead time, in months)
+//   safety         = ABC_Z[class] × σ_L        (or a per-SKU override)
+//   ROP            = estoque_mínimo + safety   (the reorder trigger)
 //   order_up_to = Σ yhat over (L + targetDoi) + safety
 //   order_qty   = max(0, order_up_to − on_hand − open_receipts)  when on_hand ≤ ROP
 //   stockout    = first day the net on-hand curve (stock + receipts − demand) ≤ 0
@@ -63,7 +64,6 @@ export function purchaseForSku({
 
   const demand = buildDailyDemand(forecast, days);
   const cumD = cumsum(demand.yhat);
-  const cumHi = cumsum(demand.hi);
 
   // Bucket expected open-PO receipts by arrival day-offset (overdue-but-open → day 0).
   const receipts = new Array<number>(days + 1).fill(0);
@@ -81,8 +81,23 @@ export function purchaseForSku({
   const cumReceipts = cumsum(receipts);
 
   const onHand = stock.total;
+  // Estoque mínimo = consumo previsto integrado no lead time (Σ yhat over L).
   const expectedLeadTimeDemand = cumD[Math.min(L, days)];
-  const sigmaL = Math.max(0, (cumHi[Math.min(L, days)] - expectedLeadTimeDemand) / BAND_Z);
+
+  // Estoque de segurança absorve a variabilidade do CONSUMO no lead time. σ é
+  // dimensionado por propagação de erro (igual à banda da projeção): σ do consumo
+  // dos próximos 30 dias (RSS dos σ diários da banda do forecast), escalado ao lead
+  // por √(lead em meses). Isto é Z·σ_mês·√(L/30) — NÃO a soma das bandas diárias,
+  // que superestimava ~√L. σ_diário ≈ (hi − yhat) / 1,28.
+  let sumSq30 = 0;
+  const sigmaWindow = Math.min(30, days);
+  for (let d = 1; d <= sigmaWindow; d++) {
+    const sd = Math.max(0, (demand.hi[d] - demand.yhat[d]) / BAND_Z);
+    sumSq30 += sd * sd;
+  }
+  const sigmaMonthly = Math.sqrt(sumSq30);
+  const leadMonths = L / 30;
+  const sigmaL = sigmaMonthly * Math.sqrt(leadMonths);
   const safety = policy.safetyOverride ?? ABC_Z[policy.abcClass] * sigmaL;
   const rop = expectedLeadTimeDemand + safety;
   const orderUpTo = cumD[Math.min(L + targetDoi, days)] + safety;
@@ -124,6 +139,7 @@ export function purchaseForSku({
     onHand,
     leadTimeDays: L,
     expectedLeadTimeDemand: round1(expectedLeadTimeDemand),
+    sigmaMonthly: round1(sigmaMonthly),
     sigmaL: round1(sigmaL),
     safetyStock: round1(safety),
     rop: round1(rop),

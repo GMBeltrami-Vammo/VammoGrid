@@ -7,21 +7,29 @@ import { fmtInt, fmtNum } from '@/lib/planning/format';
 import { updateSafetyStock } from '@/app/dashboard/sku/[sku]/actions';
 import { InfoHint } from '@/components/planning/InfoHint';
 
-// Safety stock is a GLOBAL (network-level) value per SKU. By default it's
-// ABC_Z[class] × σ_L (σ_L from the forecast band); a manual override replaces it.
-// It is the base of the purchase suggestion: ROP = demanda no lead + safety.
+// Safety stock is a GLOBAL (network-level) value per SKU. By default it absorbs the
+// CONSUMPTION variability over the lead time: Z × σ_mês × √(lead em meses), where
+// σ_mês is the std-dev of the next 30 days of consumption (from the forecast band).
+// A manual override replaces it. It is the colchão on top of the estoque mínimo:
+// ROP = estoque mínimo (demanda no lead) + estoque de segurança.
 
 export function SafetyStockPanel({
   skuBase,
   abcClass,
+  sigmaMonthly,
   sigmaL,
+  leadTimeDays,
   safetyOverride,
   expectedLeadTimeDemand,
   rop,
 }: {
   skuBase: string;
   abcClass: AbcClass;
+  /** σ of the next 30 days of consumption. */
+  sigmaMonthly: number;
+  /** σ over the lead time = σ_mês × √(lead/30). */
   sigmaL: number;
+  leadTimeDays: number;
   /** Current saved override (null = use computed). */
   safetyOverride: number | null;
   expectedLeadTimeDemand: number;
@@ -29,6 +37,7 @@ export function SafetyStockPanel({
 }) {
   const z = ABC_Z[abcClass];
   const computed = Math.round(z * sigmaL);
+  const leadMonths = Math.round((leadTimeDays / 30) * 100) / 100;
 
   const [value, setValue] = useState(safetyOverride != null ? String(safetyOverride) : '');
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -103,15 +112,15 @@ export function SafetyStockPanel({
         </div>
       </div>
 
-      {/* Formula */}
+      {/* Formula — absorve a incerteza do consumo no lead time */}
       <p className="mt-3 rounded-md bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/80">
-        SS calculado = Z(classe {abcClass} <InfoHint id="abc-class" /> = {z}) × σ_L <InfoHint id="sigma-l" /> ({fmtNum(sigmaL)}) = {fmtInt(computed)} un
+        SS calculado = Z(classe {abcClass} <InfoHint id="abc-class" /> = {z}) × σ_mês <InfoHint id="sigma-monthly" /> ({fmtNum(sigmaMonthly)}) × √({leadMonths} meses) = Z × σ_L <InfoHint id="sigma-l" /> ({fmtNum(sigmaL)}) = {fmtInt(computed)} un
         {isOverride && <span className="text-muted-foreground"> · override manual em uso ({fmtInt(parsed)} un)</span>}
       </p>
 
-      {/* How it feeds the purchase suggestion */}
+      {/* How it feeds the purchase suggestion: estoque mínimo + segurança = ROP */}
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Base da recompra: <span className="font-medium text-foreground">ROP <InfoHint id="rop" /> = demanda no lead <InfoHint id="expected-lead-demand" /> ({fmtInt(expectedLeadTimeDemand)}) + estoque de segurança ({fmtInt(effective)}) = {fmtInt(expectedLeadTimeDemand + effective)} un</span>
+        Base da recompra: <span className="font-medium text-foreground">ROP <InfoHint id="rop" /> = estoque mínimo <InfoHint id="estoque-minimo" /> ({fmtInt(expectedLeadTimeDemand)}) + estoque de segurança ({fmtInt(effective)}) = {fmtInt(expectedLeadTimeDemand + effective)} un</span>
         {dirty ? ' — recalcula ao salvar.' : `. ROP atual: ${fmtInt(rop)} un.`}
       </p>
 

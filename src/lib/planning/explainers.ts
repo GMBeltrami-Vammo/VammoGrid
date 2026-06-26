@@ -92,20 +92,32 @@ export const EXPLAINERS = {
   // ── Motor de compras ─────────────────────────────────────────────────────────
   'expected-lead-demand': {
     title: 'Demanda no lead time',
-    what: 'Total de unidades que se espera consumir durante o lead time — quanto precisa estar coberto só para aguentar a reposição.',
-    formula: 'expectedLeadTimeDemand = Σ yhat[d] (d = 1..L)',
-    source: 'Calculado',
+    what: 'Total de unidades que se espera consumir durante o lead time — o mesmo que o estoque mínimo. Quanto precisa estar coberto só para aguentar a reposição.',
+    formula: 'demanda no lead = Σ yhat[d] (d = 1..lead time)',
+    source: 'ClickHouse · sop_predictions_daily',
+  },
+  'estoque-minimo': {
+    title: 'Estoque mínimo',
+    what: 'O consumo previsto integrado ao longo do lead time (110d padrão) — quanto precisa ter em casa só para aguentar até a próxima reposição chegar, SEM colchão. O estoque de segurança entra por cima disto, e a soma dos dois é o ponto de recompra (ROP).',
+    formula: 'estoque mínimo = Σ yhat[d] (d = 1..lead time)',
+    source: 'ClickHouse · sop_predictions_daily',
+  },
+  'sigma-monthly': {
+    title: 'σ mensal (consumo 30d)',
+    what: 'Desvio-padrão do consumo dos próximos 30 dias, estimado da banda da previsão (raiz da soma dos quadrados dos σ diários — dias tratados como independentes). É a base do estoque de segurança.',
+    formula: 'σ_mês = √(Σ_{d=1..30} σ_d²),  com σ_d = (hi − yhat) / 1,28',
+    source: 'Calculado · banda do ClickHouse',
   },
   'sigma-l': {
-    title: 'σ no lead time (sigma_L)',
-    what: 'Desvio-padrão da demanda ao longo do lead time, recuperado da largura da banda da previsão. Mede a incerteza que o estoque de segurança protege.',
-    formula: 'sigma_L = (cumHi[L] − cumYhat[L]) / 1,28',
+    title: 'σ no lead time (σ_L)',
+    what: 'Desvio-padrão do consumo ao longo de TODO o lead time. Escala o σ mensal pela raiz do lead em meses (propagação de erro, dias independentes — não soma linear). É o que o estoque de segurança protege.',
+    formula: 'σ_L = σ_mês × √(lead time ÷ 30)',
     source: 'Calculado',
   },
   safety: {
     title: 'Estoque de segurança',
-    what: 'Colchão contra variação da demanda no lead time. Quanto maior a classe ABC e a incerteza, maior. Pode ser sobrescrito manualmente por SKU.',
-    formula: 'safety = override ?? Z[ABC] × sigma_L',
+    what: 'Colchão que absorve a variabilidade do CONSUMO durante o lead time. Cresce com a classe ABC (nível de serviço Z) e com a incerteza da previsão. Editável por SKU (override manual).',
+    formula: 'safety = override ?? Z[ABC] × σ_mês × √(lead em meses)',
     source: 'Calculado · sku_policy (override)',
   },
   rop: {

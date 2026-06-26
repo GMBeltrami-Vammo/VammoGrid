@@ -387,25 +387,29 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         ref: 'src/lib/planning/purchase.ts:60-62',
       },
       {
-        name: 'expectedLeadTimeDemand',
+        name: 'Estoque mínimo (expectedLeadTimeDemand)',
         source: 'cumD = cumsum(demand.yhat)',
-        formula: 'expectedLeadTimeDemand = cumD[min(L, days)]',
-        notes: 'Demanda yhat acumulada na janela de lead time L. Subjaz sigma_L, ROP e status.',
-        ref: 'src/lib/planning/purchase.ts:64-84',
+        formula: 'estoque mínimo = expectedLeadTimeDemand = cumD[min(L, days)] = Σ yhat[1..L]',
+        notes:
+          'Consumo previsto integrado no lead time — o piso para aguentar a reposição, sem colchão. Base do ROP (= mínimo + segurança) e do status.',
+        ref: 'src/lib/planning/purchase.ts:84',
       },
       {
-        name: 'sigma_L',
-        source: 'cumHi, cumD',
-        formula: 'sigmaL = max(0, (cumHi[min(L,days)] − expectedLeadTimeDemand) / BAND_Z), BAND_Z=1.28',
-        notes: 'σ recuperado da largura da banda do forecast (quantil ~80% ≈ 1,28σ). Clampado ≥0.',
-        ref: 'src/lib/planning/purchase.ts:85; constants.ts:23',
+        name: 'σ mensal + σ_L (incerteza do consumo)',
+        source: 'banda do forecast (hi − yhat) / BAND_Z',
+        formula:
+          'σ_d = max(0, (hi[d] − yhat[d]) / 1,28); σ_mês = √(Σ_{d=1..30} σ_d²); σ_L = σ_mês × √(L/30)',
+        notes:
+          'Propagação de erro (dias independentes): σ do consumo de 30d escalado ao lead pela √ do lead em meses. Substitui a soma linear das bandas diárias, que superestimava σ ~√L.',
+        ref: 'src/lib/planning/purchase.ts:84-101; constants.ts:23',
       },
       {
         name: 'safety (estoque de segurança)',
         source: 'policy.safetyOverride ou ABC_Z[abcClass]',
-        formula: 'safety = policy.safetyOverride ?? ABC_Z[policy.abcClass] × sigmaL',
-        notes: 'Override tem precedência via ?? (null cai no calculado). ABC_Z={A:1.96,B:1.65,C:1.28}.',
-        ref: 'src/lib/planning/purchase.ts:86',
+        formula: 'safety = policy.safetyOverride ?? ABC_Z[policy.abcClass] × σ_L (= Z × σ_mês × √(L/30))',
+        notes:
+          'Absorve a variabilidade do consumo no lead time. Override tem precedência via ?? (null cai no calculado). ABC_Z={A:1.96,B:1.65,C:1.28}.',
+        ref: 'src/lib/planning/purchase.ts:102',
       },
       {
         name: 'ROP (ponto de recompra)',

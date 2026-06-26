@@ -223,13 +223,15 @@ export interface PurchaseSuggestion {
   riskLevel: RiskLevel;
   onHand: number;
   leadTimeDays: number;
-  /** Expected demand during the lead time (Σ yhat over L). */
+  /** Estoque mínimo: expected consumption integrated over the lead time (Σ yhat over L). */
   expectedLeadTimeDemand: number;
-  /** σ over the lead time, from the forecast band: (cum_hi[L] − cum_yhat[L]) / 1.28. */
+  /** σ of the next 30 days of consumption, from the forecast band (RSS of daily σ). */
+  sigmaMonthly: number;
+  /** σ over the lead time = σ_mês × √(lead em meses). Drives the safety stock. */
   sigmaL: number;
   /** Effective safety stock (manual override, or ABC_Z[class] × σ_L). */
   safetyStock: number;
-  /** Reorder point = expectedLeadTimeDemand + safetyStock. */
+  /** Reorder point = estoque mínimo (expectedLeadTimeDemand) + safetyStock. */
   rop: number;
   orderUpTo: number;
   /** Suggested quantity to order now (0 when stock > ROP). */

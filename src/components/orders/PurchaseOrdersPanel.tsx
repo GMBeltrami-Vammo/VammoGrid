@@ -207,7 +207,8 @@ export function PurchaseOrdersPanel() {
                   <TableCell className="font-medium">{o.vo ?? '—'}</TableCell>
                   <TableCell className="font-mono text-xs">
                     <Link
-                      href={`/dashboard/sku/${encodeURIComponent(toSkuBase(o.sku))}`}
+                      prefetch={false}
+                      href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(o.sku))}`}
                       className="text-brand-500 transition-colors hover:text-brand-400 hover:underline"
                     >
                       {o.sku}

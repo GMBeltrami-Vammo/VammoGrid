@@ -18,7 +18,7 @@ const fetchCompatRows = unstable_cache(
     return (data ?? []) as Record<string, unknown>[];
   },
   ['part-compat-rows'],
-  { revalidate: 3600, tags: ['compat'] },
+  { revalidate: 86400, tags: ['compat'] }, // matrix rarely changes → cache 1 day
 );
 
 export async function fetchCompatModels(): Promise<Map<string, Set<string>>> {

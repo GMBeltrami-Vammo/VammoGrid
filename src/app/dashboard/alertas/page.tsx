@@ -74,7 +74,8 @@ export default async function AlertsPage() {
                         <tr key={`${a.skuBase}-${i}`} className="align-top hover:bg-muted/40">
                           <td className="px-3 py-2">
                             <Link
-                              href={`/dashboard/sku/${encodeURIComponent(a.skuBase)}`}
+                              prefetch={false}
+                              href={`/dashboard/estoque?sku=${encodeURIComponent(a.skuBase)}`}
                               className="font-medium text-foreground hover:text-brand-600"
                             >
                               {a.skuName}

@@ -205,7 +205,8 @@ export function CompatPanel() {
               <TableRow key={c.sku}>
                 <TableCell className="font-mono text-xs">
                   <Link
-                    href={`/dashboard/sku/${encodeURIComponent(toSkuBase(c.sku))}`}
+                    prefetch={false}
+                    href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(c.sku))}`}
                     className="text-foreground hover:text-brand-500 transition-colors"
                   >
                     {c.sku}

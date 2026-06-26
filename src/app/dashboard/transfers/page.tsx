@@ -87,7 +87,8 @@ export default async function TransfersPage() {
                       </td>
                       <td className="px-3 py-2">
                         <Link
-                          href={`/dashboard/sku/${encodeURIComponent(t.skuBase)}`}
+                          prefetch={false}
+                          href={`/dashboard/estoque?sku=${encodeURIComponent(t.skuBase)}`}
                           className="font-medium text-foreground hover:text-brand-600"
                         >
                           {t.skuName}

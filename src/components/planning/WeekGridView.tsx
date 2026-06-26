@@ -170,7 +170,8 @@ function GridRow({ row }: { row: WeekGridRow }) {
     <tr className="hover:bg-muted/20">
       <td className="sticky left-0 z-10 bg-card px-3 py-1.5 align-middle">
         <Link
-          href={`/dashboard/sku/${encodeURIComponent(row.skuBase)}`}
+          prefetch={false}
+          href={`/dashboard/estoque?sku=${encodeURIComponent(row.skuBase)}`}
           className="block font-mono text-[11px] text-brand-500 hover:text-brand-400 transition-colors"
         >
           {row.skuBase}

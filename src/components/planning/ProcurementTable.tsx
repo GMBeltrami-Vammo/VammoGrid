@@ -100,7 +100,8 @@ export function ProcurementTable({ rows }: { rows: PurchaseSuggestion[] }) {
               <tr key={p.skuBase} className="align-top hover:bg-muted/40">
                 <td className="px-3 py-2">
                   <Link
-                    href={`/dashboard/sku/${encodeURIComponent(p.skuBase)}`}
+                    prefetch={false}
+                    href={`/dashboard/estoque?sku=${encodeURIComponent(p.skuBase)}`}
                     className="font-medium text-foreground hover:text-brand-600"
                   >
                     {p.skuName}

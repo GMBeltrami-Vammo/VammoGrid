@@ -83,7 +83,8 @@ export default async function HubPage({ params }: { params: Promise<{ hub: strin
                   <tr key={r.s.skuBase} className="hover:bg-muted/40">
                     <td className="px-3 py-2">
                       <Link
-                        href={`/dashboard/sku/${encodeURIComponent(r.s.skuBase)}`}
+                        prefetch={false}
+                        href={`/dashboard/estoque?sku=${encodeURIComponent(r.s.skuBase)}`}
                         className="font-medium text-foreground hover:text-brand-600"
                       >
                         {r.s.skuName}

@@ -51,7 +51,7 @@ export default async function ExecutiveDashboard() {
   });
   const mixTotal = mix.procurement + mix.recovery;
 
-  const skuHref = (sku: string) => `/dashboard/sku/${encodeURIComponent(sku)}`;
+  const skuHref = (sku: string) => `/dashboard/estoque?sku=${encodeURIComponent(sku)}`;
 
   return (
     <div>
@@ -205,6 +205,7 @@ export default async function ExecutiveDashboard() {
                       <tr key={`${d.order.id}-${i}`} className="hover:bg-muted/40">
                         <td className="px-3 py-2">
                           <Link
+                            prefetch={false}
                             href={skuHref(d.order.skuBase)}
                             className="font-medium text-foreground hover:text-brand-600"
                           >
@@ -276,7 +277,7 @@ function RiskTable({
           {rows.map((p) => (
             <tr key={p.skuBase} className="hover:bg-muted/40">
               <td className="px-3 py-2">
-                <Link href={skuHref(p.skuBase)} className="font-medium text-foreground hover:text-brand-600">
+                <Link prefetch={false} href={skuHref(p.skuBase)} className="font-medium text-foreground hover:text-brand-600">
                   {p.skuName}
                 </Link>
                 <div className="text-[11px] text-muted-foreground">{p.skuBase}</div>

@@ -32,8 +32,8 @@ GROUP BY sku_code, location_id`;
 export async function fetchHubShares(): Promise<Map<string, Record<HubId, number>>> {
   let rows: ShareRow[] = [];
   try {
-    // 30-day consumption window → cache 1h across requests.
-    rows = await cachedChQuery<ShareRow>(SHARES_SQL, 3600, ['shares']);
+    // 30-day consumption window → cache 6h across requests (changes slowly).
+    rows = await cachedChQuery<ShareRow>(SHARES_SQL, 21600, ['shares']);
   } catch {
     return new Map(); // ledger query unavailable → callers fall back to on-hand share
   }

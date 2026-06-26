@@ -30,8 +30,8 @@ HAVING consumed > 0`;
 export async function fetchRecoveryRates(): Promise<Map<string, HistoricalRecovery>> {
   let rows: RecoveryRow[] = [];
   try {
-    // 90-day observed window → cache 1h across requests.
-    rows = await cachedChQuery<RecoveryRow>(RECOVERY_SQL, 3600, ['recovery-rates']);
+    // 90-day observed window → cache 6h across requests (changes slowly).
+    rows = await cachedChQuery<RecoveryRow>(RECOVERY_SQL, 21600, ['recovery-rates']);
   } catch {
     return new Map();
   }

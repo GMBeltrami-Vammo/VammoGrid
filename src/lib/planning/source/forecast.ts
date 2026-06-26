@@ -66,8 +66,8 @@ async function fetchForecastRowsUncached(): Promise<ForecastRow[]> {
 // round-trips). It only changes when a new model run lands (daily/weekly), so cache
 // the whole row set for an hour across requests; revalidateTag('forecast') to bust.
 const fetchForecastRows = unstable_cache(fetchForecastRowsUncached, ['forecast-rows'], {
-  revalidate: 3600,
-  tags: ['forecast'],
+  revalidate: 21600, // 6h — the model run lands daily/weekly, so a long TTL is safe and
+  tags: ['forecast'], //       avoids re-running the ~15 batched Metabase queries per visit
 });
 
 function asAbc(s: string): AbcClass {

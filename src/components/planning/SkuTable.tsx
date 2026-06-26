@@ -292,7 +292,8 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
                     </td>
                     <td className="px-3 py-2">
                       <Link
-                        href={`/dashboard/sku/${encodeURIComponent(r.skuBase)}`}
+                        prefetch={false}
+                        href={`/dashboard/estoque?sku=${encodeURIComponent(r.skuBase)}`}
                         className="font-mono text-xs text-brand-500 hover:text-brand-400 transition-colors"
                       >
                         {r.skuBase}
@@ -300,7 +301,8 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
                     </td>
                     <td className="px-3 py-2 max-w-[200px]">
                       <Link
-                        href={`/dashboard/sku/${encodeURIComponent(r.skuBase)}`}
+                        prefetch={false}
+                        href={`/dashboard/estoque?sku=${encodeURIComponent(r.skuBase)}`}
                         className="truncate block text-foreground hover:text-brand-500 transition-colors"
                       >
                         {r.skuName}

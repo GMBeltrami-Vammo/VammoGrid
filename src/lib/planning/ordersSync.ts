@@ -39,7 +39,7 @@ SELECT po_number,
        toString(toDate(coalesce(eta, date_requested + toIntervalDay(lead_time_days)))) AS eta_eff,
        lead_time_days
 FROM dev.vmoto_orders
-WHERE sku IS NOT NULL AND sku != ''
+WHERE sku LIKE 'VM%'
   AND quantity > 0
   AND coalesce(eta, date_requested + toIntervalDay(lead_time_days)) >= today()
 ORDER BY ingested_at DESC

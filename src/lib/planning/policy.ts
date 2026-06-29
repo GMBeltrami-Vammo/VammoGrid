@@ -9,6 +9,24 @@ import { NATIONAL_LEAD_TIMES } from './seed/nationalLeadTimes';
 
 const DEFAULT_RECOVERY_TURNAROUND_DAYS = 14;
 
+/**
+ * Effective lead time (days) for a SKU — the same value buildPolicies resolves into
+ * SkuPolicy.leadTimeDays. Precedence: explicit override.leadTimeDays → modal-aware
+ * sea/air (override or seed/default) → national seed → DEFAULT_LEAD_TIME_DAYS (110).
+ * Exported so the orders sync can compute ETA = order_date + this, using the planning
+ * lead times rather than whatever the upstream feed carries.
+ */
+export function effectiveLeadDays(skuBase: string, override?: Partial<SkuPolicy>): number {
+  const national = NATIONAL_LEAD_TIMES[skuBase];
+  const seaBase = national ?? DEFAULT_LEAD_TIME_DAYS;
+  const airBase = national ?? INTERNATIONAL_AIR_LEAD_DAYS;
+  if (!override) return seaBase;
+  if (override.leadTimeDays != null) return override.leadTimeDays;
+  const sea = override.leadTimeSeaDays ?? seaBase;
+  const air = override.leadTimeAirDays ?? airBase;
+  return (override.defaultModal ?? 'sea') === 'air' ? air : sea;
+}
+
 export function defaultPolicyFor(
   skuBase: string,
   stock: StockState,
@@ -59,13 +77,9 @@ export function buildPolicies(args: {
       ...ov,
       abcClass: abcFinal,
       targetDoi: ov.targetDoi ?? ABC_TARGET_DOI[abcFinal],
+      // Effective lead time: explicit override → modal-aware sea/air → seed → default.
+      leadTimeDays: effectiveLeadDays(s.skuBase, ov),
     };
-    // Effective lead time follows the default modal's sea/air value. An explicit
-    // leadTimeDays override (manual) still wins when sea/air aren't both set.
-    const sea = merged.leadTimeSeaDays;
-    const air = merged.leadTimeAirDays;
-    const modalDays = merged.defaultModal === 'air' ? air : sea;
-    if (modalDays != null && ov.leadTimeDays == null) merged.leadTimeDays = modalDays;
     map.set(s.skuBase, merged);
   }
   return map;

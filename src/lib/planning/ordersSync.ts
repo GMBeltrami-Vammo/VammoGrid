@@ -1,12 +1,18 @@
 import 'server-only';
 import { chQuery } from '@/lib/clickhouse/reader';
 import { createServiceSupabase } from '@/lib/supabase/service';
+import { fetchSkuPolicies } from './source/policies';
+import { effectiveLeadDays } from './policy';
+import { toSkuBase } from './sku';
+import { addDays, todayUtc } from './dates';
 
 // Daily sync: pull CURRENT purchase orders from the file-ingested ClickHouse table
 // dev.vmoto_orders into Supabase fleet.purchase_order, so the app keeps reading (and
 // editing) orders from one place. We keep Supabase a clean "current orders" mirror:
-//   • effective ETA = eta, or (date_requested + lead_time_days) when eta is null
-//   • only orders whose effective ETA is today-or-later are kept (past-ETA dropped)
+//   • ETA = order_date (date_requested) + the SKU's EFFECTIVE LEAD TIME from Supabase
+//     (sku_policy override → national seed → 110d default), NOT the upstream feed's
+//     eta/lead_time — so the planning lead times drive arrival dates everywhere.
+//   • only orders whose computed ETA is today-or-later are kept (past-ETA dropped)
 //   • deduped to the latest ingest per PO line (po_number, row_number)
 //   • we REPLACE only the source='clickhouse' rows — manual / n8n orders are untouched
 //
@@ -23,53 +29,66 @@ interface VmotoOrderRow {
   item_name: string | null;
   quantity: number | string | null;
   order_date: string | null;
-  eta_eff: string | null;
-  lead_time_days: number | string | null;
 }
 
-// Effective ETA = eta ?? date_requested + lead_time_days. Keep only future-ETA lines,
-// latest ingest per (po_number, row_number).
+// Every current PO line (latest ingest per po_number/row_number). ETA is NOT taken
+// from the feed — it's computed in TS from order_date + the Supabase lead time, then
+// past-ETA lines are filtered out there too.
 const ORDERS_SQL = `
 SELECT po_number,
        sku,
        item_name,
        quantity,
-       toString(toDate(date_requested)) AS order_date,
-       toString(toDate(coalesce(eta, date_requested + toIntervalDay(lead_time_days)))) AS eta_eff,
-       lead_time_days
+       toString(toDate(date_requested)) AS order_date
 FROM dev.vmoto_orders
 WHERE sku LIKE 'VM%'
   AND quantity > 0
-  AND coalesce(eta, date_requested + toIntervalDay(lead_time_days)) >= today()
+  AND date_requested IS NOT NULL
 ORDER BY ingested_at DESC
 LIMIT 1 BY po_number, row_number`;
 
 export async function syncOrdersFromClickHouse(): Promise<{ inserted: number; deleted: number }> {
-  const rows = await chQuery<VmotoOrderRow>(ORDERS_SQL);
+  // Orders from the feed + the per-SKU lead-time policy from Supabase (cached).
+  const [rows, overrides] = await Promise.all([
+    chQuery<VmotoOrderRow>(ORDERS_SQL),
+    fetchSkuPolicies(),
+  ]);
 
+  const today = todayUtc();
   const now = new Date().toISOString();
+
   const mapped = rows
-    .filter((r) => r.sku && r.eta_eff && r.order_date)
-    .map((r) => ({
-      vo: r.po_number ?? null,
-      sku: String(r.sku),
-      sku_name: r.item_name ?? null,
-      qty_ordered: Number(r.quantity) || 0,
-      order_date: r.order_date,
-      eta: r.eta_eff,
-      lead_time_days: r.lead_time_days != null ? Number(r.lead_time_days) : null,
-      status: 'ordered',
-      modal: null as string | null,
-      hub_id: 'osasco',
-      notes: null as string | null,
-      source: ORDERS_SYNC_SOURCE,
-      updated_at: now,
-    }));
+    .filter((r) => r.sku && r.order_date)
+    .map((r) => {
+      const skuBase = toSkuBase(String(r.sku));
+      // ETA = order date + the SKU's effective planning lead time (Supabase/seed/default).
+      const leadDays = effectiveLeadDays(skuBase, overrides.get(skuBase));
+      const eta = addDays(String(r.order_date), leadDays);
+      return {
+        vo: r.po_number ?? null,
+        sku: String(r.sku),
+        sku_name: r.item_name ?? null,
+        qty_ordered: Number(r.quantity) || 0,
+        order_date: String(r.order_date),
+        eta,
+        lead_time_days: leadDays,
+        status: 'ordered',
+        modal: null as string | null,
+        hub_id: 'osasco',
+        notes: null as string | null,
+        source: ORDERS_SYNC_SOURCE,
+        updated_at: now,
+      };
+    })
+    // Keep only orders whose computed ETA is today-or-later (drop past-ETA → clean).
+    .filter((o) => o.eta >= today);
 
   const supabase = createServiceSupabase();
 
-  // Guard: never wipe the synced set on an empty/failed warehouse read.
-  if (mapped.length === 0) return { inserted: 0, deleted: 0 };
+  // Guard: never wipe the synced set on an empty/failed warehouse read. (Use the raw
+  // row count — if the feed genuinely has no current orders, mapped can be empty and
+  // we still clear the stale clickhouse set below.)
+  if (rows.length === 0) return { inserted: 0, deleted: 0 };
 
   // Replace the ClickHouse-sourced set. delete → insert, scoped to source='clickhouse'
   // so manual / n8n orders survive. Past-ETA rows are gone simply by not being re-added.
@@ -80,8 +99,10 @@ export async function syncOrdersFromClickHouse(): Promise<{ inserted: number; de
     .eq('source', ORDERS_SYNC_SOURCE);
   if (delErr) throw new Error(`delete: ${delErr.message}`);
 
-  const { error: insErr } = await supabase.schema('fleet').from('purchase_order').insert(mapped);
-  if (insErr) throw new Error(`insert: ${insErr.message}`);
+  if (mapped.length > 0) {
+    const { error: insErr } = await supabase.schema('fleet').from('purchase_order').insert(mapped);
+    if (insErr) throw new Error(`insert: ${insErr.message}`);
+  }
 
   await supabase
     .schema('fleet')

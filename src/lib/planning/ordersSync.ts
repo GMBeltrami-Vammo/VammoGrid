@@ -1,7 +1,6 @@
 import 'server-only';
 import { chQuery } from '@/lib/clickhouse/reader';
 import { createServiceSupabase } from '@/lib/supabase/service';
-import { toSkuBase } from './sku';
 
 // Daily sync: pull CURRENT purchase orders from the file-ingested ClickHouse table
 // dev.vmoto_orders into Supabase fleet.purchase_order, so the app keeps reading (and
@@ -54,7 +53,6 @@ export async function syncOrdersFromClickHouse(): Promise<{ inserted: number; de
     .map((r) => ({
       vo: r.po_number ?? null,
       sku: String(r.sku),
-      sku_base: toSkuBase(String(r.sku)),
       sku_name: r.item_name ?? null,
       qty_ordered: Number(r.quantity) || 0,
       order_date: r.order_date,

@@ -2,7 +2,6 @@
 
 import { requireHead } from '@/lib/auth/requireHead';
 import { createServiceSupabase } from '@/lib/supabase/service';
-import { toSkuBase } from '@/lib/planning/sku';
 import type { PurchaseOrderStatus } from '@/types';
 
 // Head-gated mutations for purchase orders. Every action verifies the Head
@@ -26,7 +25,6 @@ function toRow(input: PurchaseOrderInput) {
   return {
     vo: input.vo?.trim() || null,
     sku: input.sku.trim(),
-    sku_base: toSkuBase(input.sku.trim()),
     sku_name: input.skuName?.trim() || null,
     qty_ordered: input.qtyOrdered,
     order_date: input.orderDate,

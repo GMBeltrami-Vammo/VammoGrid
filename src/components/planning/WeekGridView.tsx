@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { Recycle, Flag, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekGridRow } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
@@ -193,14 +194,22 @@ function GridRow({ row }: { row: WeekGridRow }) {
             <span className="block text-xs font-semibold">{fmtInt(c.stock)}</span>
             <span className="block text-[10px] opacity-70">{c.doh != null ? `${c.doh}d` : '—'}</span>
             {(c.inbound > 0 || c.recovery > 0) && (
-              <span className="block text-[9px] font-medium opacity-90">
-                {c.inbound > 0 ? `+${fmtInt(c.inbound)}` : ''}
-                {c.recovery > 0 ? ` ♻${fmtInt(c.recovery)}` : ''}
+              <span className="flex items-center justify-center gap-1 text-[9px] font-medium opacity-90">
+                {c.inbound > 0 && <span>{`+${fmtInt(c.inbound)}`}</span>}
+                {c.recovery > 0 && (
+                  <span className="inline-flex items-center gap-0.5">
+                    <Recycle className="size-2.5" />
+                    {fmtInt(c.recovery)}
+                  </span>
+                )}
               </span>
             )}
             {isBuyBy && (
-              <span className="block text-[9px] font-bold text-alert-warning" title="Comprar até esta semana">
-                ⚑ pedir
+              <span
+                className="flex items-center justify-center gap-1 text-[9px] font-bold text-alert-warning"
+                title="Comprar até esta semana"
+              >
+                <Flag className="size-2.5" /> pedir
               </span>
             )}
           </td>
@@ -211,22 +220,22 @@ function GridRow({ row }: { row: WeekGridRow }) {
 }
 
 function Legend() {
-  const items = [
-    { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' as const },
-    { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: 'Cobertura < 14d', hint: 'week-doh' as const },
-    { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido (+un)', hint: 'week-inbound' as const },
-    { cls: 'bg-brand-500/10 text-brand-600', label: 'Recuperação (♻)', hint: 'recovery-line' as const },
+  const items: { cls: string; label: string; hint: Parameters<typeof InfoHint>[0]['id']; icon?: LucideIcon }[] = [
+    { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' },
+    { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: 'Cobertura < 14d', hint: 'week-doh' },
+    { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido (+un)', hint: 'week-inbound' },
+    { cls: 'bg-brand-500/10 text-brand-600', label: 'Recuperação', hint: 'recovery-line', icon: Recycle },
   ];
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
       {items.map((it) => (
         <span key={it.label} className="flex items-center gap-1.5">
           <span className={cn('inline-block h-3 w-3 rounded-sm', it.cls)} />
-          {it.label} <InfoHint id={it.hint} />
+          {it.label} {it.icon && <it.icon className="size-3" />} <InfoHint id={it.hint} />
         </span>
       ))}
       <span className="flex items-center gap-1.5">
-        <span className="font-bold text-alert-warning">⚑</span> Semana-limite de compra <InfoHint id="buy-by-week" />
+        <Flag className="size-3 text-alert-warning" /> Semana-limite de compra <InfoHint id="buy-by-week" />
       </span>
     </div>
   );

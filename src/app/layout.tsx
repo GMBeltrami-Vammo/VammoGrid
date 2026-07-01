@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Inter, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { QueryProvider } from '@/components/providers/QueryProvider';
 import { SessionProvider } from '@/components/providers/SessionProvider';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+// Product track (vammo-design DS): Inter, weights matching Supria's
+// Light/Regular/Medium/Bold (300/400/500/700).
+const inter = Inter({
+  variable: '--font-inter',
   subsets: ['latin'],
+  weight: ['300', '400', '500', '700'],
 });
 
 const geistMono = Geist_Mono({
@@ -28,7 +31,7 @@ export default function RootLayout({
     <html
       lang="pt-BR"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         {/* Apply the saved/system theme before paint to avoid a flash */}

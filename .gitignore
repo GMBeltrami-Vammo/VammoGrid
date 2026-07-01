@@ -34,6 +34,15 @@ yarn-error.log*
 .env*
 !.env.example
 
+# credentials (OAuth / API client files — never commit real values)
+credentials.json
+client_secret*.json
+token.json
+.drive_token.json
+
+# claude code — local tooling/config, not shared via the repo
+/.claude/
+
 # vercel
 .vercel
 

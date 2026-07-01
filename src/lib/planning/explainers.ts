@@ -90,6 +90,12 @@ export const EXPLAINERS = {
   },
 
   // ── Motor de compras ─────────────────────────────────────────────────────────
+  'elaboration-trigger': {
+    title: 'Gatilho de elaboração',
+    what: 'A regra da página de Compras: um SKU precisa de pedido quando o estoque projetado cai abaixo de 75 DOH em QUALQUER ponto do horizonte. O modal padrão é marítimo (lote mensal, no dia 1º); se o marítimo não chega antes da ruptura, sobe para aéreo (pode ser pedido a qualquer dia). Distinto do ROP estatístico (que fica no detalhe do SKU) — este decide QUANDO elaborar o pedido.',
+    formula: 'ruptura = 1º dia com DOH(d) < 75 · marítimo se (próximo dia 1º + lead marítimo) ≤ ruptura, senão aéreo',
+    source: 'Calculado (projeção + política)',
+  },
   'expected-lead-demand': {
     title: 'Demanda no lead time',
     what: 'Total de unidades que se espera consumir durante o lead time — o mesmo que o estoque mínimo. Quanto precisa estar coberto só para aguentar a reposição.',

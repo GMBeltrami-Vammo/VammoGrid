@@ -2,6 +2,7 @@ import 'server-only';
 import { cache } from 'react';
 import { cookies } from 'next/headers';
 import type {
+  ElaborationSuggestion,
   HistoricalRecovery,
   HubId,
   OpenPurchaseOrder,
@@ -12,6 +13,7 @@ import type {
   StockState,
   TransferSuggestion,
 } from '@/types/planning';
+import { findElaborationTrigger } from './elaboration';
 import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
 import { todayUtc } from './dates';
@@ -216,6 +218,88 @@ export async function safeComputeSnapshot(
       transfers: [],
       error: e instanceof Error ? e.message : 'erro ao carregar dados',
     };
+  }
+}
+
+// ─── Elaboration rows for the Compras page (sub-project B7) ───────────────────
+
+export interface ElaborationRow {
+  suggestion: ElaborationSuggestion;
+  /** Default order quantity (editable before confirm): the purchase engine's
+   *  orderQty, or a targetDoi-cover fallback when it's zero but a breach exists. */
+  suggestedQty: number;
+  unitPrice: number | null;
+  estCost: number | null;
+  /** A non-cancelled order (placed or draft) already exists for this SKU. */
+  hasOpenOrder: boolean;
+  isNational: boolean;
+  category: string | null;
+}
+
+export interface ElaborationResult {
+  rows: ElaborationRow[];
+  today: string;
+  asOfDate: string;
+  backend: 'clickhouse' | 'none';
+  error?: string;
+}
+
+/**
+ * Compute the elaboration-trigger list for the Compras page (B7). PURE computation
+ * from the snapshot — projects each in-scope SKU, runs findElaborationTrigger, and
+ * pairs each with a default quantity. Writes NOTHING; a human confirms rows one by
+ * one via createElaboratedOrder. Never throws (returns empty + error note).
+ */
+export async function computeElaborations(ignoreSkuSelection = false): Promise<ElaborationResult> {
+  try {
+    const inp = await computeSnapshot(ignoreSkuSelection);
+    const purchaseBySku = new Map(inp.purchases.map((p) => [p.skuBase, p]));
+
+    const rows: ElaborationRow[] = [];
+    for (const stock of inp.stocks) {
+      const forecast = inp.forecasts.get(stock.skuBase) ?? null;
+      const policy =
+        inp.policies.get(stock.skuBase) ??
+        defaultPolicyFor(stock.skuBase, stock, forecast?.abcClass ?? 'C', inp.today);
+      const proj = projectSku({
+        stock,
+        forecast,
+        orders: inp.ordersBySku.get(stock.skuBase) ?? [],
+        policy,
+        shares: resolveShares(stock, inp.shares.get(stock.skuBase)),
+        today: inp.today,
+      });
+      const suggestion = findElaborationTrigger({ stock, projection: proj.global, policy, today: inp.today });
+      if (!suggestion.needsOrder) continue;
+
+      const purchase = purchaseBySku.get(stock.skuBase);
+      const fallbackQty = Math.max(0, Math.ceil(proj.global.dailyDemand * policy.targetDoi));
+      const suggestedQty = purchase && purchase.orderQty > 0 ? purchase.orderQty : fallbackQty;
+      const orders = inp.ordersBySku.get(stock.skuBase) ?? [];
+
+      rows.push({
+        suggestion,
+        suggestedQty,
+        unitPrice: stock.unitPrice,
+        estCost: stock.unitPrice != null ? Math.round(suggestedQty * stock.unitPrice) : null,
+        hasOpenOrder: orders.some((o) => o.status !== 'cancelled'),
+        isNational: policy.leadTimeSource === 'national-file',
+        category: stock.category,
+      });
+    }
+
+    // Most urgent first: late, then earliest breach date.
+    rows.sort((a, b) => {
+      if (a.suggestion.isLate !== b.suggestion.isLate) return a.suggestion.isLate ? -1 : 1;
+      const da = a.suggestion.firstBreachDate ?? '9999';
+      const db = b.suggestion.firstBreachDate ?? '9999';
+      return da < db ? -1 : da > db ? 1 : 0;
+    });
+
+    return { rows, today: inp.today, asOfDate: inp.asOfDate, backend: inp.backend };
+  } catch (e) {
+    console.error('[computeElaborations]', e instanceof Error ? e.message : e);
+    return { rows: [], today: todayUtc(), asOfDate: todayUtc(), backend: activeBackendKind(), error: e instanceof Error ? e.message : 'erro' };
   }
 }
 

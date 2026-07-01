@@ -137,6 +137,7 @@ function Row({ row, isHead, onCreated }: { row: ElaborationRow; isHead: boolean;
   const [qty, setQty] = useState(row.suggestedQty);
   const [modal, setModal] = useState<TransportModal>(s.suggestedModal ?? 'sea');
   const [done, setDone] = useState(false);
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -155,6 +156,7 @@ function Row({ row, isHead, onCreated }: { row: ElaborationRow; isHead: boolean;
       });
       if (res.ok) {
         setDone(true);
+        setCreatedId(res.id ?? null);
         onCreated();
       } else {
         setError(res.error ?? 'Erro ao elaborar pedido.');
@@ -211,9 +213,19 @@ function Row({ row, isHead, onCreated }: { row: ElaborationRow; isHead: boolean;
       </td>
       <td className="px-3 py-2">
         {done ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-alert-success">
-            <Check size={13} /> Elaborado
-          </span>
+          createdId ? (
+            <Link
+              href={`/dashboard/pedidos/${encodeURIComponent(createdId)}`}
+              prefetch={false}
+              className="inline-flex items-center gap-1 text-xs font-medium text-alert-success hover:underline"
+            >
+              <Check size={13} /> Elaborado — ver pedido
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-alert-success">
+              <Check size={13} /> Elaborado
+            </span>
+          )
         ) : isHead ? (
           <button
             onClick={confirm}

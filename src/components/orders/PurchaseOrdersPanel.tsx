@@ -204,7 +204,15 @@ export function PurchaseOrdersPanel() {
                 </TableRow>
               ) : (
                 <TableRow key={o.id}>
-                  <TableCell className="font-medium">{o.vo ?? '—'}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link
+                      prefetch={false}
+                      href={`/dashboard/pedidos/${encodeURIComponent(o.vo ?? o.id)}`}
+                      className="text-brand-500 transition-colors hover:text-brand-400 hover:underline"
+                    >
+                      {o.vo ?? 'ver'}
+                    </Link>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     <Link
                       prefetch={false}

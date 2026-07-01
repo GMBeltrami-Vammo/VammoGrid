@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { auth } from '@/auth';
 import { loadSkuView, projectOneCompare } from '@/lib/planning/load';
 import { computeArrivals } from '@/lib/planning/projection';
@@ -236,7 +237,15 @@ export default async function EstoquePage({
                     <tbody className="divide-y divide-foreground/5">
                       {orders.map((o) => (
                         <tr key={o.id} className="hover:bg-muted/40">
-                          <td className="px-3 py-2">{o.vo ?? '—'}</td>
+                          <td className="px-3 py-2">
+                            <Link
+                              prefetch={false}
+                              href={`/dashboard/pedidos/${encodeURIComponent(o.vo ?? o.id)}`}
+                              className="text-brand-500 transition-colors hover:text-brand-400 hover:underline"
+                            >
+                              {o.vo ?? 'ver'}
+                            </Link>
+                          </td>
                           <td className="px-3 py-2 text-right tabular-nums">{fmtInt(o.qty)}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{fmtDate(o.eta)}</td>
                           <td className="px-3 py-2">{o.modal === 'air' ? 'Aéreo' : o.modal === 'sea' ? 'Marítimo' : '—'}</td>

@@ -12,6 +12,24 @@ import { unstable_cache } from 'next/cache';
 
 export type Row = Record<string, unknown>;
 
+// CLICKHOUSE_HOST must be a full URL (e.g. https://<host>:8443 for ClickHouse
+// Cloud). A bare hostname — the easy mistake, since ClickHouse Cloud's connection
+// panel often shows just the host — makes `new URL()` throw an opaque
+// ERR_INVALID_URL. Normalize instead of crashing: assume https + ClickHouse
+// Cloud's default HTTPS port (8443) when no scheme is present.
+function resolveClickhouseUrl(host: string): URL {
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(host) ? host : `https://${host}`;
+  try {
+    const url = new URL(withScheme);
+    if (!url.port) url.port = '8443';
+    return url;
+  } catch {
+    throw new Error(
+      `CLICKHOUSE_HOST is not a valid URL: "${host}". Expected e.g. https://<host>:8443.`,
+    );
+  }
+}
+
 async function clickhouseQuery<T = Row>(sql: string): Promise<T[]> {
   const host = process.env.CLICKHOUSE_HOST;
   if (!host) {
@@ -24,7 +42,7 @@ async function clickhouseQuery<T = Row>(sql: string): Promise<T[]> {
   const database = process.env.CLICKHOUSE_DATABASE ?? 'default';
 
   // ClickHouse HTTP interface: append FORMAT JSONEachRow → newline-delimited JSON.
-  const url = new URL(host);
+  const url = resolveClickhouseUrl(host);
   url.searchParams.set('database', database);
   const res = await fetch(url, {
     method: 'POST',

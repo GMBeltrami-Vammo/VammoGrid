@@ -6,7 +6,6 @@ import type {
   PartCompat,
   PurchaseOrder,
   PurchaseOrderStatus,
-  SkuParams,
 } from '@/types';
 
 // Row → domain mappers. Supabase returns snake_case columns; the app uses
@@ -55,19 +54,6 @@ export function mapFleetInfoRow(row: Record<string, any>): FleetInfo {
     currentSize: Number(row.current_size) || 0,
     monthlyGrowthRate: Number(row.monthly_growth_rate) || 0,
     asOfDate: row.as_of_date ?? null,
-    updatedAt: String(row.updated_at ?? ''),
-    updatedBy: row.updated_by ?? null,
-  };
-}
-
-export function mapSkuParamsRow(row: Record<string, any>): SkuParams {
-  return {
-    sku: String(row.sku),
-    recoveryRate: Number(row.recovery_rate) || 0,
-    recoveryLookbackDays: Number(row.recovery_lookback_days) || 0,
-    leadTimeDays: row.lead_time_days != null ? Number(row.lead_time_days) : null,
-    abcClass: row.abc_class ?? null,
-    targetDoi: row.target_doi != null ? Number(row.target_doi) : null,
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,
   };

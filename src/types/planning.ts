@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // VammoGrid 2.0 — Stock Planning & Logistics Platform
 // Domain contracts. These are the STABLE interfaces the engines depend on; the
-// data adapters (ClickHouse / Metabase) and the upstream forecast model can change
-// without touching the engines, as long as they keep producing these shapes.
+// data adapters (ClickHouse) and the upstream forecast model can change without
+// touching the engines, as long as they keep producing these shapes.
 //
 // SKU identity: orders use `sku_code` (6 segments, VM-01-BAT0-0007-01-01); the
 // forecast and stock layers key on `sku_base` (first 4 segments, VM-01-BAT0-0007).

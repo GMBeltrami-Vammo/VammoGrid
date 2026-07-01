@@ -109,14 +109,9 @@ export function FreshnessBanner({
   backend,
 }: {
   asOfDate: string;
-  backend: 'clickhouse' | 'metabase' | 'none';
+  backend: 'clickhouse' | 'none';
 }) {
-  const backendLabel =
-    backend === 'clickhouse'
-      ? 'ClickHouse (direto)'
-      : backend === 'metabase'
-        ? 'Metabase (fallback)'
-        : 'sem fonte';
+  const backendLabel = backend === 'clickhouse' ? 'ClickHouse (direto)' : 'sem fonte';
   const stale = backend === 'none';
   return (
     <div

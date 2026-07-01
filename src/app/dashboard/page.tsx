@@ -65,7 +65,7 @@ export default async function ExecutiveDashboard() {
       {snap.stocks.length === 0 ? (
         <EmptyState
           title="Sem dados de estoque"
-          hint="Configure CLICKHOUSE_* ou METABASE_URL + METABASE_API_KEY para carregar estoque, previsão e movimentos."
+          hint="Configure CLICKHOUSE_HOST/USER/PASSWORD/DATABASE para carregar estoque, previsão e movimentos."
         />
       ) : (
         <>

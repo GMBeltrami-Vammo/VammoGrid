@@ -51,7 +51,7 @@ import {
 export interface PlanningInputs {
   today: string;
   asOfDate: string;
-  backend: 'clickhouse' | 'metabase' | 'none';
+  backend: 'clickhouse' | 'none';
   stocks: StockState[];
   forecasts: Map<string, SkuForecast>;
   shares: Map<string, Record<HubId, number>>;

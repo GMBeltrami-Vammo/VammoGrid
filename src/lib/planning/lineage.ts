@@ -1,6 +1,6 @@
 // Data lineage reference — the complete, technical description of every value and
-// formula in the planning platform, with its source (ClickHouse / Supabase /
-// Metabase / seed) and a file:line ref. Rendered by /dashboard/fontes.
+// formula in the planning platform, with its source (ClickHouse / Supabase / seed)
+// and a file:line ref. Rendered by /dashboard/fontes.
 //
 // Extracted + adversarially verified against the source files. Keep in sync when
 // the engines or adapters change (refs point to the authoritative code).
@@ -23,16 +23,16 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
   {
     title: 'Fontes de dados',
     blurb:
-      'As fontes brutas que alimentam o planejamento — tabelas ClickHouse (analytics/dev), tabelas Supabase fleet, questions do Metabase, constantes de hub e o seed de lead times nacionais. Uma linha por fonte descrevendo o que ela fornece.',
+      'As fontes brutas que alimentam o planejamento — tabelas ClickHouse (analytics/dev), tabelas Supabase fleet, constantes de hub e o seed de lead times nacionais. Uma linha por fonte descrevendo o que ela fornece.',
     rows: [
       {
         name: 'Backend de analytics (activeBackendKind / chQuery)',
-        source: 'Env: CLICKHOUSE_HOST/USER/PASSWORD/DATABASE ou METABASE_URL/METABASE_API_KEY/METABASE_CH_DATABASE_ID (default 137)',
+        source: 'Env: CLICKHOUSE_HOST/USER/PASSWORD/DATABASE',
         formula:
-          "Se CLICKHOUSE_HOST setado → 'clickhouse' (POST HTTP Basic, body + 'FORMAT JSONEachRow', parse linha-a-linha); senão se METABASE_URL+API_KEY → 'metabase' (POST /api/dataset {database, type:'native', native:{query}}, reindexa rows[][]+cols[] para objetos); senão 'none'",
+          "'clickhouse' se CLICKHOUSE_HOST setado (POST HTTP Basic no HTTP interface do ClickHouse, body + 'FORMAT JSONEachRow', parse linha-a-linha); senão 'none'",
         notes:
-          "Read-only, server-only, sem dependências (fetch puro), cache:'no-store'. Backend cacheado por processo. chQuery() roda o mesmo SQL nativo em qualquer um dos dois. Tabelas sempre qualificadas (analytics.*, dev.*).",
-        ref: 'src/lib/clickhouse/reader.ts:20-122',
+          "Read-only, server-only, sem dependências (fetch puro), cache:'no-store'. O fallback via Metabase REST foi removido (custava ~2-3x em round-trips — o cap de 2000 linhas por query nativa forçava o forecast a rodar em ~15 batches; ver decisions.MD #8/#9). Tabelas sempre qualificadas (analytics.*, dev.*).",
+        ref: 'src/lib/clickhouse/reader.ts:1-45',
       },
       {
         name: 'analytics.stg_ims_r__inventory (+ deposit/location/item/item_group)',
@@ -58,7 +58,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         formula:
           'SELECT toString(snapshot_date), toFloat64(sum(quantity_available)) WHERE sku_base=? AND snapshot_date >= today()-days GROUP BY snapshot_date ORDER BY snapshot_date',
         notes:
-          'Total de rede (sem split por hub). Mesma lineage do estoque vivo (int_inventory) → casa com o on-hand exibido, diferente do fleet.piece_stock_hub (naming Maestro #29571 diverge). Base do histórico D-30.',
+          'Total de rede (sem split por hub). Mesma lineage do estoque vivo (int_inventory) → casa com o on-hand exibido. Base do histórico D-30.',
         ref: 'src/lib/planning/source/history.ts:51-58',
       },
       {
@@ -104,24 +104,6 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         notes:
           'O warehouse só conhece categoria grossa (BIKE/BATTERY/BOX); o detalhe por modelo vem daqui. Mapa vazio em erro → filtro não restringe por modelo.',
         ref: 'src/lib/planning/source/compat.ts:11-28',
-      },
-      {
-        name: 'Metabase #29571 (Inventory + DOH)',
-        source: 'ClickHouse via Metabase (consumo Maestro OS L30D)',
-        formula:
-          'Linha: sku, item_group (nome Maestro), qty_total/qty_mooca/qty_osasco/qty_sbc, consumo_diario_mooca/osasco/sbc, consumo_diario_l30d (= soma hubs), doh (= qty_total/consumo_diario_l30d)',
-        notes:
-          "Mismatch de naming: 'item_group' (Maestro) ≠ ClickHouse 'item_group_name' — por isso o cron fleet.piece_stock_hub não casa por nome. Default da question = env.METABASE_QUESTION_INVENTORY || 29571.",
-        ref: 'src/lib/transformer.ts:13-39; metabase/queries.ts:1-3',
-      },
-      {
-        name: 'Metabase #29567 (Consumption)',
-        source: 'ClickHouse via Metabase (consumo diário + IDs de OS, média móvel L30D)',
-        formula:
-          'Linha: day (ISO), item_group (nome Maestro), hub (mooca|osasco|sbc), qty_consumed, os (array de IDs, pode vir como string JSON), monthly_avg',
-        notes:
-          'os parseado de array ou string JSON ([] em erro). Valida hub contra VALID_HUBS. Default da question = env.METABASE_QUESTION_CONSUMPTION || 29567.',
-        ref: 'src/lib/transformer.ts:74-116; metabase/queries.ts:5-6',
       },
       {
         name: 'HUBS / HUB_LOCATION_IDS (constantes de hub)',

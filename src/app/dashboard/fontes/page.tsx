@@ -7,11 +7,10 @@ import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-// Classify a source string into an origin badge (ClickHouse / Supabase / Metabase /
+// Classify a source string into an origin badge (ClickHouse / Supabase /
 // Seed·Const / Cookie / Derivado) for quick visual scanning.
 function originBadge(source: string): { label: string; cls: string } {
   if (/clickhouse|analytics\.|dev\./i.test(source)) return { label: 'ClickHouse', cls: 'bg-brand-500/15 text-brand-600' };
-  if (/metabase|#295/i.test(source)) return { label: 'Metabase', cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]' };
   if (/supabase|fleet\.|job_run/i.test(source)) return { label: 'Supabase', cls: 'bg-alert-success/15 text-alert-success' };
   if (/seed|constants|planningHubs|NATIONAL|@\/types/i.test(source)) return { label: 'Seed · Const', cls: 'bg-muted text-muted-foreground' };
   if (/cookie/i.test(source)) return { label: 'Cookie', cls: 'bg-muted text-muted-foreground' };
@@ -21,7 +20,7 @@ function originBadge(source: string): { label: string; cls: string } {
 const slug = (i: number) => `secao-${i}`;
 
 const FLOW = [
-  { label: 'Fontes', detail: 'ClickHouse · Supabase · Metabase · seed' },
+  { label: 'Fontes', detail: 'ClickHouse · Supabase · seed' },
   { label: 'Adaptadores', detail: 'lib/planning/source/*' },
   { label: 'Política + Motores', detail: 'policy · projeção · compras · transferências' },
   { label: 'Aplicação', detail: 'load → páginas (RSC) + UI' },
@@ -31,15 +30,14 @@ export default async function FontesPage() {
   const backend = activeBackendKind();
   const recoveryRefreshedAt = await fetchRecoveryRefreshedAt();
 
-  const backendLabel =
-    backend === 'clickhouse' ? 'ClickHouse (direto)' : backend === 'metabase' ? 'Metabase (fallback)' : 'Sem backend';
+  const backendLabel = backend === 'clickhouse' ? 'ClickHouse (direto)' : 'Sem backend';
 
   return (
     <div>
       <PageHeader
         eyebrow="Referência técnica"
         title="Fontes & Fórmulas"
-        subtitle="A origem e o fluxo de cada valor — fonte (ClickHouse, Supabase, Metabase, seed), fórmula exata e referência de código. Documentação viva do pipeline de planejamento."
+        subtitle="A origem e o fluxo de cada valor — fonte (ClickHouse, Supabase, seed), fórmula exata e referência de código. Documentação viva do pipeline de planejamento."
       />
 
       {/* Live state */}

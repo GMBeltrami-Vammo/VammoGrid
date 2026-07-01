@@ -18,6 +18,7 @@ Each entry records what was decided, why, and when.
 | 7 | Primary data source (V1) | Metabase API proxy | ClickHouse direct, CSV export | Reuses existing Metabase question #27759; API key auth (`X-Api-Key` header) — simpler and more stable than session tokens (no expiry, no re-auth logic needed) |
 | 8 | Primary data source (V2) | ClickHouse direct | Metabase only | ClickHouse is the actual warehouse behind all Metabase numbers; direct queries unlock SO history for forecasting and are more performant |
 | 9 | Deployment region | Vercel GRU (São Paulo) | US-East, Auto | Low latency to metabase.vammo.com which is Brazil-hosted; reduces p99 on every data fetch |
+| 10 | Primary data source (V3) | ClickHouse direct ONLY — Metabase fully removed | Keep both (fallback), Metabase only | Metabase's REST fallback cost ~2-3x the round-trips per page load (a 2000-row native-query cap forced the forecast alone into a DISTINCT + ~15 batched queries); confirmed CLICKHOUSE_* reachable from Vercel gru1, so the fallback had no remaining purpose. Deleted `lib/metabase/*`, the two `/api/metabase/*` routes, the dormant V1 client-architecture (`useInventory`/`useConsumption`/`useAlerts`/`useProjections`/`FilterContext`/`lib/projection.ts`/`components/inventory/*` island — zero live importers), and the admin "Recuperação" tab (wrote to `fleet.sku_params`, which the engine never read — superseded by `fleet.sku_policy`). Dropped `fleet.piece_stock_hub[_monthly]` (Metabase-sourced snapshot cron, unread by the app) and `fleet.sku_params`. |
 
 ---
 
@@ -39,8 +40,8 @@ Each entry records what was decided, why, and when.
 
 | # | Question | Status |
 |---|---|---|
-| Q1 | Exact column names returned by Metabase question #27759 | To verify on first API call — hub name normalization depends on this |
-| Q2 | Metabase question ID for weekly SO consumption per SKU/hub | To be created — coordinate with Data team |
+| Q1 | Exact column names returned by Metabase question #27759 | Obsolete — Metabase removed entirely (decision #10); superseded by direct ClickHouse reads |
+| Q2 | Metabase question ID for weekly SO consumption per SKU/hub | Obsolete — superseded by `dev.sop_predictions_daily` (the S&OP forecast) read directly from ClickHouse |
 | Q3 | When to add authentication | When the app URL needs to be shared more broadly or accessed from outside Vammo's network |
 | Q4 | Osasco inflow data source | Maestro IMS API or new Metabase question — to be scoped in V2 |
 | Q5 | DOH minimum thresholds per SKU | Currently global (14d / 7d); per-SKU thresholds may be needed as operations mature |

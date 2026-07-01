@@ -13,8 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function GuiaPage() {
   const backend = activeBackendKind();
   const recoveryRefreshedAt = await fetchRecoveryRefreshedAt();
-  const backendLabel =
-    backend === 'clickhouse' ? 'ClickHouse (direto)' : backend === 'metabase' ? 'Metabase (fallback)' : 'Sem backend';
+  const backendLabel = backend === 'clickhouse' ? 'ClickHouse (direto)' : 'Sem backend';
 
   return (
     <div className="max-w-4xl">

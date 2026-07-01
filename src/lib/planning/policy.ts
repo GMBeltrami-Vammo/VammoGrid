@@ -3,7 +3,7 @@ import { ABC_TARGET_DOI, DEFAULT_LEAD_TIME_DAYS, INTERNATIONAL_AIR_LEAD_DAYS } f
 import { NATIONAL_LEAD_TIMES } from './seed/nationalLeadTimes';
 
 // Resolves the effective planning policy per SKU. Precedence:
-//   Supabase sku_policy override  →  national lead-time seed  →  ABC defaults.
+//   ClickHouse dev.fleet_sku_policy override  →  national lead-time seed  →  ABC defaults.
 // Until the sku_policy table is populated, every SKU gets sensible defaults
 // (national parts get their known lead time; everything else 110d international).
 

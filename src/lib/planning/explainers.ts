@@ -46,7 +46,7 @@ export const EXPLAINERS = {
     title: 'Em trânsito (entradas)',
     what: 'Unidades de pedidos abertos (ordered / in_transit / customs) que chegam dentro do horizonte. Já descontadas da sugestão de compra.',
     formula: 'Σ qty dos POs com chegada (eta ou order_date + lead_time) ≤ horizonte',
-    source: 'Supabase · purchase_order',
+    source: 'ClickHouse · dev.fleet_purchase_order',
   },
   forecast: {
     title: 'Previsão de demanda (S&OP)',
@@ -80,7 +80,7 @@ export const EXPLAINERS = {
     title: 'Lead time',
     what: 'Dias entre pedir e receber. O modal padrão (marítimo ou aéreo) define o lead efetivo usado no ROP e no buy-by. Internacional padrão: 110d mar / 40d aéreo; nacionais via seed/edição.',
     formula: 'leadTimeDays = defaultModal === "air" ? aéreo : marítimo',
-    source: 'Supabase · sku_policy (+ seed nacional)',
+    source: 'ClickHouse · dev.fleet_sku_policy (+ seed nacional)',
   },
   'abc-class': {
     title: 'Classe ABC',
@@ -211,7 +211,7 @@ export const EXPLAINERS = {
     title: 'Entradas na semana',
     what: 'Unidades de pedidos abertos que chegam dentro daquela semana (somadas nos 7 dias).',
     formula: 'Σ entradas nos dias [semana−6 .. semana]',
-    source: 'Supabase · purchase_order',
+    source: 'ClickHouse · dev.fleet_purchase_order',
   },
   'buy-by-week': {
     title: 'Semana de comprar',
@@ -233,7 +233,7 @@ export const EXPLAINERS = {
     title: 'Taxa de recuperação (usada)',
     what: 'Fração da demanda que volta como peça recuperada em Osasco, creditada após o turnaround. É o valor que o motor usa — editável por SKU.',
     formula: 'recuperação(d) = taxa × demanda(d − turnaround)',
-    source: 'Supabase · sku_policy.recovery_rate',
+    source: 'ClickHouse · dev.fleet_sku_policy.recovery_rate',
   },
   'recovery-observed': {
     title: 'Taxa real IMS (observada)',
@@ -245,7 +245,7 @@ export const EXPLAINERS = {
     title: 'Turnaround de recuperação',
     what: 'Dias de reparo antes de creditar a peça recuperada de volta em Osasco. Padrão 14 dias.',
     formula: 'defaso aplicado: demanda(d − turnaround)',
-    source: 'Supabase · sku_policy',
+    source: 'ClickHouse · dev.fleet_sku_policy',
   },
 
   // ── Alocação ───────────────────────────────────────────────────────────────

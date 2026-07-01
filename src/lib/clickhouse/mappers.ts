@@ -8,8 +8,9 @@ import type {
   PurchaseOrderStatus,
 } from '@/types';
 
-// Row → domain mappers. Supabase returns snake_case columns; the app uses
-// camelCase domain types. Shared by the client read hooks.
+// Row → domain mappers for the dev.fleet_* tables. ClickHouse (like the Supabase
+// tables before it) returns snake_case columns; the app uses camelCase domain
+// types. Shared by the /api/fleet/* route handlers that back the client read hooks.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

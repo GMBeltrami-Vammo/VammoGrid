@@ -1,6 +1,6 @@
 // Data lineage reference — the complete, technical description of every value and
-// formula in the planning platform, with its source (ClickHouse / Supabase / seed)
-// and a file:line ref. Rendered by /dashboard/fontes.
+// formula in the planning platform, with its source (ClickHouse analytics.*/dev.* /
+// seed) and a file:line ref. Rendered by /dashboard/fontes.
 //
 // Extracted + adversarially verified against the source files. Keep in sync when
 // the engines or adapters change (refs point to the authoritative code).
@@ -23,7 +23,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
   {
     title: 'Fontes de dados',
     blurb:
-      'As fontes brutas que alimentam o planejamento — tabelas ClickHouse (analytics/dev), tabelas Supabase fleet, constantes de hub e o seed de lead times nacionais. Uma linha por fonte descrevendo o que ela fornece.',
+      'As fontes brutas que alimentam o planejamento — tabelas ClickHouse analytics.* (fatos, só leitura), tabelas ClickHouse dev.fleet_* (config/estado, editável pelo app — ver decisions.MD #11), constantes de hub e o seed de lead times nacionais. Uma linha por fonte descrevendo o que ela fornece.',
     rows: [
       {
         name: 'Backend de analytics (activeBackendKind / chQuery)',
@@ -80,30 +80,30 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         ref: 'src/lib/planning/source/alerts.ts:21-73',
       },
       {
-        name: 'fleet.purchase_order',
-        source: 'Supabase fleet (anon key, RLS) — alimentado por n8n / manual / xlsx',
-        formula: 'fetchOpenOrders(): SELECT * order by order_date DESC, sem filtro de status; mapeia para OpenPurchaseOrder',
+        name: 'dev.fleet_purchase_order',
+        source: 'ClickHouse dev.fleet_* (config/estado editável) — alimentado por n8n / manual / xlsx',
+        formula: 'fetchOpenOrders(): readFleetTable() (SELECT … FINAL WHERE is_deleted=0), sem filtro de status; mapeia para OpenPurchaseOrder',
         notes:
-          "Campos: id, vo, sku, sku_name, qty_ordered, order_date, eta, lead_time_days, status, modal, hub_id, source. Defaults: status='ordered', hubId='osasco', source='manual'. [] em erro/desconfigurado.",
-        ref: 'src/lib/planning/source/orders.ts:30-57',
+          "Campos: id (UUID gerado pelo app), vo, sku, sku_name, qty_ordered, order_date, eta, lead_time_days, status, modal, hub_id, notes, source. Defaults: status='ordered', hubId='osasco', source='manual'. [] em erro/desconfigurado. ReplacingMergeTree(updated_at) + soft-delete — ClickHouse não tem UPDATE/DELETE de linha em velocidade OLTP; cada escrita é uma nova versão completa da linha.",
+        ref: 'src/lib/planning/source/orders.ts; lib/clickhouse/fleet.ts',
       },
       {
-        name: 'fleet.sku_policy',
-        source: 'Supabase fleet (service-role; metadado server-only fora do anon key)',
+        name: 'dev.fleet_sku_policy',
+        source: 'ClickHouse dev.fleet_* (config/estado editável)',
         formula:
-          'fetchSkuPolicies() via createServiceSupabase(): SELECT *; retorna Map<sku_base, Partial<SkuPolicy>>. Só colunas presentes sobrescrevem defaults',
+          'fetchSkuPolicies() via readFleetTable(): SELECT … FINAL; retorna Map<sku_base, Partial<SkuPolicy>>. Só colunas presentes sobrescrevem defaults',
         notes:
-          'Colunas: lead_time_days/source/sea_days/air_days, default_modal, abc_class, target_doi, recovery_rate, recovery_turnaround_days, safety_override, is_repairable, updated_by/at. Service role passa RLS; autorização no caller.',
-        ref: 'src/lib/planning/source/policies.ts:26-64; supabase/service.ts:15-28',
+          'Colunas: lead_time_days/source/sea_days/air_days, default_modal, abc_class, target_doi, recovery_rate, recovery_turnaround_days, safety_override, is_repairable, updated_by/at. Toda escrita passa por upsertFleetRow(), que também grava um diff por campo em dev.fleet_audit_log.',
+        ref: 'src/lib/planning/source/policies.ts; lib/clickhouse/fleet.ts',
       },
       {
-        name: 'fleet.part_compat',
-        source: 'Supabase fleet (anon key) — matriz de 9 modelos de moto',
+        name: 'dev.fleet_part_compat',
+        source: 'ClickHouse dev.fleet_* (config/estado editável) — matriz de 9 modelos de moto',
         formula:
           'fetchCompatModels(): por linha, checa colunas BIKE_MODELS (MODEL_A1, MODEL_B3, MODEL_S2, …) == true → Set; retorna Map<sku_base, Set<model>>',
         notes:
           'O warehouse só conhece categoria grossa (BIKE/BATTERY/BOX); o detalhe por modelo vem daqui. Mapa vazio em erro → filtro não restringe por modelo.',
-        ref: 'src/lib/planning/source/compat.ts:11-28',
+        ref: 'src/lib/planning/source/compat.ts',
       },
       {
         name: 'HUBS / HUB_LOCATION_IDS (constantes de hub)',
@@ -238,7 +238,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
       },
       {
         name: 'SkuPolicy (contrato de domínio)',
-        source: '@/types/planning — produzido por adapters (Supabase, seed)',
+        source: '@/types/planning — produzido por adapters (ClickHouse dev.fleet_*, seed)',
         formula:
           'skuBase, leadTimeDays (efetivo, do defaultModal), leadTimeSource, leadTimeSeaDays/AirDays, defaultModal, abcClass, targetDoi, recoveryRate, recoveryTurnaroundDays, safetyOverride (null=calculado), isRepairable, updatedBy/At',
         notes: 'Interface de política estável da qual todos os engines dependem; adapters apenas produzem essa forma.',

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
-import { createServiceSupabase } from '@/lib/supabase/service';
+import { chInsert, type Row } from '@/lib/clickhouse/reader';
+import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -107,7 +109,8 @@ export async function POST(req: Request) {
   const p = parsed.data;
 
   // 3. Build one row per item, resolving eta / lead time with order-level fallback
-  const rows = p.items.map((item) => {
+  const now = new Date().toISOString();
+  const rows: Row[] = p.items.map((item) => {
     const orderDate = p.order_date;
     let eta = item.eta ?? p.eta ?? null;
     let leadTime = item.lead_time_days ?? p.lead_time_days ?? null;
@@ -116,6 +119,7 @@ export async function POST(req: Request) {
     else if (!eta && leadTime != null) eta = addDays(orderDate, leadTime);
 
     return {
+      id: randomUUID(),
       vo: p.vo ?? null,
       sku: item.sku,
       sku_name: item.sku_name ?? null,
@@ -128,43 +132,44 @@ export async function POST(req: Request) {
       hub_id: item.hub_id ?? p.hub_id ?? 'osasco',
       notes: item.notes ?? null,
       source: 'n8n',
-      updated_at: new Date().toISOString(),
+      created_at: now,
+      updated_at: now,
+      is_deleted: false,
     };
   });
 
-  // 4. Write (service role)
-  const supabase = createServiceSupabase();
-
-  // Idempotent re-send: optionally clear existing rows for this VO first.
-  if (p.replace_vo && p.vo) {
-    const { error: delError } = await supabase
-      .schema('fleet')
-      .from('purchase_order')
-      .delete()
-      .eq('vo', p.vo);
-    if (delError) {
-      console.error('[/api/orders/ingest] delete', delError.message);
-      return NextResponse.json({ error: delError.message }, { status: 500 });
+  // 4. Write (ClickHouse — this is machine ingest, not a human edit, so it goes
+  // through raw chInsert rather than the per-field audit-log helper, same as the
+  // daily orders-sync cron: a bulk n8n batch would otherwise flood the audit log.)
+  try {
+    // Idempotent re-send: optionally soft-delete existing rows for this VO first
+    // (insert an is_deleted=true version of each — ReplacingMergeTree keeps the newest).
+    let replacedCount = 0;
+    if (p.replace_vo && p.vo) {
+      const existing = await readFleetTable<Row>(FLEET_TABLES.purchaseOrder);
+      const toRetire = existing.filter((r) => r.vo === p.vo);
+      if (toRetire.length > 0) {
+        await chInsert(
+          FLEET_TABLES.purchaseOrder,
+          toRetire.map((r) => ({ ...r, updated_at: now, is_deleted: true })),
+        );
+        replacedCount = toRetire.length;
+      }
     }
+
+    await chInsert(FLEET_TABLES.purchaseOrder, rows);
+
+    revalidateTag('orders', 'max'); // mark cached purchase_order rows stale
+
+    return NextResponse.json({
+      ok: true,
+      inserted: rows.length,
+      vo: p.vo ?? null,
+      replaced: replacedCount > 0,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[/api/orders/ingest]', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const { data, error } = await supabase
-    .schema('fleet')
-    .from('purchase_order')
-    .insert(rows)
-    .select('id');
-
-  if (error) {
-    console.error('[/api/orders/ingest] insert', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  revalidateTag('orders', 'max'); // mark cached purchase_order rows stale
-
-  return NextResponse.json({
-    ok: true,
-    inserted: data?.length ?? 0,
-    vo: p.vo ?? null,
-    replaced: Boolean(p.replace_vo && p.vo),
-  });
 }

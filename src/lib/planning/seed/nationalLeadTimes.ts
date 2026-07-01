@@ -1,8 +1,8 @@
 // Seed lead times for national (Brazilian) parts, from
 // "lead time estimado - pecas nacionais.xlsx". Keyed by sku_base. Everything not
 // listed is treated as international (DEFAULT_LEAD_TIME_DAYS = 110). These are the
-// initial values; once the Supabase sku_policy table is populated they are editable
-// in-app and the DB value wins.
+// initial values; once the dev.fleet_sku_policy table is populated they are
+// editable in-app and the ClickHouse value wins.
 export const NATIONAL_LEAD_TIMES: Record<string, number> = {
   'VM-07-MOT0-0102': 14,
   'VM-01-ROD0-1007': 14,

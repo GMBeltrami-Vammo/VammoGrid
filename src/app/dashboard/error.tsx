@@ -21,7 +21,7 @@ export default function DashboardError({
     <div className="flex flex-col items-center justify-center gap-4 rounded-xl bg-card p-12 ring-1 ring-alert-error/30 text-center">
       <p className="text-sm font-semibold text-alert-error">Erro ao carregar dados</p>
       <p className="max-w-sm text-xs text-muted-foreground">
-        {error.message || 'Ocorreu um erro inesperado. Verifique as credenciais de ClickHouse/Supabase.'}
+        {error.message || 'Ocorreu um erro inesperado. Verifique as credenciais de ClickHouse.'}
       </p>
       {error.digest && (
         <p className="font-mono text-[10px] text-muted-foreground/60">{error.digest}</p>

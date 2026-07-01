@@ -7,11 +7,14 @@ import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-// Classify a source string into an origin badge (ClickHouse / Supabase /
-// Seed·Const / Cookie / Derivado) for quick visual scanning.
+// Classify a source string into an origin badge (ClickHouse · Config /
+// ClickHouse / Seed·Const / Cookie / Derivado) for quick visual scanning.
+// Everything lives in ClickHouse now (decisions.MD #11) — the "· Config" variant
+// still calls out dev.fleet_* specifically, since those tables are app-editable
+// state, not read-only analytics facts like analytics.*/dev.sop_* are.
 function originBadge(source: string): { label: string; cls: string } {
+  if (/dev\.fleet_/i.test(source)) return { label: 'ClickHouse · Config', cls: 'bg-alert-success/15 text-alert-success' };
   if (/clickhouse|analytics\.|dev\./i.test(source)) return { label: 'ClickHouse', cls: 'bg-brand-500/15 text-brand-600' };
-  if (/supabase|fleet\.|job_run/i.test(source)) return { label: 'Supabase', cls: 'bg-alert-success/15 text-alert-success' };
   if (/seed|constants|planningHubs|NATIONAL|@\/types/i.test(source)) return { label: 'Seed · Const', cls: 'bg-muted text-muted-foreground' };
   if (/cookie/i.test(source)) return { label: 'Cookie', cls: 'bg-muted text-muted-foreground' };
   return { label: 'Derivado', cls: 'bg-muted text-muted-foreground' };
@@ -20,7 +23,7 @@ function originBadge(source: string): { label: string; cls: string } {
 const slug = (i: number) => `secao-${i}`;
 
 const FLOW = [
-  { label: 'Fontes', detail: 'ClickHouse · Supabase · seed' },
+  { label: 'Fontes', detail: 'ClickHouse (fatos + config) · seed' },
   { label: 'Adaptadores', detail: 'lib/planning/source/*' },
   { label: 'Política + Motores', detail: 'policy · projeção · compras · transferências' },
   { label: 'Aplicação', detail: 'load → páginas (RSC) + UI' },
@@ -37,7 +40,7 @@ export default async function FontesPage() {
       <PageHeader
         eyebrow="Referência técnica"
         title="Fontes & Fórmulas"
-        subtitle="A origem e o fluxo de cada valor — fonte (ClickHouse, Supabase, seed), fórmula exata e referência de código. Documentação viva do pipeline de planejamento."
+        subtitle="A origem e o fluxo de cada valor — fonte (ClickHouse, seed), fórmula exata e referência de código. Documentação viva do pipeline de planejamento."
       />
 
       {/* Live state */}

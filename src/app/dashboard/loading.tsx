@@ -1,6 +1,6 @@
 // Route-level loading skeleton — shown by Next.js Suspense while the dashboard
-// Server Component fetches data (ClickHouse + Supabase). Keeps layout visible
-// so the sidebar and filter bars remain interactive during load.
+// Server Component fetches data (ClickHouse). Keeps layout visible so the
+// sidebar and filter bars remain interactive during load.
 export default function DashboardLoading() {
   return (
     <div className="space-y-4 animate-pulse">

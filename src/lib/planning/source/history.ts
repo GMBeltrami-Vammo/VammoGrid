@@ -6,9 +6,10 @@ import type { HubId } from '@/types/planning';
 //
 // Source: analytics.mart_inventory_snapshot_daily — the ClickHouse daily inventory
 // mart, keyed by sku_base and matching the live-stock universe (same int_inventory
-// lineage). This joins the displayed current stock exactly, unlike the Supabase
-// fleet.piece_stock_hub snapshot whose sku_name (Maestro #29571 naming) diverges
-// from the ClickHouse item_group_name and so could never match by name.
+// lineage). This joins the displayed current stock exactly, unlike the retired
+// fleet.piece_stock_hub snapshot (dropped — decisions.MD #10/#51) whose sku_name
+// (Maestro #29571 naming) diverged from the ClickHouse item_group_name and so
+// could never match by name.
 //
 // The mart is network-total (no location split), so per-hub history is derived by
 // applying the current on-hand distribution to each historical day — keeping each

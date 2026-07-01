@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Daily cron (vercel.json): mirror current orders from ClickHouse dev.vmoto_orders
-// into Supabase fleet.purchase_order (past-ETA rows dropped). See ordersSync.ts.
+// into dev.fleet_purchase_order (past-ETA rows dropped). See ordersSync.ts.
 async function runSync(req: Request) {
   // Allow: no CRON_SECRET (dev), valid Bearer CRON_SECRET (Vercel cron), or a
   // logged-in session (manual trigger).

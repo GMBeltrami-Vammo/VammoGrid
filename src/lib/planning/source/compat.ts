@@ -10,8 +10,10 @@ import { toSkuBase } from '../sku';
 // empty map if ClickHouse is unconfigured — the filter then just won't constrain
 // by model.
 
-// Compatibility matrix rarely changes → cache rows for 1h across requests.
-const fetchCompatRows = unstable_cache(
+// Compatibility matrix rarely changes → cache rows for 1h across requests. Also the
+// read path for the client-side useCompat hook (via /api/fleet/part-compat) — the
+// hook can no longer query ClickHouse directly from the browser.
+export const fetchCompatRows = unstable_cache(
   async (): Promise<Record<string, unknown>[]> => readFleetTable(FLEET_TABLES.partCompat),
   ['part-compat-rows'],
   { revalidate: 86400, tags: ['compat'] }, // matrix rarely changes → cache 1 day

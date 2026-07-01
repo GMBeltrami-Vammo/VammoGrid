@@ -14,7 +14,7 @@ import { toSkuBase } from '../sku';
 // decisions.MD #11). Returns [] when ClickHouse is unconfigured so the rest of
 // the pipeline still runs (projections simply show no inbound).
 
-interface PoRow {
+export interface PoRow {
   id: string;
   vo: string | null;
   sku: string;
@@ -26,13 +26,18 @@ interface PoRow {
   status: string;
   modal: string | null;
   hub_id: string;
+  notes: string | null;
   source: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Cache the raw rows across requests (rows are serializable; the mapped type isn't a
 // concern since we map after). Short TTL + revalidateTag('orders') on n8n ingest so
-// edits show promptly. Throws on error so failures are not cached.
-const fetchOrderRows = unstable_cache(
+// edits show promptly. Throws on error so failures are not cached. Also the read path
+// for the client-side usePurchaseOrders hook (via /api/fleet/purchase-orders) — the
+// hook can no longer query ClickHouse directly from the browser.
+export const fetchOrderRows = unstable_cache(
   async (): Promise<PoRow[]> => {
     const rows = await readFleetTable<PoRow>(FLEET_TABLES.purchaseOrder);
     return rows.sort((a, b) => (a.order_date < b.order_date ? 1 : a.order_date > b.order_date ? -1 : 0));

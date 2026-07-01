@@ -1,22 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { supabaseBrowser } from '@/lib/supabase/browser';
-import { mapPurchaseOrderRow } from '@/lib/supabase/mappers';
 import type { PurchaseOrder } from '@/types';
 
 export function usePurchaseOrders() {
   return useQuery<PurchaseOrder[]>({
     queryKey: ['purchase-orders'],
     queryFn: async () => {
-      const { data, error } = await supabaseBrowser
-        .schema('fleet')
-        .from('purchase_order')
-        .select('*')
-        .order('order_date', { ascending: false })
-        .order('id', { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map(mapPurchaseOrderRow);
+      const res = await fetch('/api/fleet/purchase-orders');
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Erro ao carregar');
+      return res.json();
     },
     staleTime: 60_000,
   });

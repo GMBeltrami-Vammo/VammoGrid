@@ -6,9 +6,10 @@ import { PageHeader } from '@/components/planning/ui';
 
 export const dynamic = 'force-dynamic';
 
-// Plain-language user guide: where the data comes from (ClickHouse vs Supabase),
-// what is computed and the exact formulas, a glossary, and caveats. The technical
-// counterpart is /dashboard/fontes (Fontes & Fórmulas).
+// Plain-language user guide: where the data comes from (ClickHouse — both the
+// read-only analytics facts and the app-editable config tables, see decisions.MD
+// #11), what is computed and the exact formulas, a glossary, and caveats. The
+// technical counterpart is /dashboard/fontes (Fontes & Fórmulas).
 
 export default async function GuiaPage() {
   const backend = activeBackendKind();
@@ -43,18 +44,19 @@ export default async function GuiaPage() {
 
       {/* Em uma frase */}
       <Callout>
-        O VammoGrid junta <b>dois mundos de dados</b> — o que <i>já aconteceu / está acontecendo</i> (vem do data
-        warehouse <b>ClickHouse</b>, somente leitura) e o que <i>as pessoas configuram no próprio app</i> (vem do{' '}
-        <b>Supabase</b>, editável) — e em cima disso <b>calcula</b> projeções de estoque, sugestões de compra e de
-        transferência. O app <b>não inventa demanda</b>: consome uma previsão pronta (S&amp;OP) e faz contas
-        determinísticas (mesma entrada → mesmo resultado).
+        O VammoGrid junta <b>dois tipos de dado</b>, os dois vivendo no mesmo data warehouse{' '}
+        <b>ClickHouse</b> — o que <i>já aconteceu / está acontecendo</i> (fatos de analytics, somente leitura) e o
+        que <i>as pessoas configuram no próprio app</i> (tabelas de configuração, editáveis, com histórico de
+        alterações) — e em cima disso <b>calcula</b> projeções de estoque, sugestões de compra e de transferência.
+        O app <b>não inventa demanda</b>: consome uma previsão pronta (S&amp;OP) e faz contas determinísticas
+        (mesma entrada → mesmo resultado).
       </Callout>
 
       {/* 1. Fontes */}
       <Section n="1" title="De onde vêm os dados">
         <div className="grid gap-4 md:grid-cols-2">
           <SourceCard
-            tag="ClickHouse"
+            tag="ClickHouse · Fatos"
             tagClass="bg-brand-500/15 text-brand-600"
             subtitle="O “retrato da realidade” — o app só lê, nunca grava"
             items={[
@@ -66,9 +68,9 @@ export default async function GuiaPage() {
             ]}
           />
           <SourceCard
-            tag="Supabase"
+            tag="ClickHouse · Config"
             tagClass="bg-alert-success/15 text-alert-success"
-            subtitle="Os dados do próprio app — editáveis pelas pessoas"
+            subtitle="Os dados do próprio app — editáveis pelas pessoas, com log de alterações"
             items={[
               ['Pedidos de compra (VOs)', 'Pedidos em aberto: data, ETA, modal (marítimo/aéreo), quantidade. Entram por n8n, planilha ou manualmente.'],
               ['Parâmetros por SKU', 'Lead time marítimo/aéreo + modal padrão, taxa de recuperação + turnaround, e estoque de segurança. Cada ajuste vale para a empresa toda naquele SKU.'],
@@ -197,7 +199,7 @@ export default async function GuiaPage() {
       {/* 3. Fluxo */}
       <Section n="3" title="Como tudo se conecta">
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <FlowBox>Fontes<br /><span className="text-[11px] text-muted-foreground">ClickHouse + Supabase</span></FlowBox>
+          <FlowBox>Fontes<br /><span className="text-[11px] text-muted-foreground">ClickHouse (fatos + config)</span></FlowBox>
           <span className="text-muted-foreground">→</span>
           <FlowBox>Cenário do dia<br /><span className="text-[11px] text-muted-foreground">filtros + simulações</span></FlowBox>
           <span className="text-muted-foreground">→</span>

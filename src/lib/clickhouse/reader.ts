@@ -12,6 +12,16 @@ import { unstable_cache } from 'next/cache';
 
 export type Row = Record<string, unknown>;
 
+// Treat the literal strings "null"/"undefined" (an easy CLI-prompt typo — e.g.
+// typing "null" into `vercel env add` meaning "leave unset") and blank/whitespace
+// values the same as unset. Without this, CLICKHOUSE_DATABASE="null" gets sent to
+// ClickHouse as a real (nonexistent) database name → every query 404s with
+// "Database `null` does not exist", which is a genuinely-happened production bug.
+function envOrDefault(value: string | undefined, fallback: string): string {
+  const v = value?.trim();
+  return v && v !== 'null' && v !== 'undefined' ? v : fallback;
+}
+
 // CLICKHOUSE_HOST must be a full URL (e.g. https://<host>:8443 for ClickHouse
 // Cloud). A bare hostname — the easy mistake, since ClickHouse Cloud's connection
 // panel often shows just the host — makes `new URL()` throw an opaque
@@ -37,9 +47,9 @@ async function clickhouseQuery<T = Row>(sql: string): Promise<T[]> {
       'No analytics backend configured. Set CLICKHOUSE_HOST/USER/PASSWORD/DATABASE.',
     );
   }
-  const user = process.env.CLICKHOUSE_USER ?? 'default';
-  const password = process.env.CLICKHOUSE_PASSWORD ?? '';
-  const database = process.env.CLICKHOUSE_DATABASE ?? 'default';
+  const user = envOrDefault(process.env.CLICKHOUSE_USER, 'default');
+  const password = envOrDefault(process.env.CLICKHOUSE_PASSWORD, '');
+  const database = envOrDefault(process.env.CLICKHOUSE_DATABASE, 'default');
 
   // ClickHouse HTTP interface: append FORMAT JSONEachRow → newline-delimited JSON.
   const url = resolveClickhouseUrl(host);

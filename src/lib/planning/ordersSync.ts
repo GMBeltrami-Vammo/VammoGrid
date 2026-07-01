@@ -40,8 +40,8 @@ interface VmotoOrderRow {
 }
 
 // Every current PO line (latest ingest per po_number/row_number). ETA is NOT taken
-// from the feed — it's computed in TS from order_date + the Supabase lead time, then
-// past-ETA lines are filtered out there too.
+// from the feed — it's computed in TS from order_date + the effective lead time
+// (dev.fleet_sku_policy), then past-ETA lines are filtered out there too.
 const ORDERS_SQL = `
 SELECT po_number,
        sku,
@@ -56,7 +56,7 @@ ORDER BY ingested_at DESC
 LIMIT 1 BY po_number, row_number`;
 
 export async function syncOrdersFromClickHouse(): Promise<{ inserted: number; deleted: number }> {
-  // Orders from the feed + the per-SKU lead-time policy from Supabase (cached).
+  // Orders from the feed + the per-SKU lead-time policy from ClickHouse (cached).
   const [rows, overrides] = await Promise.all([
     chQuery<VmotoOrderRow>(ORDERS_SQL),
     fetchSkuPolicies(),

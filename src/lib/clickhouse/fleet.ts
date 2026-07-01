@@ -43,6 +43,8 @@ const DDL: string[] = [
     lead_time_sea_days Nullable(Int32),
     lead_time_air_days Nullable(Int32),
     default_modal String DEFAULT 'sea',
+    lead_time_std_days Nullable(Int32),
+    is_national Nullable(Bool),
     updated_by Nullable(String),
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
@@ -137,9 +139,20 @@ const DDL: string[] = [
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY key`,
 ];
 
-/** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS. */
+// Idempotent column adds for tables that already exist in prod (CREATE TABLE IF NOT
+// EXISTS is a no-op once the table exists, so new columns need explicit ALTERs).
+// ClickHouse's `ADD COLUMN IF NOT EXISTS` makes each safe to re-run every cold start.
+const MIGRATIONS: string[] = [
+  // B2: lead-time std deviation → combined-variance safety stock.
+  `ALTER TABLE ${FLEET_TABLES.skuPolicy} ADD COLUMN IF NOT EXISTS lead_time_std_days Nullable(Int32)`,
+  // B8: national vs. international purchase policy (editable override of the seed).
+  `ALTER TABLE ${FLEET_TABLES.skuPolicy} ADD COLUMN IF NOT EXISTS is_national Nullable(Bool)`,
+];
+
+/** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs. */
 export async function provisionFleetTables(): Promise<void> {
   for (const ddl of DDL) await chExecute(ddl);
+  for (const alter of MIGRATIONS) await chExecute(alter);
 }
 
 /** Read all live (non-deleted) rows from a fleet table, newest version per key. */

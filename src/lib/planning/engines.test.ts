@@ -47,6 +47,7 @@ function policy(over: Partial<SkuPolicy> = {}): SkuPolicy {
     leadTimeSeaDays: 110,
     leadTimeAirDays: 40,
     defaultModal: 'sea',
+    leadTimeStdDays: null,
     abcClass: 'C',
     targetDoi: 60,
     recoveryRate: 0,
@@ -140,6 +141,40 @@ describe('purchaseForSku — ports the lab (s,S) policy', () => {
     expect(p.safetyStock).toBeCloseTo(6.3, 1);
     // Much tighter than the old linear-sum σ_L (which gave safety ≈ 20 for the same input).
     expect(p.safetyStock).toBeLessThan(10);
+  });
+
+  // B1: the global service-level z overrides the per-ABC ABC_Z for every SKU.
+  it('applies the global service-level z when provided (overrides ABC_Z)', () => {
+    const base = purchaseForSku({
+      skuBase: 'X', skuName: 'Peça X', forecast: forecast(2, 4),
+      stock: stock(100), orders: [], policy: policy({ abcClass: 'C', leadTimeDays: 10 }), today: TODAY,
+    }); // Z(C)=1.28
+    const conservador = purchaseForSku({
+      skuBase: 'X', skuName: 'Peça X', forecast: forecast(2, 4),
+      stock: stock(100), orders: [], policy: policy({ abcClass: 'C', leadTimeDays: 10 }), today: TODAY,
+      serviceLevelZ: 2.326,
+    });
+    // Same σ_L, higher z → proportionally larger safety (2.326 / 1.28).
+    // Reported fields are rounded to 0.1, so compare at 0.5 tolerance (precision 0).
+    expect(conservador.safetyStock).toBeCloseTo(base.safetyStock * (2.326 / 1.28), 0);
+  });
+
+  // B2: lead-time std deviation adds a term by root-sum-of-squares; σ_LT=0 == original.
+  it('adds lead-time variability to safety (combined variance), 0 == demand-only', () => {
+    const mk = (leadTimeStdDays: number | null) =>
+      purchaseForSku({
+        skuBase: 'X', skuName: 'Peça X', forecast: forecast(2, 4),
+        stock: stock(100), orders: [], today: TODAY,
+        policy: policy({ leadTimeDays: 10, leadTimeStdDays }),
+      });
+    const demandOnly = mk(null);
+    const withLtVar = mk(5);
+    // meanDailyDemand = 20/10 = 2; extra variance = 2²·5² = 100; σ grows.
+    expect(withLtVar.sigmaL).toBeGreaterThan(demandOnly.sigmaL);
+    const expected = Math.sqrt(demandOnly.sigmaL ** 2 + 2 * 2 * 5 * 5);
+    expect(withLtVar.sigmaL).toBeCloseTo(expected, 0); // reported σ_L rounded to 0.1
+    // Explicit 0 → identical to the pre-B2 demand-only result.
+    expect(mk(0).sigmaL).toBeCloseTo(demandOnly.sigmaL, 5);
   });
 });
 

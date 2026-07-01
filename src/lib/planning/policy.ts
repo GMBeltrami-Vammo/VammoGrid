@@ -45,6 +45,7 @@ export function defaultPolicyFor(
     leadTimeSeaDays: seaDays,
     leadTimeAirDays: airDays,
     defaultModal: 'sea',
+    leadTimeStdDays: null,
     abcClass,
     targetDoi: ABC_TARGET_DOI[abcClass],
     recoveryRate: 0,

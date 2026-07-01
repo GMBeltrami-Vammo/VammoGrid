@@ -101,7 +101,16 @@ export function purchaseForSku({
   }
   const sigmaMonthly = Math.sqrt(sumSq30);
   const leadMonths = L / 30;
-  const sigmaL = sigmaMonthly * Math.sqrt(leadMonths);
+  // Demand-variability component over the lead time: σ_demand·√LT (unchanged).
+  const sigmaDemandL = sigmaMonthly * Math.sqrt(leadMonths);
+  // Lead-time-variability component (B2): D̄²·σ_LT², combined by root-sum-of-squares
+  // (the standard variable-lead-time safety-stock form). σ_LT unset → 0 → collapses
+  // to the demand-only σ, i.e. exactly the original behavior.
+  const meanDailyDemand = L > 0 ? expectedLeadTimeDemand / L : 0;
+  const sigmaLT = Math.max(0, policy.leadTimeStdDays ?? 0);
+  const sigmaL = Math.sqrt(
+    sigmaDemandL * sigmaDemandL + meanDailyDemand * meanDailyDemand * sigmaLT * sigmaLT,
+  );
   // z: the global service-level tier (B1) applied to every SKU, or per-ABC when no
   // tier is threaded in. A per-SKU manual override still wins over both.
   const z = serviceLevelZ ?? ABC_Z[policy.abcClass];

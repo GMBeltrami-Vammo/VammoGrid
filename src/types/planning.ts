@@ -94,6 +94,9 @@ export interface SkuPolicy {
   leadTimeSeaDays: number | null;
   leadTimeAirDays: number | null;
   defaultModal: TransportModal;
+  /** Std deviation of the lead time (days). Drives the lead-time-variability term of
+   *  the combined-variance safety stock. null → treated as 0 (demand-only, original). */
+  leadTimeStdDays: number | null;
   abcClass: AbcClass;
   /** Target days-of-inventory (order-up-to cover beyond lead time). */
   targetDoi: number;

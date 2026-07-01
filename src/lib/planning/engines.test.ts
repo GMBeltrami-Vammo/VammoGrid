@@ -112,7 +112,7 @@ describe('purchaseForSku — ports the lab (s,S) policy', () => {
 
   it('nets open-PO receipts out of the suggested quantity', () => {
     const order: OpenPurchaseOrder = {
-      id: 1, vo: '1', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50,
+      id: '1', vo: '1', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50,
       orderDate: TODAY, eta: addDays(TODAY, 5), leadTimeDays: 5, modal: 'air',
       status: 'ordered', hubId: 'osasco', source: 'test',
     };
@@ -171,7 +171,7 @@ describe('projectSku — projection walk', () => {
 
   it('an inbound PO pushes the stockout later', () => {
     const order: OpenPurchaseOrder = {
-      id: 1, vo: '1', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 100,
+      id: '1', vo: '1', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 100,
       orderDate: TODAY, eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea',
       status: 'ordered', hubId: 'osasco', source: 'test',
     };

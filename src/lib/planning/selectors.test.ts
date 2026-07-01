@@ -51,7 +51,7 @@ describe('scenario levers', () => {
   });
   it('delays an order ETA by N days', () => {
     const o: OpenPurchaseOrder = {
-      id: 1, vo: null, skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 10,
+      id: '1', vo: null, skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 10,
       orderDate: TODAY, eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea',
       status: 'ordered', hubId: 'osasco', source: 't',
     };
@@ -74,15 +74,15 @@ describe('computeHubRisk', () => {
 describe('delayedShipments', () => {
   it('returns only overdue open POs with days-late', () => {
     const orders: OpenPurchaseOrder[] = [
-      { id: 1, vo: 'A', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, -5), leadTimeDays: 10, modal: 'sea', status: 'ordered', hubId: 'osasco', source: 't' },
-      { id: 2, vo: 'B', skuCode: 'Y', skuBase: 'Y', skuName: 'Y', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea', status: 'ordered', hubId: 'osasco', source: 't' },
+      { id: '1', vo: 'A', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, -5), leadTimeDays: 10, modal: 'sea', status: 'ordered', hubId: 'osasco', source: 't' },
+      { id: '2', vo: 'B', skuCode: 'Y', skuBase: 'Y', skuName: 'Y', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea', status: 'ordered', hubId: 'osasco', source: 't' },
     ];
     const purchases = new Map<string, PurchaseSuggestion>([
       ['X', { skuBase: 'X', status: 'CRITICAL' } as PurchaseSuggestion],
     ]);
     const out = delayedShipments(orders, purchases, TODAY);
     expect(out).toHaveLength(1);
-    expect(out[0].order.id).toBe(1);
+    expect(out[0].order.id).toBe('1');
     expect(out[0].daysLate).toBe(5);
   });
 });

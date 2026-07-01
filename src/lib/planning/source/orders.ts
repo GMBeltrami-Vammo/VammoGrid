@@ -6,15 +6,16 @@ import type {
   PurchaseOrderStatus,
   TransportModal,
 } from '@/types/planning';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
 import { toSkuBase } from '../sku';
 
-// Open purchase orders from Supabase (fleet.purchase_order — fed by n8n / manual /
-// xlsx import). Returns [] when Supabase is unconfigured so the rest of the
-// pipeline still runs (projections simply show no inbound).
+// Open purchase orders from ClickHouse (dev.fleet_purchase_order — formerly
+// Supabase fleet.purchase_order; fed by n8n / manual / xlsx import; see
+// decisions.MD #11). Returns [] when ClickHouse is unconfigured so the rest of
+// the pipeline still runs (projections simply show no inbound).
 
 interface PoRow {
-  id: number;
+  id: string;
   vo: string | null;
   sku: string;
   sku_name: string | null;
@@ -33,14 +34,8 @@ interface PoRow {
 // edits show promptly. Throws on error so failures are not cached.
 const fetchOrderRows = unstable_cache(
   async (): Promise<PoRow[]> => {
-    const supabase = createServerSupabase();
-    const { data, error } = await supabase
-      .schema('fleet')
-      .from('purchase_order')
-      .select('*')
-      .order('order_date', { ascending: false });
-    if (error) throw error;
-    return (data ?? []) as PoRow[];
+    const rows = await readFleetTable<PoRow>(FLEET_TABLES.purchaseOrder);
+    return rows.sort((a, b) => (a.order_date < b.order_date ? 1 : a.order_date > b.order_date ? -1 : 0));
   },
   ['purchase-order-rows'],
   { revalidate: 120, tags: ['orders'] },
@@ -64,7 +59,8 @@ export async function fetchOpenOrders(): Promise<OpenPurchaseOrder[]> {
       hubId: (r.hub_id as HubId) ?? 'osasco',
       source: r.source ?? 'manual',
     }));
-  } catch {
+  } catch (e) {
+    console.error('[fetchOpenOrders]', e instanceof Error ? e.message : e);
     return [];
   }
 }

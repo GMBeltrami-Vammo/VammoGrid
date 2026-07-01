@@ -63,7 +63,7 @@ export function SkuSimulator({
         ? [
             ...delayedOrders,
             {
-              id: -1,
+              id: 'sim',
               vo: 'SIM',
               skuCode: stock.skuBase,
               skuBase: stock.skuBase,

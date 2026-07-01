@@ -1,11 +1,15 @@
 'use server';
 
+import { randomUUID } from 'crypto';
+import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { createServiceSupabase } from '@/lib/supabase/service';
+import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import type { Row } from '@/lib/clickhouse/reader';
 import type { PurchaseOrderStatus } from '@/types';
 
-// Head-gated mutations for purchase orders. Every action verifies the Head
-// session server-side before touching the service-role client.
+// Head-gated mutations for purchase orders (dev.fleet_purchase_order — formerly
+// Supabase fleet.purchase_order; see decisions.MD #11). Every action verifies the
+// Head session server-side, then writes through the shared audit-logging helper.
 
 export interface PurchaseOrderInput {
   vo?: string | null;
@@ -34,41 +38,57 @@ function toRow(input: PurchaseOrderInput) {
     modal: input.modal || null,
     hub_id: input.hubId ?? 'osasco',
     notes: input.notes?.trim() || null,
-    updated_at: new Date().toISOString(),
   };
 }
 
+async function findOrder(id: string): Promise<Row | null> {
+  const rows = await readFleetTable<Row>(FLEET_TABLES.purchaseOrder);
+  return rows.find((r) => r.id === id) ?? null;
+}
+
 export async function createPurchaseOrder(input: PurchaseOrderInput) {
-  await requireHead();
-  const supabase = createServiceSupabase();
-  const { error } = await supabase
-    .schema('fleet')
-    .from('purchase_order')
-    .insert({ ...toRow(input), source: 'manual' });
-  if (error) throw new Error(error.message);
+  const changedBy = await requireHead();
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  await upsertFleetRow({
+    table: FLEET_TABLES.purchaseOrder,
+    entityType: 'purchase_order',
+    entityId: id,
+    current: null,
+    next: { id, ...toRow(input), source: 'manual', created_at: now },
+    changedBy,
+  });
+  updateTag('orders'); // read-your-own-writes: refresh cached purchase_order rows now
+  return { ok: true, id };
+}
+
+export async function updatePurchaseOrder(id: string, input: PurchaseOrderInput) {
+  const changedBy = await requireHead();
+  const current = await findOrder(id);
+  if (!current) throw new Error(`Pedido ${id} não encontrado.`);
+  await upsertFleetRow({
+    table: FLEET_TABLES.purchaseOrder,
+    entityType: 'purchase_order',
+    entityId: id,
+    current,
+    next: { ...current, ...toRow(input) },
+    changedBy,
+  });
+  updateTag('orders');
   return { ok: true };
 }
 
-export async function updatePurchaseOrder(id: number, input: PurchaseOrderInput) {
-  await requireHead();
-  const supabase = createServiceSupabase();
-  const { error } = await supabase
-    .schema('fleet')
-    .from('purchase_order')
-    .update(toRow(input))
-    .eq('id', id);
-  if (error) throw new Error(error.message);
-  return { ok: true };
-}
-
-export async function deletePurchaseOrder(id: number) {
-  await requireHead();
-  const supabase = createServiceSupabase();
-  const { error } = await supabase
-    .schema('fleet')
-    .from('purchase_order')
-    .delete()
-    .eq('id', id);
-  if (error) throw new Error(error.message);
+export async function deletePurchaseOrder(id: string) {
+  const changedBy = await requireHead();
+  const current = await findOrder(id);
+  if (!current) throw new Error(`Pedido ${id} não encontrado.`);
+  await softDeleteFleetRow({
+    table: FLEET_TABLES.purchaseOrder,
+    entityType: 'purchase_order',
+    entityId: id,
+    current,
+    changedBy,
+  });
+  updateTag('orders');
   return { ok: true };
 }

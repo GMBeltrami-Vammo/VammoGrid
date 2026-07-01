@@ -1,11 +1,14 @@
 'use server';
 
+import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { createServiceSupabase } from '@/lib/supabase/service';
+import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import type { Row } from '@/lib/clickhouse/reader';
 import { BIKE_MODELS } from '@/types';
 import type { BikeModel } from '@/types';
 
-// Head-gated mutations for the bike-model compatibility matrix.
+// Head-gated mutations for the bike-model compatibility matrix (dev.fleet_part_compat
+// — formerly Supabase fleet.part_compat; see decisions.MD #11).
 
 export interface CompatInput {
   sku: string;
@@ -16,37 +19,49 @@ export interface CompatInput {
   models: Record<BikeModel, boolean>;
 }
 
+async function findCompat(sku: string): Promise<Row | null> {
+  const rows = await readFleetTable<Row>(FLEET_TABLES.partCompat);
+  return rows.find((r) => r.sku === sku) ?? null;
+}
+
 export async function upsertCompat(input: CompatInput) {
   const email = await requireHead();
-  const supabase = createServiceSupabase();
+  const sku = input.sku.trim();
+  const current = await findCompat(sku);
 
-  const row: Record<string, unknown> = {
-    sku: input.sku.trim(),
+  const next: Record<string, unknown> = {
+    sku,
     description: input.description?.trim() || null,
     part_number: input.partNumber?.trim() || null,
     aplicacao: input.aplicacao?.trim() || null,
     nacionalizado: input.nacionalizado,
-    updated_at: new Date().toISOString(),
     updated_by: email,
   };
-  for (const m of BIKE_MODELS) row[m] = input.models[m] ?? false;
+  for (const m of BIKE_MODELS) next[m] = input.models[m] ?? false;
 
-  const { error } = await supabase
-    .schema('fleet')
-    .from('part_compat')
-    .upsert(row, { onConflict: 'sku' });
-  if (error) throw new Error(error.message);
+  await upsertFleetRow({
+    table: FLEET_TABLES.partCompat,
+    entityType: 'part_compat',
+    entityId: sku,
+    current,
+    next,
+    changedBy: email,
+  });
+  updateTag('compat');
   return { ok: true };
 }
 
 export async function deleteCompat(sku: string) {
-  await requireHead();
-  const supabase = createServiceSupabase();
-  const { error } = await supabase
-    .schema('fleet')
-    .from('part_compat')
-    .delete()
-    .eq('sku', sku);
-  if (error) throw new Error(error.message);
+  const email = await requireHead();
+  const current = await findCompat(sku);
+  if (!current) return { ok: true };
+  await softDeleteFleetRow({
+    table: FLEET_TABLES.partCompat,
+    entityType: 'part_compat',
+    entityId: sku,
+    current,
+    changedBy: email,
+  });
+  updateTag('compat');
   return { ok: true };
 }

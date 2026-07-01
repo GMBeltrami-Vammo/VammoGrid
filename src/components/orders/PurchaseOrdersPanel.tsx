@@ -71,7 +71,7 @@ export function PurchaseOrdersPanel() {
   const queryClient = useQueryClient();
 
   const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -121,7 +121,7 @@ export function PurchaseOrdersPanel() {
     });
   };
 
-  const remove = (id: number) => {
+  const remove = (id: string) => {
     if (!window.confirm('Remover este pedido?')) return;
     startTransition(async () => {
       try {

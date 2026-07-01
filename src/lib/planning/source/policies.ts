@@ -1,9 +1,10 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import type { SkuPolicy, TransportModal } from '@/types/planning';
-import { createServiceSupabase } from '@/lib/supabase/service';
+import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
 
-// Reads per-SKU policy overrides from fleet.sku_policy (Supabase).
+// Reads per-SKU policy overrides from dev.fleet_sku_policy (ClickHouse — formerly
+// Supabase fleet.sku_policy; see decisions.MD #11).
 // Only columns present in the row override the defaults — missing columns
 // fall back to national-lead-time seed / ABC defaults in buildPolicies.
 
@@ -28,14 +29,7 @@ interface PolicyRow {
 // in-app edit (lead-time / safety / recovery actions) and the recovery cron, so edits
 // show immediately. Throws on error so failures are not cached.
 const fetchPolicyRows = unstable_cache(
-  async (): Promise<PolicyRow[]> => {
-    // Service role: sku_policy is server-only planning metadata and is not exposed
-    // to the public anon key (which also lacks table grants on it).
-    const supabase = createServiceSupabase();
-    const { data, error } = await supabase.schema('fleet').from('sku_policy').select('*');
-    if (error) throw error;
-    return (data ?? []) as PolicyRow[];
-  },
+  async (): Promise<PolicyRow[]> => readFleetTable<PolicyRow>(FLEET_TABLES.skuPolicy),
   ['sku-policy-rows'],
   { revalidate: 300, tags: ['policies'] },
 );
@@ -66,7 +60,8 @@ export async function fetchSkuPolicies(): Promise<Map<string, Partial<SkuPolicy>
       map.set(r.sku_base, override);
     }
     return map;
-  } catch {
+  } catch (e) {
+    console.error('[fetchSkuPolicies]', e instanceof Error ? e.message : e);
     return new Map();
   }
 }

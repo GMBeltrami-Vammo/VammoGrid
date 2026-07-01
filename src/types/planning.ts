@@ -120,7 +120,8 @@ export type PurchaseOrderStatus =
 export type TransportModal = 'sea' | 'air';
 
 export interface OpenPurchaseOrder {
-  id: number;
+  /** App-generated UUID (ClickHouse has no sequences). */
+  id: string;
   vo: string | null;
   skuCode: string;
   skuBase: string;

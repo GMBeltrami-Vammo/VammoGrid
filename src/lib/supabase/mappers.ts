@@ -15,7 +15,7 @@ import type {
 
 export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
   return {
-    id: Number(row.id),
+    id: String(row.id),
     vo: row.vo ?? null,
     sku: String(row.sku),
     skuName: row.sku_name ?? null,

@@ -17,7 +17,8 @@ export type PurchaseOrderStatus =
   | 'cancelled';
 
 export interface PurchaseOrder {
-  id: number;
+  /** App-generated UUID (ClickHouse has no sequences). */
+  id: string;
   /** VO reference label, e.g. "266" */
   vo: string | null;
   /** SKU code */

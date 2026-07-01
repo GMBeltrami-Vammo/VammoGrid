@@ -161,6 +161,7 @@ export default async function EstoquePage({
               <Metric
                 label={<span className="inline-flex items-center gap-1">Ponto recompra <InfoHint id="rop" /></span>}
                 value={fmtInt(purchase.rop)}
+                sub={purchase.ropDoh != null ? `${fmtInt(purchase.ropDoh)} DOH` : undefined}
               />
               <Metric
                 label={<span className="inline-flex items-center gap-1">Estoque segurança <InfoHint id="safety" /></span>}
@@ -280,11 +281,20 @@ export default async function EstoquePage({
   );
 }
 
-function Metric({ label, value }: { label: React.ReactNode; value: React.ReactNode }) {
+function Metric({
+  label,
+  value,
+  sub,
+}: {
+  label: React.ReactNode;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+}) {
   return (
     <div>
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-lg font-bold tabular-nums">{value}</p>
+      {sub != null && <p className="text-[11px] text-muted-foreground tabular-nums">{sub}</p>}
     </div>
   );
 }

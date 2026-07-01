@@ -116,6 +116,9 @@ export function purchaseForSku({
   const z = serviceLevelZ ?? ABC_Z[policy.abcClass];
   const safety = policy.safetyOverride ?? z * sigmaL;
   const rop = expectedLeadTimeDemand + safety;
+  // ROP in days of cover (B4): the statistical reorder point as DOH, for the SKU
+  // detail view. meanDailyDemand is the average daily demand over the lead time.
+  const ropDoh = meanDailyDemand > 0 ? rop / meanDailyDemand : null;
   const orderUpTo = cumD[Math.min(L + targetDoi, days)] + safety;
 
   // Net depletion: stock walked down by demand, topped up by expected receipts.
@@ -159,6 +162,7 @@ export function purchaseForSku({
     sigmaL: round1(sigmaL),
     safetyStock: round1(safety),
     rop: round1(rop),
+    ropDoh: ropDoh != null ? Math.round(ropDoh) : null,
     orderUpTo: round1(orderUpTo),
     orderQty,
     stockoutDate,

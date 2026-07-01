@@ -237,6 +237,8 @@ export interface PurchaseSuggestion {
   safetyStock: number;
   /** Reorder point = estoque mínimo (expectedLeadTimeDemand) + safetyStock. */
   rop: number;
+  /** ROP expressed in days of cover = rop / daily demand (null when no demand). B4. */
+  ropDoh: number | null;
   orderUpTo: number;
   /** Suggested quantity to order now (0 when stock > ROP). */
   orderQty: number;

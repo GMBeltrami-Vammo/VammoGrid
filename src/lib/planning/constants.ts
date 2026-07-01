@@ -35,6 +35,14 @@ export const SERVICE_LEVEL_LABEL: Record<ServiceLevelTier, string> = {
 
 export const DEFAULT_SERVICE_LEVEL_TIER: ServiceLevelTier = 'base';
 
+/** DOH coverage floor per tier — the heatmap colors cells below this amber (C2).
+ *  More conservative tier → higher desired coverage before a cell reads "low". */
+export const SERVICE_LEVEL_DOH_FLOOR: Record<ServiceLevelTier, number> = {
+  base: 60,
+  padrao: 75,
+  conservador: 90,
+};
+
 /** Key under which the active tier is stored in dev.fleet_global_settings. */
 export const SERVICE_LEVEL_TIER_KEY = 'service_level_tier';
 

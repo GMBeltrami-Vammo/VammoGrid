@@ -215,18 +215,25 @@ export interface WeekCell {
   recovery: number;
   isOut: boolean;
   isLow: boolean;
+  /** True once this week is past the model's real forecast horizon (extrapolated). */
+  extrapolated: boolean;
 }
 
 export interface WeekGridRow {
   skuBase: string;
   skuName: string;
   leadTimeSource: LeadTimeSource;
+  /** Default transport modal — drives the marítimo/aéreo heat filter. */
+  defaultModal: TransportModal;
   status: PurchaseStatus;
   isLate: boolean;
   /** Week column the buy-by date falls in (null = no buy-by, or beyond the grid). */
   buyByWeekIdx: number | null;
   cells: WeekCell[];
 }
+
+/** Coverage scenario for the heatmap (sub-project C1) — what-if air/sea order injection. */
+export type WeekGridScenario = 'baseline' | 'air_only' | 'sea_only' | 'complete';
 
 // ─── Purchase recommendation ──────────────────────────────────────────────────
 

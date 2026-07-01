@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { chInsert, type Row } from '@/lib/clickhouse/reader';
-import { FLEET_TABLES, provisionFleetTables } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, provisionFleetTables, readFleetTable } from '@/lib/clickhouse/fleet';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,6 +29,23 @@ function toChDateTime(v: string | null | undefined): string {
   return d.toISOString().replace('T', ' ').replace('Z', '');
 }
 
+async function verifyCounts(): Promise<Record<string, number>> {
+  const [skuPolicy, purchaseOrder, partCompat, fleetInfo, jobRun] = await Promise.all([
+    readFleetTable(FLEET_TABLES.skuPolicy),
+    readFleetTable(FLEET_TABLES.purchaseOrder),
+    readFleetTable(FLEET_TABLES.partCompat),
+    readFleetTable(FLEET_TABLES.fleetInfo),
+    readFleetTable(FLEET_TABLES.jobRun),
+  ]);
+  return {
+    sku_policy: skuPolicy.length,
+    purchase_order: purchaseOrder.length,
+    part_compat: partCompat.length,
+    fleet_info: fleetInfo.length,
+    job_run: jobRun.length,
+  };
+}
+
 async function runMigration(req: Request) {
   if (process.env.CRON_SECRET) {
     const bearer = req.headers.get('authorization')?.replace('Bearer ', '').trim();
@@ -36,6 +53,20 @@ async function runMigration(req: Request) {
     const session = await auth();
     if (!validCron && !session?.user?.isHead) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  }
+
+  // ?verify=1 — read-back only, no copy. Independently confirms the previous
+  // run's rows actually persisted in ClickHouse (not just that the insert call
+  // returned ok).
+  const { searchParams } = new URL(req.url);
+  if (searchParams.get('verify') === '1') {
+    try {
+      const verified = await verifyCounts();
+      return NextResponse.json({ ok: true, verified, at: new Date().toISOString() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
 

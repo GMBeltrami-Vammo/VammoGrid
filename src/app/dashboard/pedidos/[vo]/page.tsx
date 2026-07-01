@@ -1,0 +1,205 @@
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
+import { auth } from '@/auth';
+import { fetchOrderRows } from '@/lib/planning/source/orders';
+import { mapPurchaseOrderRow } from '@/lib/clickhouse/mappers';
+import { readAuditLog } from '@/lib/clickhouse/fleet';
+import { toSkuBase } from '@/lib/planning/sku';
+import { fmtDate, fmtInt } from '@/lib/planning/format';
+import { EmptyState, PageHeader } from '@/components/planning/ui';
+import { PrepStatusControl } from '@/components/orders/PrepStatusControl';
+import {
+  MODAL_LABELS,
+  PREP_STATUS_LABELS,
+  STATUS_LABELS,
+  STATUS_STYLES,
+  lifecycleLabel,
+} from '@/components/orders/orderMeta';
+import type { PrepStatus, PurchaseOrder } from '@/types';
+import { cn } from '@/lib/utils';
+
+export const dynamic = 'force-dynamic';
+
+// Pedido detail "window" (sub-project D2): one VO's line items, aggregate status,
+// ETA, and full edit history. Grouped by `vo`; a manual single-line order with no
+// VO is addressed by its row id. Every SKU/order cross-link points here.
+export default async function PedidoDetailPage({
+  params,
+}: {
+  params: Promise<{ vo: string }>;
+}) {
+  const { vo: raw } = await params;
+  const key = decodeURIComponent(raw);
+
+  const [rows, session] = await Promise.all([fetchOrderRows(), auth()]);
+  const isHead = session?.user?.isHead ?? false;
+  const orders: PurchaseOrder[] = rows.map(mapPurchaseOrderRow);
+
+  // Match by VO; fall back to a single order matched by id (drafts have no VO yet).
+  const group = orders.filter((o) => (o.vo ? o.vo === key : o.id === key));
+
+  if (group.length === 0) {
+    return (
+      <div>
+        <BackLink />
+        <PageHeader eyebrow="Pedido" title={key} />
+        <EmptyState title="Pedido não encontrado" hint="Verifique o VO ou volte à lista de pedidos." />
+      </div>
+    );
+  }
+
+  const totalQty = group.reduce((s, o) => s + o.qtyOrdered, 0);
+  const modals = [...new Set(group.map((o) => o.modal).filter(Boolean))] as string[];
+  const prep = group[0].prepStatus; // a group shares one prep stage
+  const status = group[0].status;
+  const eta = group.map((o) => o.eta).filter(Boolean).sort()[0] ?? null;
+  const orderDate = group.map((o) => o.orderDate).filter(Boolean).sort()[0] ?? null;
+
+  // History: merge the audit log of every line row, newest first.
+  const auditPerRow = await Promise.all(group.map((o) => readAuditLog('purchase_order', o.id)));
+  const history = auditPerRow
+    .flat()
+    .sort((a, b) => String(b.changed_at).localeCompare(String(a.changed_at)));
+
+  return (
+    <div>
+      <BackLink />
+      <PageHeader
+        eyebrow={group[0].vo ? `Pedido · VO ${group[0].vo}` : 'Pedido manual'}
+        title={group[0].vo ?? group[0].skuName ?? key}
+        subtitle={`${group.length} ${group.length === 1 ? 'item' : 'itens'} · ${fmtInt(totalQty)} un.${modals.length ? ` · ${modals.map((m) => MODAL_LABELS[m] ?? m).join(' / ')}` : ''}`}
+      />
+
+      {/* Summary */}
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Summary label="Estágio">
+          <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_STYLES[status])}>
+            {lifecycleLabel(prep, status)}
+          </span>
+        </Summary>
+        <Summary label="Data do pedido">{orderDate ? fmtDate(orderDate) : '—'}</Summary>
+        <Summary label="ETA">{eta ? fmtDate(eta) : '—'}</Summary>
+        <Summary label="Origem">{group[0].source}</Summary>
+      </div>
+
+      {/* Prep lifecycle (drafts only) */}
+      {prep && (
+        <div className="mb-6 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Fluxo de elaboração
+          </p>
+          <PrepStatusControl ids={group.map((o) => o.id)} current={prep} isHead={isHead} />
+        </div>
+      )}
+
+      {/* Line items */}
+      <div className="mb-6 overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <th className="px-3 py-2.5 font-medium">SKU</th>
+              <th className="px-3 py-2.5 font-medium">Item</th>
+              <th className="px-3 py-2.5 text-right font-medium">Qtd</th>
+              <th className="px-3 py-2.5 font-medium">ETA</th>
+              <th className="px-3 py-2.5 font-medium">Base</th>
+              <th className="px-3 py-2.5 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-foreground/5">
+            {group.map((o) => (
+              <tr key={o.id} className="hover:bg-muted/30">
+                <td className="px-3 py-2">
+                  <Link
+                    prefetch={false}
+                    href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(o.sku))}`}
+                    className="font-mono text-xs text-brand-500 hover:text-brand-400"
+                  >
+                    {o.sku}
+                  </Link>
+                </td>
+                <td className="max-w-[220px] truncate px-3 py-2 text-muted-foreground">{o.skuName ?? '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtInt(o.qtyOrdered)}</td>
+                <td className="px-3 py-2 tabular-nums text-xs">{o.eta ? fmtDate(o.eta) : '—'}</td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">{o.hubId}</td>
+                <td className="px-3 py-2 text-xs">{lifecycleLabel(o.prepStatus, o.status)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* History */}
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Histórico</p>
+      {history.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sem alterações registradas.</p>
+      ) : (
+        <ol className="space-y-2">
+          {history.map((h, i) => (
+            <li key={`${h.id}-${i}`} className="flex gap-3 rounded-lg bg-card px-3 py-2 text-xs ring-1 ring-foreground/10">
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {String(h.changed_at).slice(0, 16).replace('T', ' ')}
+              </span>
+              <span className="flex-1">
+                <span className="font-medium text-foreground">{fieldLabel(String(h.field))}</span>
+                {': '}
+                <span className="text-muted-foreground">{fmtVal(h.old_value)} → </span>
+                <span className="text-foreground">{fmtVal(h.new_value)}</span>
+              </span>
+              {h.changed_by != null && <span className="shrink-0 text-muted-foreground/70">{String(h.changed_by)}</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function BackLink() {
+  return (
+    <Link
+      href="/dashboard/pedidos"
+      className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft size={13} /> Pedidos
+    </Link>
+  );
+}
+
+function Summary({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg bg-card p-3 ring-1 ring-foreground/10">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <div className="mt-1 text-sm font-medium">{children}</div>
+    </div>
+  );
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  prep_status: 'Estágio',
+  status: 'Status',
+  qty_ordered: 'Quantidade',
+  eta: 'ETA',
+  modal: 'Modal',
+  hub_id: 'Base',
+  notes: 'Notas',
+  is_deleted: 'Removido',
+};
+function fieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field;
+}
+
+function fmtVal(v: unknown): string {
+  if (v == null) return '—';
+  const s = String(v);
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed === null) return '—';
+    if (typeof parsed === 'boolean') return parsed ? 'sim' : 'não';
+    const prep = PREP_STATUS_LABELS[parsed as PrepStatus];
+    if (prep) return prep;
+    const st = STATUS_LABELS[parsed as keyof typeof STATUS_LABELS];
+    return st ?? String(parsed);
+  } catch {
+    return s;
+  }
+}

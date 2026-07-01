@@ -18,13 +18,11 @@ export interface LeadTimeRow {
   seaDays: number;
   airDays: number;
   defaultModal: TransportModal;
+  /** Lead-time std deviation (days) — combined-variance safety (B2). null = none. */
+  stdDays: number | null;
+  /** National vs. international purchase policy (B8). */
+  isNational: boolean;
 }
-
-const SOURCE_LABEL: Record<LeadTimeSource, string> = {
-  'national-file': 'Nacional',
-  'international-default': 'Importado',
-  manual: 'Manual',
-};
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
@@ -60,9 +58,12 @@ export function LeadTimeTable({ rows }: { rows: LeadTimeRow[] }) {
           <thead>
             <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2 font-medium">SKU</th>
-              <th className="px-3 py-2 font-medium">Origem</th>
+              <th className="px-3 py-2 text-center font-medium">Origem</th>
               <th className="px-3 py-2 text-right font-medium">Marítimo (d)</th>
               <th className="px-3 py-2 text-right font-medium">Aéreo (d)</th>
+              <th className="px-3 py-2 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">σ LT (d) <InfoHint id="sigma-l" /></span>
+              </th>
               <th className="px-3 py-2 text-center font-medium">Padrão</th>
               <th className="px-3 py-2 text-right font-medium">
                 <span className="inline-flex items-center justify-end gap-1">Efetivo <InfoHint id="lead-time" /></span>
@@ -73,7 +74,7 @@ export function LeadTimeTable({ rows }: { rows: LeadTimeRow[] }) {
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -91,12 +92,20 @@ function Row({ row }: { row: LeadTimeRow }) {
   const [sea, setSea] = useState(row.seaDays);
   const [air, setAir] = useState(row.airDays);
   const [modal, setModal] = useState<TransportModal>(row.defaultModal);
+  const [std, setStd] = useState<string>(row.stdDays != null ? String(row.stdDays) : '');
+  const [national, setNational] = useState(row.isNational);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const effective = modal === 'air' ? air : sea;
-  const dirty = sea !== row.seaDays || air !== row.airDays || modal !== row.defaultModal;
+  const stdVal = std.trim() === '' ? null : clamp(Number(std), 0, 365);
+  const dirty =
+    sea !== row.seaDays ||
+    air !== row.airDays ||
+    modal !== row.defaultModal ||
+    stdVal !== row.stdDays ||
+    national !== row.isNational;
 
   function save() {
     setStatus('saving');
@@ -107,6 +116,8 @@ function Row({ row }: { row: LeadTimeRow }) {
           seaDays: sea,
           airDays: air,
           defaultModal: modal,
+          stdDays: stdVal,
+          isNational: national,
         });
         if (res.ok) {
           setStatus('saved');
@@ -131,7 +142,23 @@ function Row({ row }: { row: LeadTimeRow }) {
             {row.skuName}
           </span>
         </td>
-        <td className="px-3 py-2 text-xs text-muted-foreground">{SOURCE_LABEL[row.leadTimeSource]}</td>
+        <td className="px-3 py-2">
+          <div className="mx-auto flex w-fit gap-0.5 rounded-md bg-muted/60 p-0.5">
+            {([false, true] as boolean[]).map((nat) => (
+              <button
+                key={String(nat)}
+                onClick={() => setNational(nat)}
+                title={nat ? 'Nacional' : 'Importado'}
+                className={cn(
+                  'rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
+                  national === nat ? 'bg-brand-500/20 text-brand-600' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {nat ? 'Nac' : 'Imp'}
+              </button>
+            ))}
+          </div>
+        </td>
         <td className="px-3 py-2 text-right">
           <input
             type="number"
@@ -150,6 +177,17 @@ function Row({ row }: { row: LeadTimeRow }) {
             value={air}
             onChange={(e) => setAir(clamp(Number(e.target.value), 1, 365))}
             className="h-7 w-16 rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums outline-none focus:border-brand-500"
+          />
+        </td>
+        <td className="px-3 py-2 text-right">
+          <input
+            type="number"
+            min={0}
+            max={365}
+            value={std}
+            placeholder="—"
+            onChange={(e) => setStd(e.target.value)}
+            className="h-7 w-16 rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
           />
         </td>
         <td className="px-3 py-2">
@@ -181,7 +219,7 @@ function Row({ row }: { row: LeadTimeRow }) {
       </tr>
       {status === 'error' && error && (
         <tr>
-          <td colSpan={7} className="px-3 pb-2">
+          <td colSpan={8} className="px-3 pb-2">
             <p className="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">{error}</p>
           </td>
         </tr>

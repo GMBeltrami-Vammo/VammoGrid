@@ -30,6 +30,8 @@ export default async function LeadTimesPage() {
         seaDays: p.leadTimeSeaDays ?? p.leadTimeDays,
         airDays: p.leadTimeAirDays ?? p.leadTimeDays,
         defaultModal: p.defaultModal,
+        stdDays: p.leadTimeStdDays,
+        isNational: p.leadTimeSource === 'national-file',
       };
     })
     .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));

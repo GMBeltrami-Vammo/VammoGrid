@@ -135,20 +135,61 @@ so an override replaces the seed rather than requiring a code change.
 **Reorder point in DOH.** Trivial: add `ropDoh: number | null` to
 `PurchaseSuggestion` (`src/types/planning.ts`) = `rop / dailyDemand`, computed
 in `purchaseForSku()`, surfaced next to the existing unit-based ROP wherever
-it's shown.
+it's shown. This is the existing **statistical** ROP (z·σ·√LT) — an analytical
+health indicator, unchanged, still driving the CRITICAL/REORDER/OK badge on the
+SKU tables and Estoque page. It stays as-is; it does not feed the new rule below.
 
-**Purchase filters/export/manual adjustment.** Extend the existing
-`/dashboard/procurement` page: filter chips (status, modal, hub, national vs.
-international), a CSV export button, and inline editing of `safetyOverride`
-(already a `SkuPolicy` field) — reusing the existing table/edit patterns, no new
-data model needed here.
+**Elaboration-trigger rule (new — this is what actually decides when a pedido
+gets drafted).** A separate, simpler, forward-looking rule, distinct from the
+statistical ROP above: scan the SKU's *entire* projected stock timeline
+(`ProjectionPoint[]` from `projectSku()`, already computed) for the first day
+where `DOH(d) = stock(d)/demand(d)` drops below **75**. If none exists in the
+horizon, no action. If one does, that SKU needs a new order — the only question
+is which modal:
+
+- **Maritime is the default.** Sea orders are placed on a **fixed monthly
+  batch** (the 1st of the month) — not continuously, matching real
+  container-consolidation economics. `nextSeaOrderDate(today)` = today if
+  today is the 1st, else the 1st of next month. `seaArrival = nextSeaOrderDate
+  + leadTimeSeaDays` (110d default).
+- **Air has no calendar constraint** — it can be ordered the same day, any day.
+  `airArrival = today + leadTimeAirDays` (40d default, or the SKU's own).
+- **Decision:** if `seaArrival` is still in time to prevent the breach (≤ the
+  first-breach date), draft the order **maritime**. Otherwise — the monthly
+  batching would arrive too late — draft it **air** ("aéreo se necessário,
+  senão marítimo," exactly as specified). If even air can't make it in time,
+  still draft air (best available) but flag the pedido as late/critical rather
+  than silently treating it as resolved.
+
+This rule is what actually creates a `dev.fleet_purchase_order` row with
+`prep_status = 'elaborado'` (sub-project D) — modal pre-filled by the decision
+above, editable by a human before it moves to `enviado`.
+
+**Compras (procurement) page — built around this rule.** This is the real
+purpose of the elaboration rule, not a side effect: `/dashboard/procurement`
+becomes the page where it's applied.
+- **Monthly automated pass**, mirroring the existing daily orders-sync /
+  weekly recovery-refresh cron pattern: a new scheduled job runs the rule
+  across every in-scope SKU (respecting A's scope) around the sea-ordering
+  window and auto-drafts `elaborado` pedidos as needed.
+- **On-demand re-check**, exposed as a button in the UI (per-SKU or
+  catalog-wide) — since air has no calendar constraint, a human should be able
+  to re-run the rule anytime mid-month without waiting for the next automated
+  pass, e.g. after a demand spike.
+- Filter chips (status, modal, hub, national vs. international), CSV export,
+  and inline editing of `safetyOverride` (already a `SkuPolicy` field) — same
+  table/edit patterns already used elsewhere, no new data model for these.
 
 **Files:** `src/lib/clickhouse/fleet.ts` (2 new tables + 1 new column on
 `sku_policy`'s DDL — note: ClickHouse `ALTER TABLE ADD COLUMN` for existing
-tables, not a fresh `CREATE TABLE`), `src/lib/planning/purchase.ts` (combined-variance
-formula), `src/types/planning.ts` (`ropDoh`, `leadTimeStdDays`), new Server
-Actions for the two new tables, `/dashboard/procurement` (filters/export),
-`/dashboard/lead-times` (national toggle).
+tables, not a fresh `CREATE TABLE`), `src/lib/planning/purchase.ts`
+(combined-variance formula; a new `findElaborationTrigger()` pure function for
+the DOH<75 scan + modal decision, alongside — not replacing —
+`purchaseForSku()`), `src/types/planning.ts` (`ropDoh`, `leadTimeStdDays`), new
+Server Actions for the two new tables, a new monthly cron route (e.g.
+`/api/procurement/elaborate`), `/dashboard/procurement` (rebuilt around the
+trigger rule — filters/export/re-check button), `/dashboard/lead-times`
+(national toggle).
 
 ---
 
@@ -296,6 +337,8 @@ backlog-batch parameter.
 **New:**
 - `src/app/dashboard/pedidos/[vo]/page.tsx` (+ intercepting route)
 - `src/components/planning/PedidoDetail.tsx`
+- `src/app/api/procurement/elaborate/route.ts` — new monthly cron (+ on-demand
+  trigger) running the elaboration-trigger rule across every in-scope SKU
 - New Server Actions per new table (scope, global-settings, hub-max-stock,
   frota logs, backlog registry)
 - New small UI panels: SKU-scope manager, global floor/growth-rate settings,
@@ -306,14 +349,19 @@ backlog-batch parameter.
 **Modified:**
 - `src/lib/clickhouse/fleet.ts` (all new table DDL + `FLEET_TABLES` entries)
 - `src/lib/planning/load.ts` (scope filter step)
-- `src/lib/planning/purchase.ts` (combined-variance safety formula, `ropDoh`)
+- `src/lib/planning/purchase.ts` (combined-variance safety formula, `ropDoh`,
+  new `findElaborationTrigger()` — DOH<75 scan + monthly-sea-batch/anytime-air
+  modal decision)
 - `src/lib/planning/weekgrid.ts` (scenario injection, floor param)
 - `src/types/planning.ts` (`ropDoh`, `leadTimeStdDays`, `prep_status`-adjacent
   types)
 - `src/components/planning/WeekGridView.tsx` (new controls)
 - `src/app/dashboard/pedidos/actions.ts` (prep-status)
-- `src/app/dashboard/skus/page.tsx`, `/dashboard/procurement`,
-  `/dashboard/lead-times` (filters, toggles, scope manager)
+- `src/app/dashboard/skus/page.tsx`, `/dashboard/procurement` (rebuilt around
+  the elaboration rule), `/dashboard/lead-times` (filters, toggles, scope
+  manager)
+- `vercel.json` (new monthly cron entry, alongside the existing daily/weekly
+  ones)
 
 ## Verification plan
 
@@ -327,6 +375,12 @@ Per sub-project, once built:
 4. Cross-links: SKU → order and order → SKU navigation both resolve correctly.
 5. Scope (A): confirm the default view narrows to the 139 SKUs and the full
    catalog page still shows everything.
+6. Elaboration rule (B): unit-test `findElaborationTrigger()` against fixtures
+   covering all three outcomes — sea in time, sea too late → air, even air too
+   late (flagged late) — plus the monthly-batch date math (ordering on the 2nd
+   vs. the 1st of the month) and the no-breach-in-horizon case. Confirm the
+   monthly cron drafts exactly the expected `elaborado` rows against a small
+   fixture set before trusting it against the full catalog.
 
 ## Out of scope (explicitly deferred)
 

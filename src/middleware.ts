@@ -29,12 +29,17 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Run on everything except Next.js internals, static assets, and the two
+  // Run on everything except Next.js internals, static assets, and the
   // self-authenticating machine endpoints:
-  //   • api/inventory/snapshot — Vercel cron, authenticates via CRON_SECRET
-  //   • api/orders/ingest      — n8n, authenticates via N8N_INGEST_SECRET
-  // Both carry no session cookie, so middleware must not block them.
+  //   • api/inventory/snapshot                — Vercel cron, authenticates via CRON_SECRET
+  //   • api/orders/ingest                     — n8n, authenticates via N8N_INGEST_SECRET
+  //   • api/orders/sync                       — Vercel cron, authenticates via CRON_SECRET
+  //     (was missing here — the daily cron carries no session cookie, so this
+  //     route's own CRON_SECRET check was unreachable; middleware 401'd every
+  //     unauthenticated hit before the route ever ran)
+  //   • api/admin/migrate-fleet-to-clickhouse — one-off, authenticates via CRON_SECRET
+  // All four carry no session cookie, so middleware must not block them.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot|api/orders/ingest).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot|api/orders/ingest|api/orders/sync|api/admin/migrate-fleet-to-clickhouse).*)',
   ],
 };

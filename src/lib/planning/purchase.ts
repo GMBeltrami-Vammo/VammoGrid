@@ -39,6 +39,9 @@ interface PurchaseInput {
   orders: OpenPurchaseOrder[];
   policy: SkuPolicy;
   today: string;
+  /** Global service-level z (sub-project B1): overrides the per-ABC ABC_Z for every
+   *  SKU at once. Undefined → fall back to ABC_Z[policy.abcClass] (original behavior). */
+  serviceLevelZ?: number;
 }
 
 const OPEN_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
@@ -57,6 +60,7 @@ export function purchaseForSku({
   orders,
   policy,
   today,
+  serviceLevelZ,
 }: PurchaseInput): PurchaseSuggestion {
   const L = Math.max(0, Math.round(policy.leadTimeDays));
   const targetDoi = Math.max(0, Math.round(policy.targetDoi));
@@ -98,7 +102,10 @@ export function purchaseForSku({
   const sigmaMonthly = Math.sqrt(sumSq30);
   const leadMonths = L / 30;
   const sigmaL = sigmaMonthly * Math.sqrt(leadMonths);
-  const safety = policy.safetyOverride ?? ABC_Z[policy.abcClass] * sigmaL;
+  // z: the global service-level tier (B1) applied to every SKU, or per-ABC when no
+  // tier is threaded in. A per-SKU manual override still wins over both.
+  const z = serviceLevelZ ?? ABC_Z[policy.abcClass];
+  const safety = policy.safetyOverride ?? z * sigmaL;
   const rop = expectedLeadTimeDemand + safety;
   const orderUpTo = cumD[Math.min(L + targetDoi, days)] + safety;
 
@@ -204,8 +211,10 @@ export function purchaseForAll(args: {
   ordersBySku: Map<string, OpenPurchaseOrder[]>;
   defaultPolicy: (skuBase: string, stock: StockState) => SkuPolicy;
   today: string;
+  /** Global service-level z (B1) applied to every SKU. */
+  serviceLevelZ?: number;
 }): PurchaseSuggestion[] {
-  const { stocks, forecasts, policies, ordersBySku, defaultPolicy, today } = args;
+  const { stocks, forecasts, policies, ordersBySku, defaultPolicy, today, serviceLevelZ } = args;
   return stocks.map((stock) =>
     purchaseForSku({
       skuBase: stock.skuBase,
@@ -215,6 +224,7 @@ export function purchaseForAll(args: {
       orders: ordersBySku.get(stock.skuBase) ?? [],
       policy: policies.get(stock.skuBase) ?? defaultPolicy(stock.skuBase, stock),
       today,
+      serviceLevelZ,
     }),
   );
 }

@@ -26,6 +26,7 @@ export const FLEET_TABLES = {
   jobRun: 'dev.fleet_job_run',
   auditLog: 'dev.fleet_audit_log',
   skuScope: 'dev.fleet_sku_scope',
+  globalSettings: 'dev.fleet_global_settings',
 } as const;
 
 const DDL: string[] = [
@@ -124,6 +125,16 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY sku_base`,
+
+  // Generic key/value store for app-wide settings (sub-projects B1, E1): the active
+  // service-level tier, fleet size/growth params, etc. `value` is a JSON string.
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.globalSettings} (
+    key String,
+    value String,
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY key`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS. */

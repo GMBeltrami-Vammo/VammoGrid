@@ -78,6 +78,7 @@ export default async function EstoquePage({
     orders,
     policy,
     today: inputs.today,
+    serviceLevelZ: inputs.serviceLevelZ,
   });
 
   const leadLabel =

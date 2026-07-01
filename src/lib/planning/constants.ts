@@ -6,6 +6,42 @@ import type { AbcClass } from '@/types/planning';
 /** Service-level Z by ABC class. */
 export const ABC_Z: Record<AbcClass, number> = { A: 1.96, B: 1.65, C: 1.28 };
 
+// ─── Global service-level tier (sub-project B1) ───────────────────────────────
+// A single, mutable dial applied to EVERY SKU's safety stock at once (matches the
+// reference tool's 95/97/99% floor buttons). When a tier is active it overrides the
+// per-ABC ABC_Z above with one z for all SKUs. Labelled Base/Padrão/Conservador —
+// deliberately NOT A/B/C, which already means the per-SKU importance class.
+export type ServiceLevelTier = 'base' | 'padrao' | 'conservador';
+
+/** z-score per tier: 95% → 1.645, 97% → 1.881, 99% → 2.326. */
+export const SERVICE_LEVEL_Z: Record<ServiceLevelTier, number> = {
+  base: 1.645,
+  padrao: 1.881,
+  conservador: 2.326,
+};
+
+/** Nominal service-level percentage per tier (for labels). */
+export const SERVICE_LEVEL_PCT: Record<ServiceLevelTier, number> = {
+  base: 95,
+  padrao: 97,
+  conservador: 99,
+};
+
+export const SERVICE_LEVEL_LABEL: Record<ServiceLevelTier, string> = {
+  base: 'Base',
+  padrao: 'Padrão',
+  conservador: 'Conservador',
+};
+
+export const DEFAULT_SERVICE_LEVEL_TIER: ServiceLevelTier = 'base';
+
+/** Key under which the active tier is stored in dev.fleet_global_settings. */
+export const SERVICE_LEVEL_TIER_KEY = 'service_level_tier';
+
+export function isServiceLevelTier(v: unknown): v is ServiceLevelTier {
+  return v === 'base' || v === 'padrao' || v === 'conservador';
+}
+
 /** Target days-of-inventory by ABC class (order-up-to cover beyond lead time). */
 export const ABC_TARGET_DOI: Record<AbcClass, number> = { A: 30, B: 45, C: 60 };
 

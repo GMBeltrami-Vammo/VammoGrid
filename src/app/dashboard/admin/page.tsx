@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import { ShieldCheck, Lock } from 'lucide-react';
 import { FleetInfoPanel } from '@/components/admin/FleetInfoPanel';
+import { ServiceLevelPanel } from '@/components/admin/ServiceLevelPanel';
 import { cn } from '@/lib/utils';
 
 // The "Recuperação" tab (fleet.sku_params + Metabase-backed consumption display) was
@@ -37,7 +38,11 @@ export default function AdminPage() {
           : 'Somente leitura — apenas Heads podem editar.'}
       </div>
 
-      <FleetInfoPanel />
+      <div className="space-y-8">
+        <ServiceLevelPanel />
+        <div className="h-px bg-border" />
+        <FleetInfoPanel />
+      </div>
     </div>
   );
 }

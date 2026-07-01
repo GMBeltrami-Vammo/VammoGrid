@@ -28,6 +28,8 @@ import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
 import { fetchActiveScope } from './source/scope';
+import { fetchServiceLevelZ } from './source/globalSettings';
+import { SERVICE_LEVEL_Z, DEFAULT_SERVICE_LEVEL_TIER } from './constants';
 import {
   EMPTY_FILTER,
   FILTER_COOKIE,
@@ -64,6 +66,8 @@ export interface PlanningInputs {
   scenario: PlanningScenario;
   /** Observed recovery rates from the IMS ledger (last 90 days). Empty when CH unavailable. */
   recoveryRates: Map<string, HistoricalRecovery>;
+  /** Global service-level z (B1) applied to every SKU's safety stock. */
+  serviceLevelZ: number;
 }
 
 function emptyInputs(today: string): PlanningInputs {
@@ -81,6 +85,7 @@ function emptyInputs(today: string): PlanningInputs {
     filter: EMPTY_FILTER,
     scenario: EMPTY_SCENARIO,
     recoveryRates: new Map(),
+    serviceLevelZ: SERVICE_LEVEL_Z[DEFAULT_SERVICE_LEVEL_TIER],
   };
 }
 
@@ -95,7 +100,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
   // instead of throwing (keeps the app building + usable before secrets are set).
   if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter, scenario };
 
-  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet] =
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ] =
     await Promise.all([
       fetchStockStates(nowIso),
       fetchForecasts(),
@@ -106,6 +111,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
       fetchSkuPolicies(),
       fetchRecoveryRates(),
       fetchActiveScope(),
+      fetchServiceLevelZ(),
     ]);
 
   // Default SKU-universe scope (sub-project A): narrow to the active-scope set
@@ -158,6 +164,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
     filter,
     scenario,
     recoveryRates,
+    serviceLevelZ,
   };
 });
 
@@ -177,6 +184,7 @@ export const computeSnapshot = cache(async (ignoreSkuSelection = false): Promise
     defaultPolicy: (skuBase, stock) =>
       defaultPolicyFor(skuBase, stock, inp.forecasts.get(skuBase)?.abcClass ?? 'C', inp.today),
     today: inp.today,
+    serviceLevelZ: inp.serviceLevelZ,
   });
 
   const transfers = transferForAll({
@@ -291,7 +299,7 @@ export const loadSkuView = cache(
     }
 
     // Cheap, cross-request-cached sources only (no per-SKU heavy materialization).
-    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet] =
+    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet, serviceLevelZ] =
       await Promise.all([
         fetchStockStates(nowIso),
         fetchHubShares(),
@@ -301,6 +309,7 @@ export const loadSkuView = cache(
         fetchCompatModels(),
         fetchForecastMeta(),
         fetchActiveScope(),
+        fetchServiceLevelZ(),
       ]);
 
     // Default SKU-universe scope (sub-project A): the selector lists only in-scope
@@ -372,6 +381,7 @@ export const loadSkuView = cache(
       filter,
       scenario,
       recoveryRates,
+      serviceLevelZ,
     };
     return { inputs, selected };
   },

@@ -98,6 +98,12 @@ export function Sidebar() {
             icon={ClipboardList}
             active={isActive('/dashboard/pedidos')}
           />
+          <NavLink
+            href="/dashboard/frota"
+            label="Frota"
+            icon={Bike}
+            active={isActive('/dashboard/frota')}
+          />
         </NavSection>
 
         <NavSection label="Sistema">

@@ -30,7 +30,9 @@ async function run(req: Request) {
   }
 
   try {
-    await provisionFleetTables();
+    // CREATEs always run; ALTERs are best-effort (need the ALTER grant). Any skipped
+    // ALTER is reported so the operator knows to grant it and re-run.
+    const { migrationErrors } = await provisionFleetTables();
 
     const { searchParams } = new URL(req.url);
     const existing = await readFleetTable<{ sku_base: string }>(FLEET_TABLES.skuScope);
@@ -40,6 +42,7 @@ async function run(req: Request) {
       return NextResponse.json({
         ok: true,
         verified: { active_scope_rows: existing.length },
+        migrationErrors,
         at: new Date().toISOString(),
       });
     }
@@ -61,6 +64,9 @@ async function run(req: Request) {
       seeded: toInsert.length,
       already_present: existingSet.size,
       total_scope_rows: after.length,
+      // Empty = all columns present. Non-empty = grant ALTER on dev.* and re-run to
+      // finish adding lead_time_std_days/is_national/prep_status.
+      migrationErrors,
       at: new Date().toISOString(),
     });
   } catch (err) {

@@ -209,10 +209,23 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS prep_status Nullable(String)`,
 ];
 
-/** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs. */
-export async function provisionFleetTables(): Promise<void> {
+/** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.
+ *  CREATEs must succeed. ALTERs are best-effort: if the ClickHouse user lacks the ALTER
+ *  grant, we don't fail the whole provisioning (new tables + seeds still land) — we
+ *  return the skipped ALTERs so the caller can surface "grant ALTER to finish". */
+export async function provisionFleetTables(): Promise<{ migrationErrors: string[] }> {
   for (const ddl of DDL) await chExecute(ddl);
-  for (const alter of MIGRATIONS) await chExecute(alter);
+  const migrationErrors: string[] = [];
+  for (const alter of MIGRATIONS) {
+    try {
+      await chExecute(alter);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[provisionFleetTables] migration skipped:', msg);
+      migrationErrors.push(msg);
+    }
+  }
+  return { migrationErrors };
 }
 
 /** Read all live (non-deleted) rows from a fleet table, newest version per key. */

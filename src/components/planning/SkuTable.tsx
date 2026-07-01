@@ -1,12 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Check } from 'lucide-react';
 import type { PurchaseStatus } from '@/types/planning';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie } from '@/lib/planning/applyFilter';
+import { setSkuScope } from '@/app/dashboard/skus/actions';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -49,11 +50,51 @@ const CATEGORIES: { v: string | null; label: string }[] = [
   { v: 'BATTERY', label: 'Bateria' },
 ];
 
-export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFilter }) {
+export function SkuTable({
+  rows,
+  filter,
+  scopeSkus,
+  isHead = false,
+}: {
+  rows: SkuRow[];
+  filter: PlanningFilter;
+  /** sku_bases in the active default universe (sub-project A). Undefined = no scope defined. */
+  scopeSkus?: string[];
+  /** Only Heads may edit the scope. */
+  isHead?: boolean;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [abcFilter, setAbcFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
+
+  // Local mirror of the active-scope set so toggles feel instant; the Server Action
+  // persists to dev.fleet_sku_scope + busts the 'sku-scope' cache tag underneath.
+  const hasScope = scopeSkus !== undefined;
+  const [scope, setScope] = useState<Set<string>>(() => new Set(scopeSkus ?? []));
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [scopePending, startScope] = useTransition();
+  const [scopeError, setScopeError] = useState<string | null>(null);
+
+  const toggleScope = (skuBase: string) => {
+    const active = !scope.has(skuBase);
+    const next = new Set(scope);
+    if (active) next.add(skuBase);
+    else next.delete(skuBase);
+    setScope(next); // optimistic
+    setScopeError(null);
+    startScope(async () => {
+      const res = await setSkuScope(skuBase, active);
+      if (!res.ok) {
+        // revert on failure
+        const reverted = new Set(next);
+        if (active) reverted.delete(skuBase);
+        else reverted.add(skuBase);
+        setScope(reverted);
+        setScopeError(res.error ?? 'Erro ao salvar escopo.');
+      }
+    });
+  };
 
   // Hand-picked focus set (single-SKU control). Lives in the shared `vg:filter`
   // cookie so it narrows every other analysis. This page is exempt from that
@@ -89,7 +130,7 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
     router.refresh();
   };
 
-  // ABC / status / search are local refinements within the already-narrowed set.
+  // ABC / status / search / scope are local refinements within the already-narrowed set.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
@@ -97,9 +138,11 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
         return false;
       if (abcFilter && r.abcClass !== abcFilter) return false;
       if (statusFilter && r.status !== statusFilter) return false;
+      if (scopeFilter === 'in' && !scope.has(r.skuBase)) return false;
+      if (scopeFilter === 'out' && scope.has(r.skuBase)) return false;
       return true;
     });
-  }, [rows, search, abcFilter, statusFilter]);
+  }, [rows, search, abcFilter, statusFilter, scopeFilter, scope]);
 
   const allVisibleSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.skuBase));
   const toggleAllVisible = () => {
@@ -203,10 +246,44 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
           </button>
         )}
 
+        {hasScope && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+              Escopo
+            </span>
+            {([
+              ['all', 'Tudo'],
+              ['in', 'Em escopo'],
+              ['out', 'Fora'],
+            ] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setScopeFilter(v)}
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                  scopeFilter === v
+                    ? 'bg-alert-success/20 text-alert-success'
+                    : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </>
+        )}
+
         <span className="ml-auto text-[11px] text-muted-foreground">
+          {hasScope && <span className="mr-2">{scope.size} em escopo</span>}
           {filtered.length} / {rows.length} SKUs
         </span>
       </div>
+
+      {scopeError && (
+        <p className="mb-3 rounded-lg bg-alert-error/10 px-3 py-1.5 text-xs text-alert-error ring-1 ring-alert-error/30">
+          {scopeError}
+        </p>
+      )}
 
       {/* Selection summary — the hand-picked set that focuses every other analysis */}
       {selected.size > 0 && (
@@ -247,6 +324,7 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
                 />
               </th>
               <th className="px-3 py-2.5 font-medium">SKU</th>
+              {hasScope && <th className="px-3 py-2.5 font-medium">Escopo</th>}
               <th className="px-3 py-2.5 font-medium">Nome</th>
               <th className="px-3 py-2.5 font-medium">Categ.</th>
               <th className="px-3 py-2.5 font-medium">
@@ -269,7 +347,7 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={hasScope ? 10 : 9} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -299,6 +377,37 @@ export function SkuTable({ rows, filter }: { rows: SkuRow[]; filter: PlanningFil
                         {r.skuBase}
                       </Link>
                     </td>
+                    {hasScope && (
+                      <td className="px-3 py-2">
+                        {isHead ? (
+                          <button
+                            onClick={() => toggleScope(r.skuBase)}
+                            disabled={scopePending}
+                            aria-pressed={scope.has(r.skuBase)}
+                            className={cn(
+                              'rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50',
+                              scope.has(r.skuBase)
+                                ? 'bg-alert-success/15 text-alert-success hover:bg-alert-success/25'
+                                : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+                            )}
+                            title={scope.has(r.skuBase) ? 'Remover do escopo padrão' : 'Adicionar ao escopo padrão'}
+                          >
+                            {scope.has(r.skuBase) ? 'Em escopo' : 'Fora'}
+                          </button>
+                        ) : (
+                          <span
+                            className={cn(
+                              'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                              scope.has(r.skuBase)
+                                ? 'bg-alert-success/15 text-alert-success'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            {scope.has(r.skuBase) ? 'Em escopo' : 'Fora'}
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 py-2 max-w-[200px]">
                       <Link
                         prefetch={false}

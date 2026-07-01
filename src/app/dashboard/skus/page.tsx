@@ -1,14 +1,22 @@
+import { auth } from '@/auth';
 import { safeComputeSnapshot } from '@/lib/planning/load';
+import { fetchActiveScope } from '@/lib/planning/source/scope';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { SkuTable, type SkuRow } from '@/components/planning/SkuTable';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SkusPage() {
-  // ignoreSkuSelection: the SKUs page is the selection MANAGER — it must list the
-  // full (scoped) catalog so the user can check/uncheck any SKU. The hand-picked
-  // set narrows every other analysis, not this table.
-  const snap = await safeComputeSnapshot(true);
+  // ignoreSkuSelection: the SKUs page is the full catalog + scope MANAGER — it must
+  // list EVERY SKU (bypassing the default-scope narrowing) so the user can add/remove
+  // any SKU to/from the default universe. The hand-picked cookie set + the default
+  // scope both narrow every OTHER analysis, not this table.
+  const [snap, scopeSet, session] = await Promise.all([
+    safeComputeSnapshot(true),
+    fetchActiveScope(),
+    auth(),
+  ]);
+  const isHead = session?.user?.isHead ?? false;
 
   const stockByBase = new Map(snap.stocks.map((s) => [s.skuBase, s]));
 
@@ -43,16 +51,21 @@ export default async function SkusPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Catálogo"
+        eyebrow="Catálogo · Lista completa"
         title="SKUs"
-        subtitle="Todos os SKUs com estoque, cobertura e status de compra — filtre por categoria, classe ABC ou risco"
+        subtitle="Todos os SKUs (catálogo completo). Marque quais entram no escopo padrão — o conjunto que todas as análises usam por padrão. Filtre por categoria, classe ABC, risco ou escopo."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
 
       {rows.length === 0 ? (
         <EmptyState title="Sem dados" hint="Configure a fonte de dados para listar os SKUs." />
       ) : (
-        <SkuTable rows={rows} filter={snap.filter} />
+        <SkuTable
+          rows={rows}
+          filter={snap.filter}
+          scopeSkus={[...scopeSet]}
+          isHead={isHead}
+        />
       )}
     </div>
   );

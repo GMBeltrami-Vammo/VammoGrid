@@ -40,11 +40,16 @@ export function WeekGridView({
   scenario,
   weeks,
   tier,
+  backlogOn,
+  backlogPct,
 }: {
   grid: WeekGrid;
   scenario: WeekGridScenario;
   weeks: number;
   tier: ServiceLevelTier;
+  /** Backlog demand-uplift toggle state + the % applied (G2). */
+  backlogOn: boolean;
+  backlogPct: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,10 +60,11 @@ export function WeekGridView({
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
 
-  const go = (next: { cenario?: WeekGridScenario; sem?: number }) => {
+  const go = (next: { cenario?: WeekGridScenario; sem?: number; backlog?: boolean }) => {
     const params = new URLSearchParams();
     params.set('cenario', next.cenario ?? scenario);
     params.set('sem', String(next.sem ?? weeks));
+    if (next.backlog ?? backlogOn) params.set('backlog', '1');
     startNav(() => router.push(`${pathname}?${params.toString()}`));
   };
 
@@ -120,6 +126,10 @@ export function WeekGridView({
         {HORIZONS.map((h) => (
           <Chip key={h} active={weeks === h} onClick={() => go({ sem: h })}>{h}</Chip>
         ))}
+        <span className="mx-1 h-4 w-px bg-border" />
+        <Chip active={backlogOn} onClick={() => go({ backlog: !backlogOn })}>
+          Backlog{backlogOn && backlogPct > 0 ? ` +${backlogPct}%` : ''}
+        </Chip>
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Filtro</span>
         {([

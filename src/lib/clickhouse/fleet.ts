@@ -25,6 +25,7 @@ export const FLEET_TABLES = {
   fleetInfo: 'dev.fleet_info',
   jobRun: 'dev.fleet_job_run',
   auditLog: 'dev.fleet_audit_log',
+  skuScope: 'dev.fleet_sku_scope',
 } as const;
 
 const DDL: string[] = [
@@ -112,6 +113,17 @@ const DDL: string[] = [
     changed_by Nullable(String),
     changed_at DateTime64(3) DEFAULT now64(3)
   ) ENGINE = MergeTree() ORDER BY (entity_type, entity_id, changed_at)`,
+
+  // The default visible SKU universe (sub-project A). `active` rows narrow every
+  // analysis; the full catalog stays reachable via the "Lista completa" tab.
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.skuScope} (
+    sku_base String,
+    active Bool DEFAULT true,
+    note Nullable(String),
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY sku_base`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS. */

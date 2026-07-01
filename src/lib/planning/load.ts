@@ -187,6 +187,7 @@ export async function safeComputeSnapshot(
   try {
     return await computeSnapshot(ignoreSkuSelection);
   } catch (e) {
+    console.error('[safeComputeSnapshot]', e instanceof Error ? e.message : e);
     const today = todayUtc();
     return {
       ...emptyInputs(today),

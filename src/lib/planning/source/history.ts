@@ -61,7 +61,8 @@ ORDER BY snapshot_date`;
   try {
     // Per-SKU daily snapshot; cache 10 min (keyed by the SQL → per sku_base + window).
     rows = await cachedChQuery<MartRow>(sql, 600, ['stock']);
-  } catch {
+  } catch (e) {
+    console.error('[fetchStockHistory]', e instanceof Error ? e.message : e);
     return emptyHistory();
   }
   if (rows.length === 0) return emptyHistory();

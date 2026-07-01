@@ -32,7 +32,8 @@ export async function fetchRecoveryRates(): Promise<Map<string, HistoricalRecove
   try {
     // 90-day observed window → cache 6h across requests (changes slowly).
     rows = await cachedChQuery<RecoveryRow>(RECOVERY_SQL, 21600, ['recovery-rates']);
-  } catch {
+  } catch (e) {
+    console.error('[fetchRecoveryRates]', e instanceof Error ? e.message : e);
     return new Map();
   }
 

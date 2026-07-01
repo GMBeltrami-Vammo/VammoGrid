@@ -27,6 +27,7 @@ export const FLEET_TABLES = {
   auditLog: 'dev.fleet_audit_log',
   skuScope: 'dev.fleet_sku_scope',
   globalSettings: 'dev.fleet_global_settings',
+  hubMaxStock: 'dev.fleet_sku_hub_max_stock',
 } as const;
 
 const DDL: string[] = [
@@ -137,6 +138,17 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY key`,
+
+  // Per-SKU, per-hub maximum stock cap (sub-project B3). Visibility/alert only —
+  // flags a hub whose on-hand exceeds its cap; does NOT clamp the purchase engine.
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.hubMaxStock} (
+    sku_base String,
+    hub_id String,
+    max_qty Int32,
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (sku_base, hub_id)`,
 ];
 
 // Idempotent column adds for tables that already exist in prod (CREATE TABLE IF NOT

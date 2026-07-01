@@ -1,8 +1,11 @@
+import { auth } from '@/auth';
 import { loadSkuView, projectOneCompare } from '@/lib/planning/load';
 import { computeArrivals } from '@/lib/planning/projection';
 import { purchaseForSku } from '@/lib/planning/purchase';
 import { fetchStockHistory } from '@/lib/planning/source/history';
+import { fetchHubMaxStock } from '@/lib/planning/source/hubMaxStock';
 import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
+import { HubMaxStockPanel } from '@/components/planning/HubMaxStockPanel';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
 import { HUB_LIST } from '@/constants/planningHubs';
@@ -62,11 +65,14 @@ export default async function EstoquePage({
     defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
-  const [compare, history, recoveryRefreshedAt] = await Promise.all([
+  const [compare, history, recoveryRefreshedAt, hubMaxStock, session] = await Promise.all([
     projectOneCompare(selected, inputs), // reuse inputs — avoids a 2nd full load
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
     fetchRecoveryRefreshedAt(),
+    fetchHubMaxStock(),
+    auth(),
   ]);
+  const isHead = session?.user?.isHead ?? false;
   const projections = compare?.projections ?? null;
   const baseline = compare?.baseline ?? null;
   const arrivals = computeArrivals(orders, inputs.today);
@@ -135,6 +141,12 @@ export default async function EstoquePage({
                 />
               ))}
             </div>
+            <HubMaxStockPanel
+              skuBase={selStock.skuBase}
+              byHub={selStock.byHub}
+              caps={hubMaxStock.get(selStock.skuBase) ?? {}}
+              isHead={isHead}
+            />
           </div>
 
           {/* Purchase recommendation */}

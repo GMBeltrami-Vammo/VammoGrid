@@ -132,20 +132,23 @@ hardcoded seed file, not an editable value. Add an `is_national Bool` column to
 `dev.fleet_sku_policy`; surface it as a toggle in the (existing) Lead Times page,
 so an override replaces the seed rather than requiring a code change.
 
-**Reorder point in DOH.** Trivial: add `ropDoh: number | null` to
-`PurchaseSuggestion` (`src/types/planning.ts`) = `rop / dailyDemand`, computed
-in `purchaseForSku()`, surfaced next to the existing unit-based ROP wherever
-it's shown. This is the existing **statistical** ROP (z·σ·√LT) — an analytical
-health indicator, unchanged, still driving the CRITICAL/REORDER/OK badge on the
-SKU tables and Estoque page. It stays as-is; it does not feed the new rule below.
+**Reorder point in DOH — where the existing statistical ROP still lives.** The
+existing z·σ·√LT ROP (`PurchaseSuggestion.rop`, `src/lib/planning/purchase.ts:101`)
+is **fully superseded on the Compras page** by the elaboration-trigger rule
+below — Compras no longer shows or drives off the old CRITICAL/REORDER/OK
+status. It is **not deleted**: add `ropDoh: number | null` = `rop /
+dailyDemand` and keep the whole statistical panel (ROP, safety stock,
+σ, target DOI) visible on the **SKU detail / Estoque stock view** only, as
+analytical context. Two clearly separated concerns, one per page: Compras =
+the new rule, decides what to order; SKU detail = the old statistics, explains
+*why* a SKU's stock looks the way it does.
 
-**Elaboration-trigger rule (new — this is what actually decides when a pedido
-gets drafted).** A separate, simpler, forward-looking rule, distinct from the
-statistical ROP above: scan the SKU's *entire* projected stock timeline
-(`ProjectionPoint[]` from `projectSku()`, already computed) for the first day
-where `DOH(d) = stock(d)/demand(d)` drops below **75**. If none exists in the
-horizon, no action. If one does, that SKU needs a new order — the only question
-is which modal:
+**Elaboration-trigger rule (new — this is what decides when a pedido should be
+drafted, and is now Compras' entire reorder logic).** Scan the SKU's *entire*
+projected stock timeline (`ProjectionPoint[]` from `projectSku()`, already
+computed) for the first day where `DOH(d) = stock(d)/demand(d)` drops below
+**75**. If none exists in the horizon, no action. If one does, that SKU needs a
+new order — the only question is which modal:
 
 - **Maritime is the default.** Sea orders are placed on a **fixed monthly
   batch** (the 1st of the month) — not continuously, matching real
@@ -155,40 +158,43 @@ is which modal:
 - **Air has no calendar constraint** — it can be ordered the same day, any day.
   `airArrival = today + leadTimeAirDays` (40d default, or the SKU's own).
 - **Decision:** if `seaArrival` is still in time to prevent the breach (≤ the
-  first-breach date), draft the order **maritime**. Otherwise — the monthly
-  batching would arrive too late — draft it **air** ("aéreo se necessário,
-  senão marítimo," exactly as specified). If even air can't make it in time,
-  still draft air (best available) but flag the pedido as late/critical rather
+  first-breach date), suggest **maritime**. Otherwise — the monthly batching
+  would arrive too late — suggest **air** ("aéreo se necessário, senão
+  marítimo," exactly as specified). If even air can't make it in time, still
+  suggest air (best available) but flag the suggestion as late/critical rather
   than silently treating it as resolved.
 
-This rule is what actually creates a `dev.fleet_purchase_order` row with
-`prep_status = 'elaborado'` (sub-project D) — modal pre-filled by the decision
-above, editable by a human before it moves to `enviado`.
+**Compute-on-demand, write-on-confirm only (per review — nothing auto-writes to
+ClickHouse).** `findElaborationTrigger()` is a **pure function**, run the same
+way `purchaseForAll()` already is — on page load / on demand, never on a
+schedule that writes. Compras shows it as a list: which SKUs need an order,
+recommended modal, why (breach date, sea vs. air arrival). Nothing is persisted
+at this stage. A human reviews the list, can edit the suggestion (quantity,
+modal — e.g. override to air even when sea would technically make it), and
+**only that explicit confirm action** — edit → confirm → write — calls a
+Server Action that creates the `dev.fleet_purchase_order` row with
+`prep_status = 'elaborado'` (sub-project D). There is no monthly cron that
+writes; the "monthly" part is purely the calendar constraint inside the
+calculation (when the *next possible sea order* would be), not a schedule that
+mutates data. This also means no separate "on-demand re-check" feature is
+needed — every Compras page load already re-evaluates live.
 
-**Compras (procurement) page — built around this rule.** This is the real
-purpose of the elaboration rule, not a side effect: `/dashboard/procurement`
-becomes the page where it's applied.
-- **Monthly automated pass**, mirroring the existing daily orders-sync /
-  weekly recovery-refresh cron pattern: a new scheduled job runs the rule
-  across every in-scope SKU (respecting A's scope) around the sea-ordering
-  window and auto-drafts `elaborado` pedidos as needed.
-- **On-demand re-check**, exposed as a button in the UI (per-SKU or
-  catalog-wide) — since air has no calendar constraint, a human should be able
-  to re-run the rule anytime mid-month without waiting for the next automated
-  pass, e.g. after a demand spike.
-- Filter chips (status, modal, hub, national vs. international), CSV export,
-  and inline editing of `safetyOverride` (already a `SkuPolicy` field) — same
-  table/edit patterns already used elsewhere, no new data model for these.
+**Compras (procurement) page — rebuilt around this rule.** `/dashboard/procurement`
+replaces its current `purchaseForAll()`/status-table view with the
+elaboration-trigger list above, plus filter chips (modal, hub, national vs.
+international, "already has an open order" vs. not), CSV export, and inline
+editing of `safetyOverride` (already a `SkuPolicy` field) — same table/edit
+patterns already used elsewhere, no new data model for these.
 
 **Files:** `src/lib/clickhouse/fleet.ts` (2 new tables + 1 new column on
 `sku_policy`'s DDL — note: ClickHouse `ALTER TABLE ADD COLUMN` for existing
 tables, not a fresh `CREATE TABLE`), `src/lib/planning/purchase.ts`
-(combined-variance formula; a new `findElaborationTrigger()` pure function for
-the DOH<75 scan + modal decision, alongside — not replacing —
-`purchaseForSku()`), `src/types/planning.ts` (`ropDoh`, `leadTimeStdDays`), new
-Server Actions for the two new tables, a new monthly cron route (e.g.
-`/api/procurement/elaborate`), `/dashboard/procurement` (rebuilt around the
-trigger rule — filters/export/re-check button), `/dashboard/lead-times`
+(combined-variance formula; a new `findElaborationTrigger()` pure function,
+alongside — not replacing — `purchaseForSku()`), `src/types/planning.ts`
+(`ropDoh`, `leadTimeStdDays`), new Server Action `createElaboratedOrder()` (the
+one and only write path — confirm-from-suggestion, called from Compras) for
+the two new tables, `/dashboard/procurement` (rebuilt entirely around the
+trigger rule — no cron, computed fresh on every load), `/dashboard/lead-times`
 (national toggle).
 
 ---
@@ -337,8 +343,9 @@ backlog-batch parameter.
 **New:**
 - `src/app/dashboard/pedidos/[vo]/page.tsx` (+ intercepting route)
 - `src/components/planning/PedidoDetail.tsx`
-- `src/app/api/procurement/elaborate/route.ts` — new monthly cron (+ on-demand
-  trigger) running the elaboration-trigger rule across every in-scope SKU
+- `createElaboratedOrder()` Server Action — the single write path for the new
+  rule; called only when a human confirms a suggestion in Compras, never on a
+  schedule
 - New Server Actions per new table (scope, global-settings, hub-max-stock,
   frota logs, backlog registry)
 - New small UI panels: SKU-scope manager, global floor/growth-rate settings,
@@ -358,10 +365,10 @@ backlog-batch parameter.
 - `src/components/planning/WeekGridView.tsx` (new controls)
 - `src/app/dashboard/pedidos/actions.ts` (prep-status)
 - `src/app/dashboard/skus/page.tsx`, `/dashboard/procurement` (rebuilt around
-  the elaboration rule), `/dashboard/lead-times` (filters, toggles, scope
-  manager)
-- `vercel.json` (new monthly cron entry, alongside the existing daily/weekly
-  ones)
+  the elaboration rule — computed on load, no cron), `/dashboard/lead-times`
+  (filters, toggles, scope manager)
+- `/dashboard/sku/[sku]` (Estoque stock view) — keeps the existing statistical
+  ROP/safety-stock panel as-is; add `ropDoh` next to it
 
 ## Verification plan
 
@@ -378,9 +385,11 @@ Per sub-project, once built:
 6. Elaboration rule (B): unit-test `findElaborationTrigger()` against fixtures
    covering all three outcomes — sea in time, sea too late → air, even air too
    late (flagged late) — plus the monthly-batch date math (ordering on the 2nd
-   vs. the 1st of the month) and the no-breach-in-horizon case. Confirm the
-   monthly cron drafts exactly the expected `elaborado` rows against a small
-   fixture set before trusting it against the full catalog.
+   vs. the 1st of the month) and the no-breach-in-horizon case. Confirm
+   Compras never writes anything on page load (pure computation) and that
+   `createElaboratedOrder()` only ever runs from an explicit confirm click.
+   Confirm the old statistical ROP panel still renders unchanged on the SKU
+   detail / Estoque view.
 
 ## Out of scope (explicitly deferred)
 

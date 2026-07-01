@@ -18,3 +18,14 @@ export function diffDays(fromIso: string, toIso: string): number {
 export function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
+
+/** The next date a monthly-batched sea order could be placed (sub-project B): the 1st
+ *  of the month — today if today is already the 1st, else the 1st of next month. */
+export function nextFirstOfMonth(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  if (d.getUTCDate() === 1) return isoDate;
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const next = new Date(Date.UTC(month === 11 ? year + 1 : year, (month + 1) % 12, 1));
+  return next.toISOString().slice(0, 10);
+}

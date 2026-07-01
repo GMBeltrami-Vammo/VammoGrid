@@ -57,3 +57,8 @@ export const HORIZON_DAYS = 150;
 /** The forecast band (yhat_hi − yhat) approximates a one-sided 80% quantile ≈ 1.28σ;
  *  dividing the band by this recovers σ. */
 export const BAND_Z = 1.28;
+
+/** Elaboration trigger (sub-project B5): a SKU needs a new order when its projected
+ *  DOH drops below this at any point in the horizon. Drives the Compras page, distinct
+ *  from the statistical ROP. */
+export const ELABORATION_DOH_THRESHOLD = 75;

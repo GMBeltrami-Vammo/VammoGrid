@@ -255,6 +255,37 @@ export interface PurchaseSuggestion {
   reasoning: string;
 }
 
+// ─── Elaboration trigger (Compras' reorder rule — sub-project B5) ─────────────
+// Distinct from the statistical ROP above: a forward-looking DOH<threshold scan
+// over the projected stock, with a monthly-batched-sea vs. anytime-air modal
+// decision. This is what Compras uses to decide when to draft a pedido.
+
+export interface ElaborationSuggestion {
+  skuBase: string;
+  skuName: string;
+  /** True when projected DOH drops below the threshold somewhere in the horizon. */
+  needsOrder: boolean;
+  /** DOH today (day 0), for context. */
+  dohNow: number | null;
+  /** Daily demand at day 0 (units/day), for context. */
+  dailyDemand: number;
+  /** First date projected DOH falls below the threshold; null when it never does. */
+  firstBreachDate: string | null;
+  /** The projected DOH at that first-breach day. */
+  breachDoh: number | null;
+  /** Recommended modal for the drafted order (null when no order needed). */
+  suggestedModal: TransportModal | null;
+  /** Date the recommended order would be placed (sea = next monthly batch; air = today). */
+  suggestedOrderDate: string | null;
+  /** Projected arrival of the recommended order. */
+  expectedArrival: string | null;
+  /** True when even air can't arrive before the breach (order anyway, but flagged). */
+  isLate: boolean;
+  /** Modal lead times used, for display. */
+  leadTimeSeaDays: number;
+  leadTimeAirDays: number;
+}
+
 // ─── Transfer recommendation (weekly hub-and-spoke) ───────────────────────────
 
 export interface TransferSuggestion {

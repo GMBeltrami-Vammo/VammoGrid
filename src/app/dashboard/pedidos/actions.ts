@@ -5,7 +5,7 @@ import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
 import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
-import type { PurchaseOrderStatus } from '@/types';
+import type { PrepStatus, PurchaseOrderStatus } from '@/types';
 import type { TransportModal } from '@/types/planning';
 
 // Head-gated mutations for purchase orders (dev.fleet_purchase_order — formerly
@@ -134,6 +134,32 @@ export async function updatePurchaseOrder(id: string, input: PurchaseOrderInput)
   });
   updateTag('orders');
   return { ok: true };
+}
+
+// Advance a pedido's preparation stage (elaborado → enviado → feito) — D1. A draft
+// (elaborado/enviado) is excluded from projected inbound; 'feito' finalizes it into a
+// real placed order that counts. Passing null reverts to a normal (non-draft) order.
+export async function setPrepStatus(
+  id: string,
+  prepStatus: PrepStatus | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const changedBy = await requireHead();
+    const current = await findOrder(id);
+    if (!current) return { ok: false, error: `Pedido ${id} não encontrado.` };
+    await upsertFleetRow({
+      table: FLEET_TABLES.purchaseOrder,
+      entityType: 'purchase_order',
+      entityId: id,
+      current,
+      next: { ...current, prep_status: prepStatus },
+      changedBy,
+    });
+    updateTag('orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
 }
 
 export async function deletePurchaseOrder(id: string) {

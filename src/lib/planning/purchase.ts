@@ -7,6 +7,7 @@ import type {
   SkuPolicy,
   StockState,
 } from '@/types/planning';
+import { countsAsInbound } from '@/types/planning';
 import { ABC_Z, BAND_Z, HORIZON_DAYS } from './constants';
 import { addDays, diffDays } from './dates';
 import { buildDailyDemand, cumsum } from './forecast';
@@ -74,6 +75,7 @@ export function purchaseForSku({
   let incomingUnits = 0;
   for (const o of orders) {
     if (!OPEN_STATUSES.has(o.status)) continue;
+    if (!countsAsInbound(o.prepStatus)) continue; // un-placed drafts aren't inbound yet — B6
     const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
     if (!arrival) continue;
     let offset = diffDays(today, arrival);

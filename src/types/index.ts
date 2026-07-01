@@ -16,6 +16,9 @@ export type PurchaseOrderStatus =
   | 'received'
   | 'cancelled';
 
+/** Order-preparation lifecycle preceding the shipping status (B6/D1). */
+export type PrepStatus = 'elaborado' | 'enviado' | 'feito';
+
 export interface PurchaseOrder {
   /** App-generated UUID (ClickHouse has no sequences). */
   id: string;
@@ -31,6 +34,9 @@ export interface PurchaseOrder {
   eta: string | null;
   leadTimeDays: number | null;
   status: PurchaseOrderStatus;
+  /** Preparation stage (elaborado/enviado/feito) preceding the shipping status; null
+   *  for normal/legacy orders. */
+  prepStatus: PrepStatus | null;
   /** 'air' | 'sea' */
   modal: string | null;
   hubId: HubId;

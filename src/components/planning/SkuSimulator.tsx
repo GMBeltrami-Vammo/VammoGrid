@@ -74,6 +74,7 @@ export function SkuSimulator({
               leadTimeDays: arrivalDays,
               modal,
               status: 'ordered',
+              prepStatus: null,
               hubId: 'osasco',
               source: 'sim',
             },

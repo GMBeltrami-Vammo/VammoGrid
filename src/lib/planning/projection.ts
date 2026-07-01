@@ -8,6 +8,7 @@ import type {
   StockProjection,
   StockState,
 } from '@/types/planning';
+import { countsAsInbound } from '@/types/planning';
 import { HORIZON_DAYS } from './constants';
 import { addDays, diffDays } from './dates';
 import { buildDailyDemand, type DailyDemand } from './forecast';
@@ -37,6 +38,8 @@ function bucketReceipts(orders: OpenPurchaseOrder[], today: string, horizon: num
   const receipts = new Array<number>(horizon + 1).fill(0);
   for (const o of orders) {
     if (!OPEN_STATUSES.has(o.status)) continue;
+    // Un-placed drafts (elaborado/enviado) are not real inbound yet — B6.
+    if (!countsAsInbound(o.prepStatus)) continue;
     const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
     if (!arrival) continue;
     let offset = diffDays(today, arrival);
@@ -63,6 +66,7 @@ export function computeArrivals(
   const byDate = new Map<string, { qty: number; vos: Set<string> }>();
   for (const o of orders) {
     if (!OPEN_STATUSES.has(o.status)) continue;
+    if (!countsAsInbound(o.prepStatus)) continue; // drafts aren't real arrivals yet — B6
     const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
     if (!arrival) continue;
     let offset = diffDays(today, arrival);

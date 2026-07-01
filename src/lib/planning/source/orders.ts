@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache';
 import type {
   HubId,
   OpenPurchaseOrder,
+  PrepStatus,
   PurchaseOrderStatus,
   TransportModal,
 } from '@/types/planning';
@@ -28,6 +29,7 @@ export interface PoRow {
   hub_id: string;
   notes: string | null;
   source: string;
+  prep_status: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -61,6 +63,7 @@ export async function fetchOpenOrders(): Promise<OpenPurchaseOrder[]> {
       leadTimeDays: r.lead_time_days,
       modal: (r.modal as TransportModal | null) ?? null,
       status: (r.status as PurchaseOrderStatus) ?? 'ordered',
+      prepStatus: (r.prep_status as PrepStatus | null) ?? null,
       hubId: (r.hub_id as HubId) ?? 'osasco',
       source: r.source ?? 'manual',
     }));

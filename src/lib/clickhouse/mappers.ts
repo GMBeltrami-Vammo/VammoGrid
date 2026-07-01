@@ -4,6 +4,7 @@ import type {
   FleetInfo,
   HubId,
   PartCompat,
+  PrepStatus,
   PurchaseOrder,
   PurchaseOrderStatus,
 } from '@/types';
@@ -25,6 +26,7 @@ export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
     eta: row.eta ?? null,
     leadTimeDays: row.lead_time_days != null ? Number(row.lead_time_days) : null,
     status: (row.status ?? 'ordered') as PurchaseOrderStatus,
+    prepStatus: (row.prep_status ?? null) as PrepStatus | null,
     modal: row.modal ?? null,
     hubId: (row.hub_id ?? 'osasco') as HubId,
     notes: row.notes ?? null,

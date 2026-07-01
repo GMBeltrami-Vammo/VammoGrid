@@ -115,7 +115,7 @@ describe('purchaseForSku — ports the lab (s,S) policy', () => {
     const order: OpenPurchaseOrder = {
       id: '1', vo: '1', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50,
       orderDate: TODAY, eta: addDays(TODAY, 5), leadTimeDays: 5, modal: 'air',
-      status: 'ordered', hubId: 'osasco', source: 'test',
+      status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'test',
     };
     const base = purchaseForSku({ skuBase: 'X', skuName: 'X', forecast: forecast(2, 4), stock: stock(30), orders: [], policy: policy({ safetyOverride: 20 }), today: TODAY });
     const withPo = purchaseForSku({ skuBase: 'X', skuName: 'X', forecast: forecast(2, 4), stock: stock(30), orders: [order], policy: policy({ safetyOverride: 20 }), today: TODAY });
@@ -208,7 +208,7 @@ describe('projectSku — projection walk', () => {
     const order: OpenPurchaseOrder = {
       id: '1', vo: '1', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 100,
       orderDate: TODAY, eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea',
-      status: 'ordered', hubId: 'osasco', source: 'test',
+      status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'test',
     };
     const base = projectSku({ stock: stock(60), forecast: forecast(5, 5), orders: [], policy: policy(), shares, today: TODAY });
     const withPo = projectSku({ stock: stock(60), forecast: forecast(5, 5), orders: [order], policy: policy(), shares, today: TODAY });

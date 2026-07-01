@@ -120,6 +120,11 @@ export type PurchaseOrderStatus =
   | 'received'
   | 'cancelled';
 
+/** Order-preparation lifecycle preceding the shipping status (sub-projects B6/D1).
+ *  null = a normal/legacy order (sync/ingest/manual); a draft is 'elaborado'/'enviado';
+ *  'feito' finalizes it into a real placed order. */
+export type PrepStatus = 'elaborado' | 'enviado' | 'feito';
+
 export type TransportModal = 'sea' | 'air';
 
 export interface OpenPurchaseOrder {
@@ -135,9 +140,18 @@ export interface OpenPurchaseOrder {
   leadTimeDays: number | null;
   modal: TransportModal | null;
   status: PurchaseOrderStatus;
+  /** null = placed order; a non-'feito' prep stage means a not-yet-placed draft
+   *  (excluded from projected inbound until finalized). */
+  prepStatus: PrepStatus | null;
   /** POs land at Osasco by default. */
   hubId: HubId;
   source: string;
+}
+
+/** A draft order (elaborado/enviado) is not yet real inbound; only placed orders
+ *  (no prep stage, or finalized 'feito') count toward projected stock. */
+export function countsAsInbound(prepStatus: PrepStatus | null): boolean {
+  return prepStatus == null || prepStatus === 'feito';
 }
 
 // ─── Projection output ────────────────────────────────────────────────────────

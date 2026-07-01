@@ -65,6 +65,7 @@ const DDL: string[] = [
     hub_id String DEFAULT 'osasco',
     notes Nullable(String),
     source String DEFAULT 'manual',
+    prep_status Nullable(String),
     created_at DateTime64(3) DEFAULT now64(3),
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
@@ -159,6 +160,9 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE ${FLEET_TABLES.skuPolicy} ADD COLUMN IF NOT EXISTS lead_time_std_days Nullable(Int32)`,
   // B8: national vs. international purchase policy (editable override of the seed).
   `ALTER TABLE ${FLEET_TABLES.skuPolicy} ADD COLUMN IF NOT EXISTS is_national Nullable(Bool)`,
+  // B6/D1: order-preparation lifecycle stage (elaborado → enviado → feito) preceding
+  // the shipping status. Null = a normal/legacy order (sync/ingest/manual).
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS prep_status Nullable(String)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs. */

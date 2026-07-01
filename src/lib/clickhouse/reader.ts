@@ -2,12 +2,17 @@ import 'server-only';
 import { unstable_cache } from 'next/cache';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Read-only analytics access. Direct ClickHouse HTTP interface — the Metabase REST
-// fallback was retired (it cost ~2-3x the round-trips: a 2000-row native-query cap
-// forced batching, e.g. the forecast alone needed a DISTINCT + ~15 queries; see
-// decisions.MD #8/#9). Dependency-free (plain fetch), SERVER ONLY. Every query is
-// read-only; nothing here ever writes. Tables are referenced fully-qualified
-// (e.g. `analytics.int_inventory_current`, `dev.sop_predictions_daily`).
+// Direct ClickHouse HTTP interface — the Metabase REST fallback was retired (it
+// cost ~2-3x the round-trips: a 2000-row native-query cap forced batching, e.g.
+// the forecast alone needed a DISTINCT + ~15 queries; see decisions.MD #8/#9).
+// Dependency-free (plain fetch), SERVER ONLY. Tables are referenced fully-
+// qualified (e.g. `analytics.int_inventory_current`, `dev.sop_predictions_daily`).
+//
+// Originally read-only; write support (chInsert/chExecute) was added when the
+// `fleet.*` config/state tables moved here from Supabase (decisions.MD #11) —
+// mutable data lives in `dev.fleet_*` as ReplacingMergeTree(updated_at) + a
+// soft-delete flag (ClickHouse has no row-level UPDATE/DELETE at OLTP speed),
+// with every change also appended to `dev.fleet_audit_log`. See lib/clickhouse/fleet.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type Row = Record<string, unknown>;
@@ -71,6 +76,57 @@ async function clickhouseQuery<T = Row>(sql: string): Promise<T[]> {
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as T);
+}
+
+/**
+ * Run DDL or a write statement (CREATE TABLE, INSERT) with no result rows expected.
+ * Unlike clickhouseQuery, does NOT append `FORMAT JSONEachRow` — that's only valid
+ * for statements that return rows.
+ */
+async function clickhouseExecute(sql: string): Promise<void> {
+  const host = process.env.CLICKHOUSE_HOST;
+  if (!host) {
+    throw new Error(
+      'No analytics backend configured. Set CLICKHOUSE_HOST/USER/PASSWORD/DATABASE.',
+    );
+  }
+  const user = envOrDefault(process.env.CLICKHOUSE_USER, 'default');
+  const password = envOrDefault(process.env.CLICKHOUSE_PASSWORD, '');
+  const database = envOrDefault(process.env.CLICKHOUSE_DATABASE, 'default');
+
+  const url = resolveClickhouseUrl(host);
+  url.searchParams.set('database', database);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      Authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`,
+    },
+    body: sql,
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    throw new Error(`ClickHouse statement failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+/** Run DDL (CREATE TABLE IF NOT EXISTS, etc). Statement text is always an internal
+ *  constant — never build DDL from user input. */
+export function chExecute(sql: string): Promise<void> {
+  return clickhouseExecute(sql);
+}
+
+/**
+ * Insert rows into a ClickHouse table. `table` must be an internal constant (never
+ * user input — it's concatenated directly into the SQL prefix). Row VALUES are safe
+ * from injection: they travel as a JSONEachRow body parsed by ClickHouse's JSON
+ * decoder, never as interpolated SQL text, so untrusted field values (notes, names)
+ * can never be interpreted as SQL syntax.
+ */
+export async function chInsert(table: string, rows: Row[]): Promise<void> {
+  if (rows.length === 0) return;
+  const body = rows.map((r) => JSON.stringify(r)).join('\n');
+  return clickhouseExecute(`INSERT INTO ${table} FORMAT JSONEachRow\n${body}`);
 }
 
 /** Whether ClickHouse is configured (for the data-source health panel). */

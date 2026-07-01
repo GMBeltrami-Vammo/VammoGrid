@@ -29,7 +29,7 @@ function toChDateTime(v: string | null | undefined): string {
   return d.toISOString().replace('T', ' ').replace('Z', '');
 }
 
-export async function POST(req: Request) {
+async function runMigration(req: Request) {
   if (process.env.CRON_SECRET) {
     const bearer = req.headers.get('authorization')?.replace('Bearer ', '').trim();
     const validCron = bearer === process.env.CRON_SECRET?.trim();
@@ -160,3 +160,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+// GET — visit the URL directly while logged in as a Head (no need to know the
+// Vercel CRON_SECRET value). POST — curl with the CRON_SECRET bearer header.
+export const GET = runMigration;
+export const POST = runMigration;

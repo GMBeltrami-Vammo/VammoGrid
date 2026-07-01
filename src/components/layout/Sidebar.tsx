@@ -18,6 +18,7 @@ import {
   Clock,
   Workflow,
   BookOpen,
+  Wrench,
 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { cn } from '@/lib/utils';
@@ -103,6 +104,12 @@ export function Sidebar() {
             label="Frota"
             icon={Bike}
             active={isActive('/dashboard/frota')}
+          />
+          <NavLink
+            href="/dashboard/backlog"
+            label="Backlog"
+            icon={Wrench}
+            active={isActive('/dashboard/backlog')}
           />
         </NavSection>
 

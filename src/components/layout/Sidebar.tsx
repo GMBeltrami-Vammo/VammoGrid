@@ -76,7 +76,7 @@ export function Sidebar() {
           />
           <NavLink
             href="/dashboard/procurement"
-            label="Compras"
+            label="Novo Pedido"
             icon={ShoppingCart}
             active={isActive('/dashboard/procurement')}
           />

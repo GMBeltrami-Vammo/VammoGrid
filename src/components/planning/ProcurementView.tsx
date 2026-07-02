@@ -3,13 +3,16 @@
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Download, Ship, Plane } from 'lucide-react';
+import { Check, Download, Ship, Plane, CheckSquare, Square } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
 import type { TransportModal } from '@/types/planning';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
-import { fmtDate, fmtInt } from '@/lib/planning/format';
+import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
+import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
+
+type ModalFilter = 'all' | 'air' | 'sea';
 
 // "Novo Pedido" builder: the SKUs that need buying (DOH<floor in the horizon), each
 // with a checkbox + editable qty; the MODAL is one global choice for the whole order;
@@ -18,6 +21,8 @@ import { cn } from '@/lib/utils';
 export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHead: boolean }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [modalFilter, setModalFilter] = useState<ModalFilter>('all');
+  const [dohLt, setDohLt] = useState('');
   const [modal, setModal] = useState<TransportModal>('sea');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   // Per-SKU inclusion + qty. Default: all included at the suggested qty.
@@ -31,15 +36,23 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) => r.suggestion.skuBase.toLowerCase().includes(q) || (r.suggestion.skuName ?? '').toLowerCase().includes(q),
-    );
-  }, [rows, search]);
+    const dohMax = dohLt.trim() ? Number(dohLt) : null;
+    return rows.filter((r) => {
+      const s = r.suggestion;
+      if (q && !s.skuBase.toLowerCase().includes(q) && !(s.skuName ?? '').toLowerCase().includes(q)) return false;
+      if (modalFilter !== 'all' && s.suggestedModal !== modalFilter) return false;
+      if (dohMax != null && Number.isFinite(dohMax) && !(s.dohNow != null && s.dohNow < dohMax)) return false;
+      return true;
+    });
+  }, [rows, search, modalFilter, dohLt]);
 
   const selectedRows = rows.filter((r) => included.has(r.suggestion.skuBase) && (qtys[r.suggestion.skuBase] ?? 0) > 0);
   const selectedCount = selectedRows.length;
   const selectedUnits = selectedRows.reduce((s, r) => s + (qtys[r.suggestion.skuBase] ?? 0), 0);
+  const selectedCost = selectedRows.reduce(
+    (s, r) => s + (r.unitPrice != null ? r.unitPrice * (qtys[r.suggestion.skuBase] ?? 0) : 0),
+    0,
+  );
 
   const toggle = (sku: string) =>
     setIncluded((prev) => {
@@ -57,6 +70,15 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
       else filtered.forEach((r) => next.add(r.suggestion.skuBase));
       return next;
     });
+  // Explicit bulk actions (in addition to the header checkbox): select every currently
+  // visible (filtered) SKU, or clear the whole selection.
+  const selectVisible = () =>
+    setIncluded((prev) => {
+      const next = new Set(prev);
+      filtered.forEach((r) => next.add(r.suggestion.skuBase));
+      return next;
+    });
+  const clearSelection = () => setIncluded(new Set());
 
   const criarPedido = () => {
     setError(null);
@@ -134,6 +156,7 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{selectedCount}</span> SKUs · {fmtInt(selectedUnits)} un.
+            {selectedCost > 0 && <> · <span className="font-medium text-foreground">{fmtBRL(selectedCost)}</span></>}
           </span>
           {isHead && (
             <button
@@ -157,22 +180,77 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
         </p>
       )}
 
-      {/* Filters */}
+      {/* Filters + bulk selection */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           type="search"
           placeholder="Buscar SKU…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="h-8 w-48 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
+          className="h-8 w-40 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
+
+        {/* Modal-necessity chips */}
+        {([
+          ['all', 'Tudo'],
+          ['air', 'Aéreo necessário'],
+          ['sea', 'Marítimo'],
+        ] as [ModalFilter, string][]).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setModalFilter(id)}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+              modalFilter === id ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+            )}
+          >
+            {id === 'air' && <Plane size={11} />}
+            {id === 'sea' && <Ship size={11} />}
+            {label}
+          </button>
+        ))}
+
+        {/* DOH-less-than filter */}
+        <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          DOH &lt;
+          <input
+            type="number"
+            min={0}
+            value={dohLt}
+            onChange={(e) => setDohLt(e.target.value)}
+            placeholder="—"
+            className="h-8 w-16 rounded-md border border-border bg-card px-2 text-right text-xs tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+          />
+        </label>
+
+        <span className="mx-0.5 h-4 w-px bg-border" />
+
+        {/* Bulk selection */}
+        {isHead && (
+          <>
+            <button
+              onClick={selectVisible}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+            >
+              <CheckSquare size={13} /> Selecionar visíveis
+            </button>
+            <button
+              onClick={clearSelection}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
+            >
+              <Square size={13} /> Limpar seleção
+            </button>
+          </>
+        )}
         <button
           onClick={exportCsv}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
         >
           <Download size={13} /> Exportar CSV
         </button>
-        <span className="ml-auto text-[11px] text-muted-foreground">{filtered.length} / {rows.length}</span>
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {selectedCount} selec. · {filtered.length} / {rows.length}
+        </span>
       </div>
 
       <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
@@ -195,7 +273,9 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
               <th className="px-3 py-2.5 text-right font-medium">DOH hoje</th>
               <th className="px-3 py-2.5 font-medium">Ruptura prev.</th>
               <th className="px-3 py-2.5 font-medium">Chegada ({modal === 'sea' ? 'mar' : 'aéreo'})</th>
-              <th className="px-3 py-2.5 text-right font-medium">Qtd</th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                <span className="inline-flex items-center justify-end gap-1">Qtd sugerida <InfoHint id="order-qty" /></span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-foreground/5">
@@ -242,13 +322,26 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
                     <td className="px-3 py-2 tabular-nums text-xs text-muted-foreground">{fmtDate(arrival)}</td>
                     <td className="px-3 py-2 text-right">
                       {isHead ? (
-                        <input
-                          type="number"
-                          min={0}
-                          value={qtys[s.skuBase] ?? 0}
-                          onChange={(e) => setQtys((p) => ({ ...p, [s.skuBase]: Number(e.target.value) }))}
-                          className="h-7 w-24 rounded border border-input bg-background px-1.5 text-right text-xs tabular-nums outline-none focus:border-brand-500"
-                        />
+                        <div className="flex flex-col items-end gap-0.5">
+                          <input
+                            type="number"
+                            min={0}
+                            value={qtys[s.skuBase] ?? 0}
+                            onChange={(e) => setQtys((p) => ({ ...p, [s.skuBase]: Number(e.target.value) }))}
+                            className="h-7 w-24 rounded border border-input bg-background px-1.5 text-right text-xs tabular-nums outline-none focus:border-brand-500"
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            sug. {fmtInt(r.suggestedQty)}
+                            {(qtys[s.skuBase] ?? 0) !== r.suggestedQty && (
+                              <button
+                                onClick={() => setQtys((p) => ({ ...p, [s.skuBase]: r.suggestedQty }))}
+                                className="ml-1 text-brand-600 hover:underline"
+                              >
+                                redefinir
+                              </button>
+                            )}
+                          </span>
+                        </div>
                       ) : (
                         <span className="tabular-nums">{fmtInt(qtys[s.skuBase] ?? 0)}</span>
                       )}

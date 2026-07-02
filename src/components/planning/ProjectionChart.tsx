@@ -20,8 +20,8 @@ import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 
 // Projection cone: shaded lo–hi band + the central stock line, with a red marker at
-// the projected stockout date. Defaults to DOH (days of cover) with a toggle to raw
-// units; DOH(day) = stock(day) / avg daily demand of the NEXT 7 days (not that single
+// the projected stockout date. Defaults to raw units with a toggle to DOH (days of
+// cover); DOH(day) = stock(day) / avg daily demand of the NEXT 7 days (not that single
 // day's demand — that was erratic); history uses today's forward rate.
 
 type ChartUnit = 'doh' | 'units';
@@ -35,7 +35,7 @@ export function ProjectionChart({
   arrivals,
   history,
   height = 300,
-  defaultUnit = 'doh',
+  defaultUnit = 'units',
   rateSource,
   suggestionTimeline,
   suggestionLabel = 'Com pedido sugerido',
@@ -129,7 +129,7 @@ export function ProjectionChart({
       <div className="mb-2 flex items-center justify-end gap-1">
         <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Eixo Y</span>
         <div className="inline-flex overflow-hidden rounded-md border border-border">
-          {(['doh', 'units'] as ChartUnit[]).map((u) => (
+          {(['units', 'doh'] as ChartUnit[]).map((u) => (
             <button
               key={u}
               onClick={() => setUnit(u)}

@@ -13,7 +13,7 @@ import type {
   StockState,
   TransferSuggestion,
 } from '@/types/planning';
-import { findElaborationTrigger } from './elaboration';
+import { findElaborationTrigger, suggestModalQuantities } from './elaboration';
 import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
 import { todayUtc } from './dates';
@@ -233,9 +233,13 @@ export async function safeComputeSnapshot(
 
 export interface ElaborationRow {
   suggestion: ElaborationSuggestion;
-  /** Default order quantity (editable before confirm): the purchase engine's
-   *  orderQty, or a targetDoi-cover fallback when it's zero but a breach exists. */
+  /** Default order quantity for the recommended modal (editable before confirm). */
   suggestedQty: number;
+  /** Combined-plan quantities: air bridges until the monthly sea order lands (0 when no
+   *  air is needed); sea is the sustaining bulk. The builder uses the one matching the
+   *  chosen order modal. */
+  suggestedQtyAir: number;
+  suggestedQtySea: number;
   unitPrice: number | null;
   estCost: number | null;
   /** A non-cancelled order (placed or draft) already exists for this SKU. */
@@ -294,13 +298,26 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
       });
       if (!suggestion.needsOrder) continue;
 
-      const fallbackQty = Math.max(0, Math.ceil(proj.global.dailyDemand * policy.targetDoi));
-      const suggestedQty = purchase && purchase.orderQty > 0 ? purchase.orderQty : fallbackQty;
+      // Combined air+sea plan: air bridges until the monthly sea order lands, sea sustains.
+      const mq = suggestModalQuantities({
+        projection: proj.global,
+        policy,
+        today: inp.today,
+        dohThreshold: criteria.dohThreshold,
+      });
+      const fallbackQty = Math.max(0, Math.ceil(proj.global.dailyDemand * Math.max(policy.targetDoi, 30)));
+      const suggestedQtyAir = mq.airQty; // 0 = air not needed for this SKU
+      const suggestedQtySea = mq.seaQty > 0 ? mq.seaQty : fallbackQty;
+      // Recommended default = the qty for the modal the trigger picked (fall back if 0).
+      const recommended = suggestion.suggestedModal === 'air' ? suggestedQtyAir : suggestedQtySea;
+      const suggestedQty = recommended > 0 ? recommended : fallbackQty;
       const orders = inp.ordersBySku.get(stock.skuBase) ?? [];
 
       rows.push({
         suggestion,
         suggestedQty,
+        suggestedQtyAir,
+        suggestedQtySea,
         unitPrice: stock.unitPrice,
         estCost: stock.unitPrice != null ? Math.round(suggestedQty * stock.unitPrice) : null,
         hasOpenOrder: orders.some((o) => o.status !== 'cancelled'),

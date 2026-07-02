@@ -25,11 +25,17 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
   const [dohLt, setDohLt] = useState('');
   const [modal, setModal] = useState<TransportModal>('sea');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
-  // Per-SKU inclusion + qty. Default: all included at the suggested qty.
+  // Per-SKU inclusion + qty. Default: all included at the suggested qty for the default
+  // modal (sea). Flipping the modal resets quantities to that modal's suggestion.
   const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
   const [qtys, setQtys] = useState<Record<string, number>>(
-    () => Object.fromEntries(rows.map((r) => [r.suggestion.skuBase, r.suggestedQty])),
+    () => Object.fromEntries(rows.map((r) => [r.suggestion.skuBase, r.suggestedQtySea])),
   );
+
+  const chooseModal = (m: TransportModal) => {
+    setModal(m);
+    setQtys(Object.fromEntries(rows.map((r) => [r.suggestion.skuBase, suggestedFor(r, m)])));
+  };
   const [error, setError] = useState<string | null>(null);
   const [createdVo, setCreatedVo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -137,7 +143,7 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
             {(['sea', 'air'] as TransportModal[]).map((m) => (
               <button
                 key={m}
-                onClick={() => setModal(m)}
+                onClick={() => chooseModal(m)}
                 className={cn(
                   'inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors',
                   modal === m ? 'bg-brand-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50',
@@ -272,6 +278,9 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
               <th className="px-3 py-2.5 font-medium">Nome</th>
               <th className="px-3 py-2.5 text-right font-medium">DOH hoje</th>
               <th className="px-3 py-2.5 font-medium">Ruptura prev.</th>
+              <th className="px-3 py-2.5 font-medium">
+                <span className="inline-flex items-center gap-1">Comprar até <InfoHint id="buy-by" /></span>
+              </th>
               <th className="px-3 py-2.5 font-medium">Chegada ({modal === 'sea' ? 'mar' : 'aéreo'})</th>
               <th className="px-3 py-2.5 text-right font-medium">
                 <span className="inline-flex items-center justify-end gap-1">Qtd sugerida <InfoHint id="order-qty" /></span>
@@ -281,7 +290,7 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU precisa de pedido no horizonte (cobertura acima do piso).
                 </td>
               </tr>
@@ -290,6 +299,7 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
                 const s = r.suggestion;
                 const leadDays = modal === 'sea' ? s.leadTimeSeaDays : s.leadTimeAirDays;
                 const arrival = addDaysStr(orderDate, leadDays);
+                const buyBy = signedAddDays(s.firstBreachDate, -leadDays);
                 const isIn = included.has(s.skuBase);
                 return (
                   <tr key={s.skuBase} className={cn('transition-colors', isIn ? 'bg-brand-500/[0.04]' : 'hover:bg-muted/30')}>
@@ -319,6 +329,15 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
                         {fmtDate(s.firstBreachDate)}
                       </span>
                     </td>
+                    <td className="px-3 py-2 tabular-nums text-xs">
+                      {s.isLate ? (
+                        <span className="inline-flex items-center rounded-full bg-alert-error/15 px-1.5 py-0.5 font-medium text-alert-error">
+                          Atrasado
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">{fmtDate(buyBy)}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 tabular-nums text-xs text-muted-foreground">{fmtDate(arrival)}</td>
                     <td className="px-3 py-2 text-right">
                       {isHead ? (
@@ -331,15 +350,18 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
                             className="h-7 w-24 rounded border border-input bg-background px-1.5 text-right text-xs tabular-nums outline-none focus:border-brand-500"
                           />
                           <span className="text-[10px] text-muted-foreground">
-                            sug. {fmtInt(r.suggestedQty)}
-                            {(qtys[s.skuBase] ?? 0) !== r.suggestedQty && (
+                            sug. {fmtInt(suggestedFor(r, modal))}
+                            {(qtys[s.skuBase] ?? 0) !== suggestedFor(r, modal) && (
                               <button
-                                onClick={() => setQtys((p) => ({ ...p, [s.skuBase]: r.suggestedQty }))}
+                                onClick={() => setQtys((p) => ({ ...p, [s.skuBase]: suggestedFor(r, modal) }))}
                                 className="ml-1 text-brand-600 hover:underline"
                               >
                                 redefinir
                               </button>
                             )}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[9px] text-muted-foreground/70" title="Plano combinado: aéreo (ponte) · marítimo (lote)">
+                            <Plane size={8} /> {fmtInt(r.suggestedQtyAir)} · <Ship size={8} /> {fmtInt(r.suggestedQtySea)}
                           </span>
                         </div>
                       ) : (
@@ -364,3 +386,15 @@ function addDaysStr(iso: string, days: number): string | null {
   d.setUTCDate(d.getUTCDate() + Math.max(0, Math.round(days)));
   return d.toISOString().slice(0, 10);
 }
+
+// Signed date add (allows going backwards — for the buy-by = breach − lead calc).
+function signedAddDays(iso: string | null, days: number): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + Math.round(days));
+  return d.toISOString().slice(0, 10);
+}
+
+// The suggested qty for the chosen order modal (combined plan: air bridge vs sea bulk).
+const suggestedFor = (r: ElaborationRow, m: TransportModal) =>
+  m === 'air' ? r.suggestedQtyAir : r.suggestedQtySea;

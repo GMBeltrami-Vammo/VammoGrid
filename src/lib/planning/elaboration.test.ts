@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HubId, ProjectionPoint, SkuPolicy, StockProjection, StockState } from '@/types/planning';
 import { addDays, nextFirstOfMonth } from './dates';
-import { findElaborationTrigger } from './elaboration';
+import { findElaborationTrigger, suggestModalQuantities } from './elaboration';
 
 // Deterministic fixtures: stock starts at `start`, declines by `demand`/day (no
 // inbound), so DOH(day k) = (start − demand·k)/demand = start/demand − k. With
@@ -151,5 +151,35 @@ describe('findElaborationTrigger', () => {
       rop: 0,
     });
     expect(r.needsOrder).toBe(false);
+  });
+});
+
+describe('suggestModalQuantities (combined air+sea plan)', () => {
+  // start=100, demand=1 → stock(d)=100−d (clamped ≥0), DOH(d)=stock(d). Floor 75.
+  it('no air when the monthly sea order lands before any breach', () => {
+    // sea 10d, air 5d, today the 1st → sea arrives day 10 (< breach day 26). Air not needed.
+    const q = suggestModalQuantities({
+      projection: projection(TODAY),
+      policy: policy(10, 5),
+      today: TODAY,
+      dohThreshold: 75,
+    });
+    expect(q.airQty).toBe(0);
+    // Sea tops up to (75+30) days of cover at arrival (day 10, stock 90): 105 − 90 = 15.
+    expect(q.seaQty).toBe(15);
+  });
+
+  it('air bridges the gap when sea is slow', () => {
+    // sea 120d (arrives day 120), air 10d. Breach at day 26; stock hits 0 by day 100.
+    const q = suggestModalQuantities({
+      projection: projection(TODAY),
+      policy: policy(120, 10),
+      today: TODAY,
+      dohThreshold: 75,
+    });
+    // Deepest shortfall below the 75 line in [10,120] = 75 − 0 = 75.
+    expect(q.airQty).toBe(75);
+    // Sea top-up at day 120 (stock 0): (75+30) − 0 = 105.
+    expect(q.seaQty).toBe(105);
   });
 });

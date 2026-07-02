@@ -37,6 +37,9 @@ export function ProjectionChart({
   height = 300,
   defaultUnit = 'doh',
   rateSource,
+  suggestionTimeline,
+  suggestionLabel = 'Com pedido sugerido',
+  suggestionColor = '#f59e0b',
 }: {
   timeline: ProjectionPoint[];
   stockoutDate?: string | null;
@@ -48,6 +51,11 @@ export function ProjectionChart({
   history?: { date: string; stock: number }[] | null;
   height?: number;
   defaultUnit?: ChartUnit;
+  /** Projected stock WITH the suggested order(s) applied — drawn as a yellow line so the
+   *  user sees how the suggestion holds coverage. Aligned by index with `timeline`. */
+  suggestionTimeline?: ProjectionPoint[] | null;
+  suggestionLabel?: string;
+  suggestionColor?: string;
   /** Full-horizon timeline for the DOH denominator, when `timeline` is a truncated
    *  window (e.g. the D-30→D+30 chart). Keeps the next-7-day rate — and therefore the
    *  DOH — identical to the full-horizon chart at every overlapping date. Indexed by
@@ -83,6 +91,7 @@ export function ProjectionChart({
       band: undefined as [number, number] | undefined,
       bandExtrap: undefined as [number, number] | undefined,
       sim: undefined as number | undefined,
+      sugg: undefined as number | undefined,
     }));
   // Split the band at the model horizon: the in-model portion (brand) vs the
   // extrapolated tail (grey), so the made-up-beyond-the-model uncertainty reads as
@@ -100,6 +109,7 @@ export function ProjectionChart({
       band: p.extrapolated ? undefined : band,
       bandExtrap: p.extrapolated || isBoundary ? band : undefined,
       sim: toVal(overlayTimeline?.[i]?.stock, rate),
+      sugg: toVal(suggestionTimeline?.[i]?.stock, rate),
     };
   });
   const data = [...histData, ...projData];
@@ -168,6 +178,7 @@ export function ProjectionChart({
                 ];
               }
               if (name === 'sim') return [fmtY(Number(value)), overlayLabel];
+              if (name === 'sugg') return [fmtY(Number(value)), suggestionLabel];
               return [fmtY(Number(value)), valLabel];
             }}
             contentStyle={{
@@ -205,6 +216,15 @@ export function ProjectionChart({
               stroke={overlayColor}
               strokeWidth={2}
               strokeDasharray="5 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
+          {suggestionTimeline && (
+            <Line
+              dataKey="sugg"
+              stroke={suggestionColor}
+              strokeWidth={2}
               dot={false}
               isAnimationActive={false}
             />

@@ -23,6 +23,7 @@ export function EstoqueView({
   selected,
   projections,
   baseline,
+  suggestion,
   arrivals,
   history,
 }: {
@@ -31,6 +32,8 @@ export function EstoqueView({
   projections: SkuProjections | null;
   /** "No recovery" projection, to overlay the reconditioning uplift. */
   baseline?: SkuProjections | null;
+  /** Projected stock WITH the suggested order(s) — yellow overlay. */
+  suggestion?: SkuProjections | null;
   /** Open-PO arrivals to mark on the charts. */
   arrivals?: PoArrival[] | null;
   history: StockHistory;
@@ -83,6 +86,7 @@ export function EstoqueView({
             history={history}
             projections={projections}
             baseline={baseline}
+            suggestion={suggestion}
             arrivals={arrivals}
             scope={scope}
             onScopeChange={setScope}
@@ -103,6 +107,7 @@ export function EstoqueView({
         selected={selected}
         projections={projections}
         baseline={baseline}
+        suggestion={suggestion}
         arrivals={arrivals}
         history={history}
         scope={scope}

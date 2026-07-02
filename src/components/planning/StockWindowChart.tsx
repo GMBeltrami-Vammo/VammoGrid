@@ -28,6 +28,7 @@ export function StockWindowChart({
   history,
   projections,
   baseline,
+  suggestion,
   arrivals,
   scope: controlledScope,
   onScopeChange,
@@ -36,6 +37,8 @@ export function StockWindowChart({
   projections: SkuProjections;
   /** "No recovery" projection — overlaid as a reference line on global/Osasco. */
   baseline?: SkuProjections | null;
+  /** Projected stock WITH the suggested order(s) — yellow overlay (global/Osasco). */
+  suggestion?: SkuProjections | null;
   /** Open-PO arrivals (global/Osasco only). */
   arrivals?: PoArrival[] | null;
   scope?: Scope;
@@ -61,6 +64,10 @@ export function StockWindowChart({
     : null;
   const isGlobalOrOsasco = scope === 'global' || scope === 'osasco';
   const showRecoveryOverlay = !!baseProj && isGlobalOrOsasco;
+  // Suggested-order projection lands POs at Osasco → meaningful on global + Osasco only.
+  const sugProj = suggestion && isGlobalOrOsasco
+    ? scope === 'global' ? suggestion.global : suggestion.byHub[scope as HubId]
+    : null;
 
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
@@ -94,6 +101,7 @@ export function StockWindowChart({
         overlayTimeline={showRecoveryOverlay ? baseProj!.timeline.slice(0, 31) : undefined}
         overlayLabel="Sem recuperação"
         overlayColor="var(--color-muted-foreground)"
+        suggestionTimeline={sugProj ? sugProj.timeline.slice(0, 31) : undefined}
         arrivals={isGlobalOrOsasco ? arrivals : undefined}
         stockoutDate={proj.stockoutDate}
         history={hist.length > 0 ? hist : undefined}

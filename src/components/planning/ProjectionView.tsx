@@ -23,6 +23,7 @@ export function ProjectionView({
   selected,
   projections,
   baseline,
+  suggestion,
   arrivals,
   history,
   scope: controlledScope,
@@ -34,6 +35,8 @@ export function ProjectionView({
   projections: SkuProjections | null;
   /** "No recovery" projection — overlaid as a reference line on global/Osasco. */
   baseline?: SkuProjections | null;
+  /** Projected stock WITH the suggested order(s) — yellow overlay (global/Osasco). */
+  suggestion?: SkuProjections | null;
   /** Open-PO arrivals (global/Osasco only). */
   arrivals?: PoArrival[] | null;
   history?: {
@@ -64,6 +67,9 @@ export function ProjectionView({
     : null;
   const isGlobalOrOsasco = scope === 'global' || scope === 'osasco';
   const showRecoveryOverlay = !!baseProj && isGlobalOrOsasco;
+  const sugProj = suggestion && isGlobalOrOsasco
+    ? scope === 'global' ? suggestion.global : suggestion.byHub[scope]
+    : null;
 
   const scopeHistory = history
     ? scope === 'global'
@@ -163,6 +169,7 @@ export function ProjectionView({
               overlayTimeline={showRecoveryOverlay ? baseProj!.timeline : undefined}
               overlayLabel="Sem recuperação"
               overlayColor="var(--color-muted-foreground)"
+              suggestionTimeline={sugProj?.timeline}
               arrivals={isGlobalOrOsasco ? arrivals : undefined}
               stockoutDate={proj.stockoutDate}
               history={scopeHistory}
@@ -185,6 +192,7 @@ export function ProjectionView({
               ) : (
                 ''
               )}
+              {sugProj ? <span className="text-[#f59e0b]">Linha amarela = estoque com o pedido sugerido (aéreo + marítimo). </span> : ''}
               Faixa azul = banda lo–hi da previsão. <InfoHint id="band" /> Faixa cinza (após o “limite
               do modelo”, ~90d) = extrapolação, menos confiável.
             </p>

@@ -1,11 +1,15 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { loadSkuView, projectOneCompare } from '@/lib/planning/load';
-import { computeArrivals } from '@/lib/planning/projection';
+import { computeArrivals, projectSku, type SkuProjections } from '@/lib/planning/projection';
+import { suggestModalQuantities } from '@/lib/planning/elaboration';
 import { purchaseForSku } from '@/lib/planning/purchase';
 import { fetchStockHistory } from '@/lib/planning/source/history';
 import { fetchHubMaxStock } from '@/lib/planning/source/hubMaxStock';
+import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
 import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
+import { addDays } from '@/lib/planning/dates';
+import type { OpenPurchaseOrder, TransportModal } from '@/types/planning';
 import { HubMaxStockPanel } from '@/components/planning/HubMaxStockPanel';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
@@ -66,17 +70,45 @@ export default async function EstoquePage({
     defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
-  const [compare, history, recoveryRefreshedAt, hubMaxStock, session] = await Promise.all([
+  const [compare, history, recoveryRefreshedAt, hubMaxStock, criteria, session] = await Promise.all([
     projectOneCompare(selected, inputs), // reuse inputs — avoids a 2nd full load
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
     fetchRecoveryRefreshedAt(),
     fetchHubMaxStock(),
+    fetchPurchaseCriteria(),
     auth(),
   ]);
   const isHead = session?.user?.isHead ?? false;
   const projections = compare?.projections ?? null;
   const baseline = compare?.baseline ?? null;
   const arrivals = computeArrivals(orders, inputs.today);
+
+  // Combined suggested-order plan (air bridge + sea bulk) → a yellow "with suggestion"
+  // projection overlaid on the charts, so the effect on coverage is visible.
+  let suggestion: SkuProjections | null = null;
+  if (projections) {
+    const mq = suggestModalQuantities({
+      projection: projections.global,
+      policy,
+      today: inputs.today,
+      dohThreshold: criteria.dohThreshold,
+    });
+    const mkOrder = (m: TransportModal, qty: number, arrivalOffset: number): OpenPurchaseOrder => {
+      const lead = Math.max(0, Math.round((m === 'sea' ? policy.leadTimeSeaDays : policy.leadTimeAirDays) ?? policy.leadTimeDays));
+      const off = Math.max(0, Math.round(arrivalOffset));
+      return {
+        id: `sug-${m}`, vo: null, skuCode: selected, skuBase: selected, skuName: selStock.skuName,
+        qty, orderDate: addDays(inputs.today, Math.max(0, off - lead)), eta: addDays(inputs.today, off),
+        leadTimeDays: lead, modal: m, status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'scenario',
+      };
+    };
+    const sugOrders: OpenPurchaseOrder[] = [];
+    if (mq.airQty > 0) sugOrders.push(mkOrder('air', mq.airQty, mq.airArrival));
+    if (mq.seaQty > 0) sugOrders.push(mkOrder('sea', mq.seaQty, mq.seaArrival));
+    if (sugOrders.length > 0) {
+      suggestion = projectSku({ stock: selStock, forecast, orders: [...orders, ...sugOrders], policy, shares, today: inputs.today });
+    }
+  }
   const purchase = purchaseForSku({
     skuBase: selected,
     skuName: selStock.skuName,
@@ -113,6 +145,7 @@ export default async function EstoquePage({
         selected={selected}
         projections={projections}
         baseline={baseline}
+        suggestion={suggestion}
         arrivals={arrivals}
         history={history}
       />

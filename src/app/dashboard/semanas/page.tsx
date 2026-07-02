@@ -2,6 +2,7 @@ import { safeComputeSnapshot } from '@/lib/planning/load';
 import { buildAllScenarioGrids } from '@/lib/planning/weekgrid';
 import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
+import { ScopeNotice } from '@/components/planning/ScopeNotice';
 import { WeekGridView } from '@/components/planning/WeekGridView';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,7 @@ export default async function SemanasPage({
         subtitle="Estoque projetado por SKU e semana. Base = só pedidos já registrados; os cenários simulam comprar QUANDO NECESSÁRIO via aéreo, marítimo ou o melhor dos dois (combinado)."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
+      <ScopeNotice shown={snap.stocks.length} total={snap.catalogSize} />
 
       <WeekGridView grids={grids} weeks={weeks} />
     </div>

@@ -57,6 +57,8 @@ export interface PlanningInputs {
   today: string;
   asOfDate: string;
   backend: 'clickhouse' | 'none';
+  /** Full catalog size BEFORE scope/filter narrowing — for the "showing N of M" notice. */
+  catalogSize: number;
   stocks: StockState[];
   forecasts: Map<string, SkuForecast>;
   shares: Map<string, Record<HubId, number>>;
@@ -77,6 +79,7 @@ function emptyInputs(today: string): PlanningInputs {
     today,
     asOfDate: today,
     backend: 'none',
+    catalogSize: 0,
     stocks: [],
     forecasts: new Map(),
     shares: new Map(),
@@ -160,6 +163,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
     today,
     asOfDate: forecastBundle.asOfDate || today,
     backend: activeBackendKind(),
+    catalogSize: allStocks.length,
     stocks,
     forecasts,
     shares,
@@ -245,6 +249,9 @@ export interface ElaborationResult {
   today: string;
   asOfDate: string;
   backend: 'clickhouse' | 'none';
+  /** In-scope SKU universe analysed, and the full catalog size — for the scope notice. */
+  skuCount: number;
+  catalogSize: number;
   error?: string;
 }
 
@@ -310,10 +317,25 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
       return da < db ? -1 : da > db ? 1 : 0;
     });
 
-    return { rows, today: inp.today, asOfDate: inp.asOfDate, backend: inp.backend };
+    return {
+      rows,
+      today: inp.today,
+      asOfDate: inp.asOfDate,
+      backend: inp.backend,
+      skuCount: inp.stocks.length,
+      catalogSize: inp.catalogSize,
+    };
   } catch (e) {
     console.error('[computeElaborations]', e instanceof Error ? e.message : e);
-    return { rows: [], today: todayUtc(), asOfDate: todayUtc(), backend: activeBackendKind(), error: e instanceof Error ? e.message : 'erro' };
+    return {
+      rows: [],
+      today: todayUtc(),
+      asOfDate: todayUtc(),
+      backend: activeBackendKind(),
+      skuCount: 0,
+      catalogSize: 0,
+      error: e instanceof Error ? e.message : 'erro',
+    };
   }
 }
 
@@ -469,6 +491,7 @@ export const loadSkuView = cache(
       today,
       asOfDate: forecast?.asOfDate || fcMeta.asOfDate || today,
       backend: activeBackendKind(),
+      catalogSize: allStocks.length,
       stocks,
       forecasts,
       shares,

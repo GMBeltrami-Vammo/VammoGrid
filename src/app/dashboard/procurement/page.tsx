@@ -3,6 +3,7 @@ import { computeElaborations } from '@/lib/planning/load';
 import { fmtInt } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { ProcurementView } from '@/components/planning/ProcurementView';
+import { ScopeNotice } from '@/components/planning/ScopeNotice';
 import { InfoHint } from '@/components/planning/InfoHint';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,7 @@ export default async function ProcurementPage() {
         subtitle="SKUs que atingem o critério de compra no horizonte (DOH mínimo ou estoque mín + segurança — configurável em Admin). Marque os que entram no pedido, escolha o modal e clique em Criar pedido."
       />
       <FreshnessBanner asOfDate={result.asOfDate} backend={result.backend} />
+      <ScopeNotice shown={result.skuCount} total={result.catalogSize} />
 
       {result.backend === 'none' ? (
         <EmptyState title="Sem dados" hint="Configure a fonte de dados para gerar recomendações de compra." />

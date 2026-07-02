@@ -16,6 +16,7 @@ import { resolveShares } from '@/lib/planning/allocation';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { HUBS } from '@/constants/planningHubs';
 import { InfoHint } from '@/components/planning/InfoHint';
+import { ScopeNotice } from '@/components/planning/ScopeNotice';
 import {
   EmptyState,
   FreshnessBanner,
@@ -73,6 +74,7 @@ export default async function ExecutiveDashboard() {
         />
       ) : (
         <>
+          <ScopeNotice shown={snap.stocks.length} total={snap.catalogSize} />
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <KpiCard
               label="Saúde do estoque"

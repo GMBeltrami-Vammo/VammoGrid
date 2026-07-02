@@ -11,7 +11,7 @@ export default function PedidosPage() {
         </p>
         <h1 className="text-2xl font-bold tracking-tight">Pedidos de Compra</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Visualizar e editar pedidos (VOs). Chegam via n8n (POST /api/orders/ingest) ou manualmente.
+          Visualizar e editar pedidos (VOs). Sincronizados do ClickHouse (dev.vmoto_orders) ou adicionados manualmente.
         </p>
       </div>
       <PurchaseOrdersPanel />

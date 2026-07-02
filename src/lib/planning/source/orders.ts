@@ -10,10 +10,10 @@ import type {
 import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
 import { toSkuBase } from '../sku';
 
-// Open purchase orders from ClickHouse (dev.fleet_purchase_order — formerly
-// Supabase fleet.purchase_order; fed by n8n / manual / xlsx import; see
-// decisions.MD #11). Returns [] when ClickHouse is unconfigured so the rest of
-// the pipeline still runs (projections simply show no inbound).
+// Open purchase orders from ClickHouse (dev.fleet_purchase_order — synced from the
+// file-ingested dev.vmoto_orders, plus manual/elaborated rows; see decisions.MD #11).
+// Returns [] when ClickHouse is unconfigured so the rest of the pipeline still runs
+// (projections simply show no inbound).
 
 export interface PoRow {
   id: string;
@@ -35,8 +35,8 @@ export interface PoRow {
 }
 
 // Cache the raw rows across requests (rows are serializable; the mapped type isn't a
-// concern since we map after). Short TTL + revalidateTag('orders') on n8n ingest so
-// edits show promptly. Throws on error so failures are not cached. Also the read path
+// concern since we map after). Short TTL + revalidateTag('orders') on the daily sync
+// and manual edits so changes show promptly. Throws on error so failures are not cached. Also the read path
 // for the client-side usePurchaseOrders hook (via /api/fleet/purchase-orders) — the
 // hook can no longer query ClickHouse directly from the browser.
 export const fetchOrderRows = unstable_cache(

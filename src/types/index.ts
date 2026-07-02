@@ -41,7 +41,7 @@ export interface PurchaseOrder {
   modal: string | null;
   hubId: HubId;
   notes: string | null;
-  /** 'n8n' | 'manual' | 'clickhouse' */
+  /** 'clickhouse' (synced) | 'manual' | 'elaboracao' */
   source: string;
   createdAt: string;
   updatedAt: string;

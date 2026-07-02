@@ -18,10 +18,14 @@ export const fmtNum = (n: number | null | undefined, digits = 1): string =>
 export const fmtBRL = (n: number | null | undefined): string =>
   n == null ? '—' : ptBRL.format(n);
 
+// Always DD-MM-YYYY (never MM-DD). Built by string slicing on the canonical
+// YYYY-MM-DD so there's zero locale ambiguity. Accepts a full ISO timestamp too.
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const d = new Date(`${iso}T00:00:00Z`);
-  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(d);
+  const s = String(iso).slice(0, 10); // YYYY-MM-DD
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s;
+  return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
 export function fmtDateLong(iso: string | null | undefined): string {

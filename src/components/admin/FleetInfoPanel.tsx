@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFleetInfo } from '@/hooks/useFleetInfo';
+import { fmtDate } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import type { FleetInfo } from '@/types';
 import {
@@ -159,7 +160,7 @@ export function FleetInfoPanel() {
                   {(f.monthlyGrowthRate * 100).toFixed(1)}%
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {f.asOfDate ?? f.updatedAt?.slice(0, 10) ?? '—'}
+                  {fmtDate(f.asOfDate ?? f.updatedAt ?? null)}
                 </TableCell>
                 {isHead && (
                   <TableCell className="text-right">

@@ -16,7 +16,7 @@ import { addDays, todayUtc } from './dates';
 //     so the planning lead times drive arrival dates everywhere.
 //   • only orders whose computed ETA is today-or-later are kept (past-ETA dropped)
 //   • deduped to the latest ingest per PO line (po_number, row_number)
-//   • we REPLACE only the source='clickhouse' rows — manual / n8n orders are untouched
+//   • we REPLACE only the source='clickhouse' rows — manual / elaborated orders are untouched
 //     (soft-delete: insert a new is_deleted=true version of each, ReplacingMergeTree
 //     keeps only the newest per id)
 //
@@ -101,7 +101,7 @@ export async function syncOrdersFromClickHouse(): Promise<{ inserted: number; de
 
   // Replace the ClickHouse-sourced set: soft-delete existing source='clickhouse' rows
   // (insert an is_deleted=true version of each — ReplacingMergeTree keeps the newest),
-  // then insert the fresh set. Manual / n8n orders (other `source` values) are untouched.
+  // then insert the fresh set. Manual / elaborated orders (other `source` values) are untouched.
   const existing = await readFleetTable<Row>(FLEET_TABLES.purchaseOrder);
   const toRetire = existing.filter((r) => r.source === ORDERS_SYNC_SOURCE);
   if (toRetire.length > 0) {

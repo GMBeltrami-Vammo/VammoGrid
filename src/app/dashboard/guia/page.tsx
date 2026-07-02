@@ -72,7 +72,7 @@ export default async function GuiaPage() {
             tagClass="bg-alert-success/15 text-alert-success"
             subtitle="Os dados do próprio app — editáveis pelas pessoas, com log de alterações"
             items={[
-              ['Pedidos de compra (VOs)', 'Pedidos em aberto: data, ETA, modal (marítimo/aéreo), quantidade. Entram por n8n, planilha ou manualmente.'],
+              ['Pedidos de compra (VOs)', 'Pedidos em aberto: data, ETA, modal (marítimo/aéreo), quantidade. Sincronizados do ClickHouse (dev.vmoto_orders) ou adicionados manualmente.'],
               ['Parâmetros por SKU', 'Lead time marítimo/aéreo + modal padrão, taxa de recuperação + turnaround, e estoque de segurança. Cada ajuste vale para a empresa toda naquele SKU.'],
               ['Snapshots e jobs', 'Foto diária por hub e o registro das rotinas automáticas (ex.: quando a recuperação foi atualizada).'],
             ]}

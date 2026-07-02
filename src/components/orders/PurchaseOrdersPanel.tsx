@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePurchaseOrders } from '@/hooks/usePurchaseOrders';
 import { HUB_LIST, HUBS } from '@/constants/hubs';
+import { fmtDate } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import type { HubId, PurchaseOrder, PurchaseOrderStatus } from '@/types';
 import {
@@ -116,7 +117,7 @@ export function PurchaseOrdersPanel() {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Nenhum pedido ainda. Chegam via n8n (POST /api/orders/ingest){isHead ? ' ou adicione acima.' : '.'}
+          Nenhum pedido ainda. Sincronizados do ClickHouse{isHead ? ' ou adicione acima.' : '.'}
         </p>
       )}
     </div>
@@ -177,7 +178,7 @@ function PedidoGroupCard({
           {isHead ? (
             <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="h-8 w-36" />
           ) : (
-            <span className="text-sm tabular-nums">{group.orderDate}</span>
+            <span className="text-sm tabular-nums">{fmtDate(group.orderDate)}</span>
           )}
         </HeaderField>
 
@@ -185,7 +186,7 @@ function PedidoGroupCard({
           {isHead ? (
             <Input type="date" value={eta} onChange={(e) => setEta(e.target.value)} className="h-8 w-36" />
           ) : (
-            <span className="text-sm tabular-nums">{group.eta ?? '—'}</span>
+            <span className="text-sm tabular-nums">{fmtDate(group.eta)}</span>
           )}
         </HeaderField>
 

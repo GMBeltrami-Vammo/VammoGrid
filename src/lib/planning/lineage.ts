@@ -81,7 +81,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
       },
       {
         name: 'dev.fleet_purchase_order',
-        source: 'ClickHouse dev.fleet_* (config/estado editável) — alimentado por n8n / manual / xlsx',
+        source: 'ClickHouse dev.fleet_* (config/estado editável) — sincronizado do ClickHouse (dev.vmoto_orders) / manual',
         formula: 'fetchOpenOrders(): readFleetTable() (SELECT … FINAL WHERE is_deleted=0), sem filtro de status; mapeia para OpenPurchaseOrder',
         notes:
           "Campos: id (UUID gerado pelo app), vo, sku, sku_name, qty_ordered, order_date, eta, lead_time_days, status, modal, hub_id, notes, source. Defaults: status='ordered', hubId='osasco', source='manual'. [] em erro/desconfigurado. ReplacingMergeTree(updated_at) + soft-delete — ClickHouse não tem UPDATE/DELETE de linha em velocidade OLTP; cada escrita é uma nova versão completa da linha.",

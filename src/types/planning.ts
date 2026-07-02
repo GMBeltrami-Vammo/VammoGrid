@@ -111,7 +111,7 @@ export interface SkuPolicy {
   updatedAt: string;
 }
 
-// ─── Open purchase orders (Supabase; fed by n8n / manual / xlsx import) ────────
+// ─── Open purchase orders (ClickHouse dev.fleet_purchase_order) ────────────────
 
 export type PurchaseOrderStatus =
   | 'ordered'

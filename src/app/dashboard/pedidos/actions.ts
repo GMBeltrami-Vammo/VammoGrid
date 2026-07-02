@@ -120,6 +120,78 @@ export async function createElaboratedOrder(
   }
 }
 
+// Pedido-level edit (request #1): status / ETA / order date live at the PEDIDO
+// level, so a header edit applies to EVERY line sharing the VO at once. Audit-logged
+// per line.
+export interface PedidoHeaderPatch {
+  status?: PurchaseOrderStatus;
+  eta?: string | null;
+  orderDate?: string;
+}
+
+export async function updatePedidoHeader(
+  ids: string[],
+  patch: PedidoHeaderPatch,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const changedBy = await requireHead();
+    if (ids.length === 0) return { ok: true };
+    const rows = await readFleetTable<Row>(FLEET_TABLES.purchaseOrder);
+    const byId = new Map(rows.map((r) => [r.id as string, r]));
+    for (const id of ids) {
+      const current = byId.get(id);
+      if (!current) continue;
+      const next: Row = { ...current };
+      if (patch.status !== undefined) next.status = patch.status;
+      if (patch.eta !== undefined) next.eta = patch.eta || null;
+      if (patch.orderDate !== undefined) next.order_date = patch.orderDate;
+      await upsertFleetRow({
+        table: FLEET_TABLES.purchaseOrder,
+        entityType: 'purchase_order',
+        entityId: id,
+        current,
+        next,
+        changedBy,
+      });
+    }
+    updateTag('orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}
+
+// Line-level edit (request #1): only the SKU / item name / quantity of a single line;
+// status/ETA/date are the pedido's, not the line's.
+export async function updateOrderLine(
+  id: string,
+  line: { sku: string; skuName?: string | null; qtyOrdered: number },
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const changedBy = await requireHead();
+    if (!line.sku?.trim()) return { ok: false, error: 'SKU é obrigatório.' };
+    const current = await findOrder(id);
+    if (!current) return { ok: false, error: `Linha ${id} não encontrada.` };
+    await upsertFleetRow({
+      table: FLEET_TABLES.purchaseOrder,
+      entityType: 'purchase_order',
+      entityId: id,
+      current,
+      next: {
+        ...current,
+        sku: line.sku.trim(),
+        sku_name: line.skuName?.trim() || null,
+        qty_ordered: Math.max(0, Math.round(line.qtyOrdered)),
+      },
+      changedBy,
+    });
+    updateTag('orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}
+
 export async function updatePurchaseOrder(id: string, input: PurchaseOrderInput) {
   const changedBy = await requireHead();
   const current = await findOrder(id);

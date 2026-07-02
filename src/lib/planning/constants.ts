@@ -35,13 +35,9 @@ export const SERVICE_LEVEL_LABEL: Record<ServiceLevelTier, string> = {
 
 export const DEFAULT_SERVICE_LEVEL_TIER: ServiceLevelTier = 'base';
 
-/** DOH coverage floor per tier — the heatmap colors cells below this amber (C2).
- *  More conservative tier → higher desired coverage before a cell reads "low". */
-export const SERVICE_LEVEL_DOH_FLOOR: Record<ServiceLevelTier, number> = {
-  base: 60,
-  padrao: 75,
-  conservador: 90,
-};
+// The heatmap "low" coloring floor is no longer tied to the tier — it's the
+// admin-configurable purchase criteria below (PurchaseCriteria). The tier now governs
+// only the safety-stock z-score.
 
 /** Key under which the active tier is stored in dev.fleet_global_settings. */
 export const SERVICE_LEVEL_TIER_KEY = 'service_level_tier';
@@ -68,5 +64,42 @@ export const BAND_Z = 1.28;
 
 /** Elaboration trigger (sub-project B5): a SKU needs a new order when its projected
  *  DOH drops below this at any point in the horizon. Drives the Compras page, distinct
- *  from the statistical ROP. */
+ *  from the statistical ROP. Default for the DOH-mode purchase criteria below. */
 export const ELABORATION_DOH_THRESHOLD = 75;
+
+// ─── Purchase / request criteria (admin-configurable) ─────────────────────────
+// The rule that decides when a SKU needs a new order — drives BOTH the Compras
+// "Novo Pedido" list AND the Semanas heatmap "low"/breach coloring, so they always
+// agree. Two modes:
+//   • 'doh' — request when projected coverage (DOH) drops below `dohThreshold`.
+//   • 'rop' — request when projected stock drops below the reorder point
+//             (estoque mínimo + estoque de segurança).
+export type PurchaseCriteriaMode = 'doh' | 'rop';
+
+export interface PurchaseCriteria {
+  mode: PurchaseCriteriaMode;
+  /** Coverage floor in days, used when mode = 'doh'. */
+  dohThreshold: number;
+}
+
+/** Key under which the criteria is stored in dev.fleet_global_settings. */
+export const PURCHASE_CRITERIA_KEY = 'purchase_criteria';
+
+export const DEFAULT_PURCHASE_CRITERIA: PurchaseCriteria = {
+  mode: 'doh',
+  dohThreshold: ELABORATION_DOH_THRESHOLD,
+};
+
+/** Parse/validate a stored criteria value, falling back to the default. */
+export function parsePurchaseCriteria(raw: unknown): PurchaseCriteria {
+  if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    const mode: PurchaseCriteriaMode = o.mode === 'rop' ? 'rop' : 'doh';
+    const doh = Number(o.dohThreshold);
+    return {
+      mode,
+      dohThreshold: Number.isFinite(doh) && doh > 0 ? Math.round(doh) : DEFAULT_PURCHASE_CRITERIA.dohThreshold,
+    };
+  }
+  return DEFAULT_PURCHASE_CRITERIA;
+}

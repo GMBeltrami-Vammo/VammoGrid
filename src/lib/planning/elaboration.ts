@@ -4,7 +4,12 @@ import type {
   StockProjection,
   StockState,
 } from '@/types/planning';
-import { DEFAULT_LEAD_TIME_DAYS, ELABORATION_DOH_THRESHOLD, INTERNATIONAL_AIR_LEAD_DAYS } from './constants';
+import {
+  DEFAULT_LEAD_TIME_DAYS,
+  DEFAULT_PURCHASE_CRITERIA,
+  INTERNATIONAL_AIR_LEAD_DAYS,
+  type PurchaseCriteria,
+} from './constants';
 import { addDays, nextFirstOfMonth } from './dates';
 import { forwardAvgDemand } from './projection';
 
@@ -30,10 +35,14 @@ export function findElaborationTrigger(args: {
   projection: StockProjection;
   policy: SkuPolicy;
   today: string;
-  dohThreshold?: number;
+  /** Admin criteria (DOH threshold vs ROP). Defaults to DOH 75. */
+  criteria?: PurchaseCriteria;
+  /** Reorder point (estoque mínimo + segurança) — used when criteria.mode = 'rop'. */
+  rop?: number;
 }): ElaborationSuggestion {
   const { stock, projection, policy, today } = args;
-  const threshold = args.dohThreshold ?? ELABORATION_DOH_THRESHOLD;
+  const criteria = args.criteria ?? DEFAULT_PURCHASE_CRITERIA;
+  const rop = args.rop ?? 0;
 
   const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
   const airDays = Math.max(0, Math.round(policy.leadTimeAirDays ?? INTERNATIONAL_AIR_LEAD_DAYS));
@@ -47,18 +56,20 @@ export function findElaborationTrigger(args: {
     leadTimeAirDays: airDays,
   };
 
-  // 1. First day projected DOH dips below the threshold. DOH uses the NEXT 7 days'
-  //    average demand (canonical rate) — not that single day's demand, which was erratic.
+  // 1. First day the SKU breaches the request criteria.
+  //    • 'doh' → projected coverage (stock ÷ next-7-day avg demand) < the DOH threshold.
+  //    • 'rop' → projected stock < the reorder point (estoque mínimo + segurança).
   let firstBreachDate: string | null = null;
   let breachDoh: number | null = null;
   for (const p of projection.timeline) {
     if (p.day === 0) continue;
     const rate = forwardAvgDemand(projection.timeline, p.day, 7);
-    if (rate <= 0) continue;
-    const doh = p.stock / rate;
-    if (doh < threshold) {
+    const doh = rate > 0 ? p.stock / rate : null;
+    const breached =
+      criteria.mode === 'rop' ? rop > 0 && p.stock < rop : doh != null && doh < criteria.dohThreshold;
+    if (breached) {
       firstBreachDate = p.date;
-      breachDoh = Math.round(doh);
+      breachDoh = doh != null ? Math.round(doh) : null;
       break;
     }
   }

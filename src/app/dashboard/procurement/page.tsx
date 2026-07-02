@@ -23,7 +23,7 @@ export default async function ProcurementPage() {
       <PageHeader
         eyebrow="Compras"
         title="Novo Pedido"
-        subtitle="SKUs cujo estoque projetado cai abaixo do piso de cobertura no horizonte. Marque os que entram no pedido, escolha o modal do pedido e clique em Criar pedido."
+        subtitle="SKUs que atingem o critério de compra no horizonte (DOH mínimo ou estoque mín + segurança — configurável em Admin). Marque os que entram no pedido, escolha o modal e clique em Criar pedido."
       />
       <FreshnessBanner asOfDate={result.asOfDate} backend={result.backend} />
 

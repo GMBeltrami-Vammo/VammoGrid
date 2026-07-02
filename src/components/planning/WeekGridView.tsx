@@ -6,7 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Recycle, Flag, Ship, Plane, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
-import { SERVICE_LEVEL_LABEL, type ServiceLevelTier } from '@/lib/planning/constants';
+import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -36,14 +36,17 @@ const HORIZONS = [8, 12, 16, 20];
 type HeatFilter = 'all' | 'critico' | 'baixo';
 type Unit = 'units' | 'doh';
 
+// Short label for the active purchase criteria (shown in the summary + legend).
+function criteriaLabel(c: PurchaseCriteria): string {
+  return c.mode === 'rop' ? 'critério: estoque mín + segurança' : `piso ${c.dohThreshold}d (DOH)`;
+}
+
 export function WeekGridView({
   grids,
   weeks,
-  tier,
 }: {
   grids: Record<WeekGridScenario, WeekGrid>;
   weeks: number;
-  tier: ServiceLevelTier;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -131,7 +134,7 @@ export function WeekGridView({
           <Chip key={id} active={heat === id} onClick={() => setHeat(id)}>{label}</Chip>
         ))}
         <span className="ml-auto text-[11px] text-muted-foreground">
-          {rows.length} SKUs · <span className="font-medium text-alert-error">{totalAtRisk}</span> com ruptura · piso {grid.dohFloor}d ({SERVICE_LEVEL_LABEL[tier]})
+          {rows.length} SKUs · <span className="font-medium text-alert-error">{totalAtRisk}</span> com ruptura · {criteriaLabel(grid.criteria)}
         </span>
       </div>
 
@@ -183,7 +186,7 @@ export function WeekGridView({
                   row={r}
                   unit={unit}
                   weeks={grid.weeks}
-                  dohFloor={grid.dohFloor}
+                  criteria={grid.criteria}
                   onHover={(e, content) => setTip({ x: e.clientX, y: e.clientY, content })}
                   onLeave={() => setTip(null)}
                 />
@@ -193,7 +196,7 @@ export function WeekGridView({
         </table>
       </div>
 
-      <Legend dohFloor={grid.dohFloor} />
+      <Legend criteria={grid.criteria} />
 
       {tip && (
         <div
@@ -213,7 +216,7 @@ export function WeekGridView({
 // The hover-detail for one cell: stock, coverage vs floor, and WHAT is happening —
 // registered orders in transit vs suggested (scenario) orders, recovery income, and the
 // buy-by flag. This is the "small window explaining what it is" the heatmap needed.
-function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, dohFloor: number) {
+function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, criteria: PurchaseCriteria) {
   return (
     <div className="space-y-0.5">
       <div className="font-semibold text-foreground">
@@ -225,14 +228,18 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
       </div>
       <div>
         Cobertura: <b>{cell.doh != null ? `${cell.doh}d` : '—'}</b>{' '}
-        <span className="text-muted-foreground">(piso {dohFloor}d · próx. 7 dias)</span>
+        <span className="text-muted-foreground">
+          ({criteria.mode === 'rop' ? 'próx. 7 dias' : `piso ${criteria.dohThreshold}d · próx. 7 dias`})
+        </span>
       </div>
       <div className="text-muted-foreground">
         Consumo base: {row.dailyDemand > 0 ? `${row.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}/d` : '—'}
       </div>
       {cell.isOut && <div className="font-medium text-alert-error">⚠ Ruptura projetada</div>}
       {!cell.isOut && cell.isLow && (
-        <div className="font-medium text-[color:var(--color-alert-warning)]">Abaixo do piso de cobertura</div>
+        <div className="font-medium text-[color:var(--color-alert-warning)]">
+          {criteria.mode === 'rop' ? 'Abaixo do ponto de recompra' : 'Abaixo do piso de cobertura'}
+        </div>
       )}
       {cell.arrReg.sea > 0 && (
         <div className="text-[color:var(--color-alert-info)]">Pedido em trânsito (marítimo): +{fmtInt(cell.arrReg.sea)} un</div>
@@ -259,14 +266,14 @@ function GridRow({
   row,
   unit,
   weeks,
-  dohFloor,
+  criteria,
   onHover,
   onLeave,
 }: {
   row: WeekGridRow;
   unit: Unit;
   weeks: WeekMeta[];
-  dohFloor: number;
+  criteria: PurchaseCriteria;
   onHover: (e: React.MouseEvent, content: React.ReactNode) => void;
   onLeave: () => void;
 }) {
@@ -297,8 +304,8 @@ function GridRow({
               weekCellClass(c),
               c.extrapolated && 'opacity-55',
             )}
-            onMouseEnter={(e) => onHover(e, cellTip(row, c, weeks[i], i, dohFloor))}
-            onMouseMove={(e) => onHover(e, cellTip(row, c, weeks[i], i, dohFloor))}
+            onMouseEnter={(e) => onHover(e, cellTip(row, c, weeks[i], i, criteria))}
+            onMouseMove={(e) => onHover(e, cellTip(row, c, weeks[i], i, criteria))}
             onMouseLeave={onLeave}
           >
             {unit === 'units' ? (
@@ -346,10 +353,12 @@ function GridRow({
   );
 }
 
-function Legend({ dohFloor }: { dohFloor: number }) {
+function Legend({ criteria }: { criteria: PurchaseCriteria }) {
+  const lowLabel =
+    criteria.mode === 'rop' ? 'Abaixo do ponto de recompra' : `Cobertura < ${criteria.dohThreshold}d (piso)`;
   const items: { cls: string; label: string; hint: Parameters<typeof InfoHint>[0]['id']; icon?: LucideIcon }[] = [
     { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' },
-    { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: `Cobertura < ${dohFloor}d (piso)`, hint: 'week-doh' },
+    { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: lowLabel, hint: 'week-doh' },
     { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido', hint: 'week-inbound' },
   ];
   return (

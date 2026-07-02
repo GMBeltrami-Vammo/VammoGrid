@@ -30,7 +30,7 @@ import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
 import { fetchActiveScope } from './source/scope';
-import { fetchServiceLevelZ } from './source/globalSettings';
+import { fetchServiceLevelZ, fetchPurchaseCriteria } from './source/globalSettings';
 import { SERVICE_LEVEL_Z, DEFAULT_SERVICE_LEVEL_TIER } from './constants';
 import {
   EMPTY_FILTER,
@@ -256,7 +256,10 @@ export interface ElaborationResult {
  */
 export async function computeElaborations(ignoreSkuSelection = false): Promise<ElaborationResult> {
   try {
-    const inp = await computeSnapshot(ignoreSkuSelection);
+    const [inp, criteria] = await Promise.all([
+      computeSnapshot(ignoreSkuSelection),
+      fetchPurchaseCriteria(),
+    ]);
     const purchaseBySku = new Map(inp.purchases.map((p) => [p.skuBase, p]));
 
     const rows: ElaborationRow[] = [];
@@ -273,10 +276,17 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
         shares: resolveShares(stock, inp.shares.get(stock.skuBase)),
         today: inp.today,
       });
-      const suggestion = findElaborationTrigger({ stock, projection: proj.global, policy, today: inp.today });
+      const purchase = purchaseBySku.get(stock.skuBase);
+      const suggestion = findElaborationTrigger({
+        stock,
+        projection: proj.global,
+        policy,
+        today: inp.today,
+        criteria,
+        rop: purchase?.rop ?? 0,
+      });
       if (!suggestion.needsOrder) continue;
 
-      const purchase = purchaseBySku.get(stock.skuBase);
       const fallbackQty = Math.max(0, Math.ceil(proj.global.dailyDemand * policy.targetDoi));
       const suggestedQty = purchase && purchase.orderQty > 0 ? purchase.orderQty : fallbackQty;
       const orders = inp.ordersBySku.get(stock.skuBase) ?? [];

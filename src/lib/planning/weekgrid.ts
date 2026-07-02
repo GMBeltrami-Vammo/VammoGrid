@@ -17,9 +17,8 @@ import { resolveShares } from './allocation';
 import {
   DEFAULT_LEAD_TIME_DAYS,
   INTERNATIONAL_AIR_LEAD_DAYS,
-  SERVICE_LEVEL_DOH_FLOOR,
-  DEFAULT_SERVICE_LEVEL_TIER,
-  type ServiceLevelTier,
+  DEFAULT_PURCHASE_CRITERIA,
+  type PurchaseCriteria,
 } from './constants';
 import { addDays, diffDays, nextFirstOfMonth } from './dates';
 import { defaultPolicyFor } from './policy';
@@ -46,7 +45,10 @@ export interface WeekGrid {
   global: WeekGridRow[];
   byHub: Record<HubId, WeekGridRow[]>;
   scenario: WeekGridScenario;
+  /** DOH threshold (days) — the coloring floor when criteria.mode = 'doh'. */
   dohFloor: number;
+  /** The active purchase criteria driving the "low"/breach coloring. */
+  criteria: PurchaseCriteria;
 }
 
 interface WeekGridInputs {
@@ -87,11 +89,13 @@ type ModalSplit = { sea: number; air: number }[];
 
 /** Sample one scope's projection timeline into per-week cells. `arrReg`/`arrSug` are the
  *  per-week sea/air arrival splits for REGISTERED (already-placed) vs SUGGESTED (scenario
- *  when-needed) orders — zeros for spoke hubs, which receive no POs. */
+ *  when-needed) orders — zeros for spoke hubs, which receive no POs. `rop` is this scope's
+ *  reorder point (used to flag "low" when criteria.mode = 'rop'). */
 function sampleCells(
   proj: StockProjection,
   weeks: WeekMeta[],
-  dohFloor: number,
+  criteria: PurchaseCriteria,
+  rop: number,
   arrReg: ModalSplit,
   arrSug: ModalSplit,
 ): WeekCell[] {
@@ -111,6 +115,9 @@ function sampleCells(
       recovery += p.recovery;
     }
     const doh = fwd > 0 ? Math.round(stock / fwd) : null;
+    // "Low" per the active criteria: below the DOH floor, or below the reorder point.
+    const isLow =
+      criteria.mode === 'rop' ? rop > 0 && stock < rop : doh != null && doh < criteria.dohThreshold;
     const reg = arrReg[wi] ?? { sea: 0, air: 0 };
     const sug = arrSug[wi] ?? { sea: 0, air: 0 };
     return {
@@ -123,7 +130,7 @@ function sampleCells(
       arrSug: { sea: Math.round(sug.sea), air: Math.round(sug.air) },
       recovery: Math.round(recovery),
       isOut: stock <= 0,
-      isLow: doh != null && doh < dohFloor,
+      isLow,
       extrapolated: w.dayOffset > MODEL_HORIZON_DAYS,
     };
   });
@@ -131,16 +138,26 @@ function sampleCells(
 
 const MAX_INJECTIONS = 6; // cap the when-needed reorder loop per SKU
 
-/** First day (offset 1..horizon) the projected DOH falls below the floor; -1 if never.
- *  Uses the same forward-7-day-average DOH as the cells, so the scenario's when-needed
- *  orders target exactly the coverage number the heatmap shows. */
-function firstBreachDay(proj: StockProjection, dohFloor: number, horizonDays: number): number {
+/** First day (offset 1..horizon) the projection breaches the active criteria; -1 if
+ *  never. 'doh' → forward-7-day-avg DOH below the threshold (same metric the cells show);
+ *  'rop' → stock below the reorder point. So the scenario's when-needed orders target
+ *  exactly the condition the heatmap flags. */
+function firstBreachDay(
+  proj: StockProjection,
+  criteria: PurchaseCriteria,
+  rop: number,
+  horizonDays: number,
+): number {
   for (let d = 1; d <= horizonDays; d++) {
     const p = proj.timeline[d];
     if (!p) continue;
-    const fwd = forwardAvgDemand(proj.timeline, d, 7);
-    if (fwd <= 0) continue;
-    if (p.stock / fwd < dohFloor) return d;
+    if (criteria.mode === 'rop') {
+      if (rop > 0 && p.stock < rop) return d;
+    } else {
+      const fwd = forwardAvgDemand(proj.timeline, d, 7);
+      if (fwd <= 0) continue;
+      if (p.stock / fwd < criteria.dohThreshold) return d;
+    }
   }
   return -1;
 }
@@ -177,10 +194,11 @@ function whenNeededInjection(args: {
   shares: Record<HubId, number>;
   baseOrders: OpenPurchaseOrder[];
   today: string;
-  dohFloor: number;
+  criteria: PurchaseCriteria;
+  rop: number;
   horizonDays: number;
 }): OpenPurchaseOrder[] {
-  const { scenario, stock, forecast, policy, shares, baseOrders, today, dohFloor, horizonDays } = args;
+  const { scenario, stock, forecast, policy, shares, baseOrders, today, criteria, rop, horizonDays } = args;
   if (scenario === 'baseline') return [];
 
   const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
@@ -190,7 +208,7 @@ function whenNeededInjection(args: {
 
   for (let iter = 0; iter < MAX_INJECTIONS; iter++) {
     const proj = projectSku({ stock, forecast, orders, policy, shares, today }).global;
-    const bd = firstBreachDay(proj, dohFloor, horizonDays);
+    const bd = firstBreachDay(proj, criteria, rop, horizonDays);
     if (bd < 0) break;
     const dailyDemand = proj.dailyDemand > 0 ? proj.dailyDemand : proj.timeline[bd]?.demand ?? 0;
     if (dailyDemand <= 0) break;
@@ -253,14 +271,14 @@ export function buildWeekGrid(args: {
   purchases: PurchaseSuggestion[];
   weeks?: number;
   scenario?: WeekGridScenario;
-  /** Global service-level tier → the DOH coverage floor used for cell coloring (C2). */
-  serviceLevelTier?: ServiceLevelTier;
+  /** Active purchase criteria → drives the "low"/breach coloring + when-needed injection. */
+  criteria?: PurchaseCriteria;
 }): WeekGrid {
   const { inputs } = args;
   const weekCount = args.weeks ?? DEFAULT_WEEKS;
   const scenario = args.scenario ?? 'baseline';
-  const tier = args.serviceLevelTier ?? DEFAULT_SERVICE_LEVEL_TIER;
-  const dohFloor = SERVICE_LEVEL_DOH_FLOOR[tier];
+  const criteria = args.criteria ?? DEFAULT_PURCHASE_CRITERIA;
+  const dohFloor = criteria.dohThreshold;
   const today = inputs.today;
 
   const weeks: WeekMeta[] = Array.from({ length: weekCount }, (_, i) => {
@@ -280,6 +298,9 @@ export function buildWeekGrid(args: {
       defaultPolicyFor(stock.skuBase, stock, forecast?.abcClass ?? 'C', today);
     const shares = resolveShares(stock, inputs.shares.get(stock.skuBase));
     const purchase = purchaseBySku.get(stock.skuBase);
+    // Global reorder point for ROP-mode coloring/breach; hub scopes get it pro-rated by
+    // their demand share (a spoke's slice of the network reorder point).
+    const rop = purchase?.rop ?? 0;
 
     // Baseline = ONLY already-registered orders. A scenario appends "buy when needed"
     // arrivals (air/sea/complete), bounded to the visible horizon.
@@ -292,7 +313,8 @@ export function buildWeekGrid(args: {
       shares,
       baseOrders,
       today,
-      dohFloor,
+      criteria,
+      rop,
       horizonDays: weekCount * 7,
     });
     const orders = [...baseOrders, ...injected];
@@ -316,19 +338,20 @@ export function buildWeekGrid(args: {
     const regArrivals = modalArrivalsByWeek(baseOrders, weeks, today);
     const sugArrivals = modalArrivalsByWeek(injected, weeks, today);
     const noArrivals = weeks.map(() => ({ sea: 0, air: 0 }));
-    const rowFor = (proj: StockProjection, hasArrivals: boolean): WeekGridRow => ({
+    const rowFor = (proj: StockProjection, hasArrivals: boolean, scopeRop: number): WeekGridRow => ({
       ...meta,
       cells: sampleCells(
         proj,
         weeks,
-        dohFloor,
+        criteria,
+        scopeRop,
         hasArrivals ? regArrivals : noArrivals,
         hasArrivals ? sugArrivals : noArrivals,
       ),
     });
 
-    global.push(rowFor(proj.global, true));
-    for (const h of HUBS) byHub[h].push(rowFor(proj.byHub[h], h === 'osasco'));
+    global.push(rowFor(proj.global, true, rop));
+    for (const h of HUBS) byHub[h].push(rowFor(proj.byHub[h], h === 'osasco', rop * (shares[h] ?? 0)));
   }
 
   // Sort each scope: earliest stockout first, then by name. A row's urgency is the
@@ -346,7 +369,7 @@ export function buildWeekGrid(args: {
   sortRows(global);
   for (const h of HUBS) sortRows(byHub[h]);
 
-  return { weeks, global, byHub, scenario, dohFloor };
+  return { weeks, global, byHub, scenario, dohFloor, criteria };
 }
 
 /** All four coverage scenarios in one pass (shared inputs) so the client can toggle
@@ -356,7 +379,7 @@ export function buildAllScenarioGrids(args: {
   inputs: WeekGridInputs;
   purchases: PurchaseSuggestion[];
   weeks?: number;
-  serviceLevelTier?: ServiceLevelTier;
+  criteria?: PurchaseCriteria;
 }): Record<WeekGridScenario, WeekGrid> {
   const scenarios: WeekGridScenario[] = ['baseline', 'air_only', 'sea_only', 'complete'];
   const out = {} as Record<WeekGridScenario, WeekGrid>;

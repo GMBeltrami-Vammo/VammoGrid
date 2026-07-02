@@ -3,9 +3,12 @@ import { unstable_cache } from 'next/cache';
 import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
 import {
   DEFAULT_SERVICE_LEVEL_TIER,
+  PURCHASE_CRITERIA_KEY,
   SERVICE_LEVEL_TIER_KEY,
   SERVICE_LEVEL_Z,
   isServiceLevelTier,
+  parsePurchaseCriteria,
+  type PurchaseCriteria,
   type ServiceLevelTier,
 } from '../constants';
 
@@ -54,4 +57,16 @@ export async function fetchServiceLevelTier(): Promise<ServiceLevelTier> {
 /** z-score for the active tier — the single service-level dial applied to every SKU. */
 export async function fetchServiceLevelZ(): Promise<number> {
   return SERVICE_LEVEL_Z[await fetchServiceLevelTier()];
+}
+
+/** The active purchase/request criteria (DOH threshold vs ROP). Defaults to DOH 75. */
+export async function fetchPurchaseCriteria(): Promise<PurchaseCriteria> {
+  const settings = await fetchGlobalSettings();
+  const raw = settings.get(PURCHASE_CRITERIA_KEY);
+  if (!raw) return parsePurchaseCriteria(null);
+  try {
+    return parsePurchaseCriteria(JSON.parse(raw));
+  } catch {
+    return parsePurchaseCriteria(null);
+  }
 }

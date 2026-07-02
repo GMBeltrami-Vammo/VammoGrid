@@ -113,4 +113,43 @@ describe('findElaborationTrigger', () => {
     expect(r.suggestedOrderDate).toBe('2026-07-01');
     expect(r.expectedArrival).toBe('2026-07-11');
   });
+
+  it('honours a custom DOH threshold (criteria.dohThreshold)', () => {
+    // start=100, demand=1 → DOH(d)=100−d. Threshold 90 → breach at day 11 (DOH 89).
+    const r = findElaborationTrigger({
+      stock: stock(),
+      projection: projection(TODAY),
+      policy: policy(10, 5),
+      today: TODAY,
+      criteria: { mode: 'doh', dohThreshold: 90 },
+    });
+    expect(r.needsOrder).toBe(true);
+    expect(r.firstBreachDate).toBe(addDays(TODAY, 11));
+  });
+
+  it('ROP mode: breaches when projected stock falls below the reorder point', () => {
+    // start=100, demand=1 → stock(d)=100−d. rop=40 → stock<40 first at day 61 (stock 39).
+    const r = findElaborationTrigger({
+      stock: stock(),
+      projection: projection(TODAY),
+      policy: policy(10, 5),
+      today: TODAY,
+      criteria: { mode: 'rop', dohThreshold: 75 },
+      rop: 40,
+    });
+    expect(r.needsOrder).toBe(true);
+    expect(r.firstBreachDate).toBe(addDays(TODAY, 61));
+  });
+
+  it('ROP mode: no order when rop is 0 (undefined reorder point)', () => {
+    const r = findElaborationTrigger({
+      stock: stock(),
+      projection: projection(TODAY),
+      policy: policy(10, 5),
+      today: TODAY,
+      criteria: { mode: 'rop', dohThreshold: 75 },
+      rop: 0,
+    });
+    expect(r.needsOrder).toBe(false);
+  });
 });

@@ -1,10 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import type { ServiceLevelTier } from '@/lib/planning/constants';
+import type { PurchaseCriteria, ServiceLevelTier } from '@/lib/planning/constants';
 
 export function useServiceLevel() {
-  return useQuery<{ serviceLevelTier: ServiceLevelTier }>({
+  return useQuery<{ serviceLevelTier: ServiceLevelTier; purchaseCriteria: PurchaseCriteria }>({
     queryKey: ['global-settings'],
     queryFn: async () => {
       const res = await fetch('/api/fleet/global-settings');

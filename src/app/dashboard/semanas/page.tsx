@@ -1,6 +1,6 @@
 import { safeComputeSnapshot } from '@/lib/planning/load';
 import { buildAllScenarioGrids } from '@/lib/planning/weekgrid';
-import { fetchServiceLevelTier } from '@/lib/planning/source/globalSettings';
+import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { WeekGridView } from '@/components/planning/WeekGridView';
 
@@ -16,7 +16,7 @@ export default async function SemanasPage({
   const sp = await searchParams;
   const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 8;
 
-  const [snap, tier] = await Promise.all([safeComputeSnapshot(), fetchServiceLevelTier()]);
+  const [snap, criteria] = await Promise.all([safeComputeSnapshot(), fetchPurchaseCriteria()]);
 
   if (snap.stocks.length === 0) {
     return (
@@ -33,7 +33,7 @@ export default async function SemanasPage({
     inputs: snap,
     purchases: snap.purchases,
     weeks,
-    serviceLevelTier: tier,
+    criteria,
   });
 
   return (
@@ -45,7 +45,7 @@ export default async function SemanasPage({
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
 
-      <WeekGridView grids={grids} weeks={weeks} tier={tier} />
+      <WeekGridView grids={grids} weeks={weeks} />
     </div>
   );
 }

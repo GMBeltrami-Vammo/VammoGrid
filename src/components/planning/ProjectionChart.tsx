@@ -36,6 +36,7 @@ export function ProjectionChart({
   history,
   height = 300,
   defaultUnit = 'doh',
+  rateSource,
 }: {
   timeline: ProjectionPoint[];
   stockoutDate?: string | null;
@@ -47,13 +48,20 @@ export function ProjectionChart({
   history?: { date: string; stock: number }[] | null;
   height?: number;
   defaultUnit?: ChartUnit;
+  /** Full-horizon timeline for the DOH denominator, when `timeline` is a truncated
+   *  window (e.g. the D-30→D+30 chart). Keeps the next-7-day rate — and therefore the
+   *  DOH — identical to the full-horizon chart at every overlapping date. Indexed by
+   *  each point's absolute `.day`. Defaults to `timeline` when not windowed. */
+  rateSource?: ProjectionPoint[];
 }) {
   const router = useRouter();
   const [unit, setUnit] = useState<ChartUnit>(defaultUnit);
   const isDoh = unit === 'doh';
   // Days-of-cover divisor: the avg daily demand over the NEXT 7 days at each point
-  // (canonical DOH rate). History uses today's forward rate.
-  const todayRate = forwardAvgDemand(timeline, 0, 7);
+  // (canonical DOH rate), computed from the full-horizon source so a windowed chart
+  // matches the full one. History uses today's forward rate.
+  const rateData = rateSource ?? timeline;
+  const todayRate = forwardAvgDemand(rateData, timeline[0]?.day ?? 0, 7);
   const toVal = (units: number | undefined, rate: number): number | undefined => {
     if (units == null) return undefined;
     if (!isDoh) return units;
@@ -82,7 +90,7 @@ export function ProjectionChart({
   const projData = timeline.map((p, i) => {
     const nextExtrap = i + 1 < timeline.length ? timeline[i + 1].extrapolated : false;
     const isBoundary = !p.extrapolated && nextExtrap;
-    const rate = forwardAvgDemand(timeline, i, 7);
+    const rate = forwardAvgDemand(rateData, p.day, 7);
     const lo = toVal(p.stockLo, rate);
     const hi = toVal(p.stockHi, rate);
     const band = lo != null && hi != null ? ([lo, hi] as [number, number]) : undefined;

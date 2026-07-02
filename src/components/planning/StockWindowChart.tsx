@@ -90,6 +90,7 @@ export function StockWindowChart({
 
       <ProjectionChart
         timeline={timeline30}
+        rateSource={proj.timeline}
         overlayTimeline={showRecoveryOverlay ? baseProj!.timeline.slice(0, 31) : undefined}
         overlayLabel="Sem recuperação"
         overlayColor="var(--color-muted-foreground)"

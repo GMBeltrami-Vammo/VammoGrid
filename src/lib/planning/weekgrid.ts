@@ -23,7 +23,6 @@ import {
 import { addDays, diffDays, nextFirstOfMonth } from './dates';
 import { defaultPolicyFor } from './policy';
 import { projectSku } from './projection';
-import { scaleForecast } from './scenario';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly stockout heatmap — a VIEW of the existing projection, sampled at week
@@ -145,16 +144,12 @@ export function buildWeekGrid(args: {
   scenario?: WeekGridScenario;
   /** Global service-level tier → the DOH coverage floor used for cell coloring (C2). */
   serviceLevelTier?: ServiceLevelTier;
-  /** Extra demand % from reactivating backlog bikes (G2): scales every SKU's forecast
-   *  up, reusing the what-if scaling. 0 = no backlog uplift. */
-  demandScalePct?: number;
 }): WeekGrid {
   const { inputs } = args;
   const weekCount = args.weeks ?? DEFAULT_WEEKS;
   const scenario = args.scenario ?? 'baseline';
   const tier = args.serviceLevelTier ?? DEFAULT_SERVICE_LEVEL_TIER;
   const dohFloor = SERVICE_LEVEL_DOH_FLOOR[tier];
-  const demandScalePct = args.demandScalePct ?? 0;
   const today = inputs.today;
 
   const weeks: WeekMeta[] = Array.from({ length: weekCount }, (_, i) => {
@@ -168,10 +163,7 @@ export function buildWeekGrid(args: {
   const byHub: Record<HubId, WeekGridRow[]> = { osasco: [], mooca: [], sbc: [] };
 
   for (const stock of inputs.stocks) {
-    const rawForecast = inputs.forecasts.get(stock.skuBase) ?? null;
-    // Backlog demand uplift (G2): scale the forecast up by the reactivation %.
-    const forecast =
-      demandScalePct > 0 && rawForecast ? scaleForecast(rawForecast, demandScalePct) : rawForecast;
+    const forecast = inputs.forecasts.get(stock.skuBase) ?? null;
     const policy =
       inputs.policies.get(stock.skuBase) ??
       defaultPolicyFor(stock.skuBase, stock, forecast?.abcClass ?? 'C', today);

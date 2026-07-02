@@ -30,7 +30,6 @@ export const FLEET_TABLES = {
   hubMaxStock: 'dev.fleet_sku_hub_max_stock',
   bikeSalesLog: 'dev.fleet_bike_sales_log',
   bikeOrderLog: 'dev.fleet_bike_order_log',
-  backlogBikeLog: 'dev.fleet_backlog_bike_log',
 } as const;
 
 const DDL: string[] = [
@@ -174,21 +173,6 @@ const DDL: string[] = [
     model String,
     qty Int32,
     note Nullable(String),
-    created_by Nullable(String),
-    created_at DateTime64(3) DEFAULT now64(3),
-    updated_at DateTime64(3) DEFAULT now64(3),
-    is_deleted Bool DEFAULT false
-  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY id`,
-
-  // Backlog / motos paradas registry (sub-project G): stalled bikes awaiting parts.
-  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.backlogBikeLog} (
-    id String,
-    model String,
-    stalled_since Date,
-    reason Nullable(String),
-    status String DEFAULT 'parado',
-    resolved_at Nullable(Date),
-    notes Nullable(String),
     created_by Nullable(String),
     created_at DateTime64(3) DEFAULT now64(3),
     updated_at DateTime64(3) DEFAULT now64(3),

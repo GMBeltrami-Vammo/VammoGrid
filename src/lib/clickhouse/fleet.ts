@@ -33,6 +33,7 @@ export const FLEET_TABLES = {
 const DDL: string[] = [
   `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.skuPolicy} (
     sku_base String,
+    sku_name Nullable(String),
     lead_time_days Nullable(Int32),
     lead_time_source Nullable(String),
     abc_class Nullable(String),
@@ -77,6 +78,8 @@ const DDL: string[] = [
     part_number Nullable(String),
     aplicacao Nullable(String),
     nacionalizado Bool DEFAULT false,
+    cpx Bool DEFAULT false,
+    comfort Bool DEFAULT false,
     cpx_preta Bool DEFAULT false,
     cpx_prata Bool DEFAULT false,
     cpx_cinza Bool DEFAULT false,
@@ -163,6 +166,13 @@ const MIGRATIONS: string[] = [
   // B6/D1: order-preparation lifecycle stage (elaborado → enviado → feito) preceding
   // the shipping status. Null = a normal/legacy order (sync/ingest/manual).
   `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS prep_status Nullable(String)`,
+  // Compat model consolidation: two family flags (CPX / COMFORT) replacing the
+  // per-variant columns. Legacy columns are left in place and folded in on read.
+  `ALTER TABLE ${FLEET_TABLES.partCompat} ADD COLUMN IF NOT EXISTS cpx Bool DEFAULT false`,
+  `ALTER TABLE ${FLEET_TABLES.partCompat} ADD COLUMN IF NOT EXISTS comfort Bool DEFAULT false`,
+  // Manually-added SKUs carry their display name on the policy row (the warehouse
+  // snapshot doesn't know a SKU that isn't in inventory yet).
+  `ALTER TABLE ${FLEET_TABLES.skuPolicy} ADD COLUMN IF NOT EXISTS sku_name Nullable(String)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.

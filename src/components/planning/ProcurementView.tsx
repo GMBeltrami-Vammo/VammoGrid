@@ -8,6 +8,7 @@ import type { ElaborationRow } from '@/lib/planning/load';
 import type { TransportModal } from '@/types/planning';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
+import { DateField } from '@/components/ui/DateField';
 import { cn } from '@/lib/utils';
 
 // "Novo Pedido" builder: the SKUs that need buying (DOH<floor in the horizon), each
@@ -128,12 +129,7 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
         </div>
         <div>
           <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Data do pedido</span>
-          <input
-            type="date"
-            value={orderDate}
-            onChange={(e) => setOrderDate(e.target.value)}
-            className="mt-1 h-8 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500"
-          />
+          <DateField value={orderDate} onChange={setOrderDate} className="mt-1 h-8 w-36" aria-label="Data do pedido" />
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">

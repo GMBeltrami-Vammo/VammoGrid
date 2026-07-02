@@ -1,6 +1,5 @@
-import { BIKE_MODELS } from '@/types';
+import { deriveModels } from '@/constants/models';
 import type {
-  BikeModel,
   FleetInfo,
   HubId,
   PartCompat,
@@ -37,15 +36,13 @@ export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
 }
 
 export function mapPartCompatRow(row: Record<string, any>): PartCompat {
-  const models = {} as Record<BikeModel, boolean>;
-  for (const m of BIKE_MODELS) models[m] = Boolean(row[m]);
   return {
     sku: String(row.sku),
     description: row.description ?? null,
     partNumber: row.part_number ?? null,
     aplicacao: row.aplicacao ?? null,
     nacionalizado: Boolean(row.nacionalizado),
-    models,
+    models: deriveModels(row),
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,
   };

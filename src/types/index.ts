@@ -47,17 +47,11 @@ export interface PurchaseOrder {
   updatedAt: string;
 }
 
-export const BIKE_MODELS = [
-  'cpx_preta',
-  'cpx_prata',
-  'cpx_cinza',
-  'cpx_azul',
-  'cpx_pro_azul',
-  'vs1_branco',
-  'vs2_preta',
-  'comfort_azul',
-  'comfort_v2_azul',
-] as const;
+// Bike-model families for the compatibility matrix. Consolidated to the two families
+// Vammo actually plans against — CPX and COMFORT (the per-variant colours/versions and
+// the legacy VS line were collapsed away). Legacy per-variant columns still exist in
+// dev.fleet_part_compat and are folded into these two on read (see deriveModels).
+export const BIKE_MODELS = ['cpx', 'comfort'] as const;
 
 export type BikeModel = (typeof BIKE_MODELS)[number];
 

@@ -98,9 +98,9 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
       },
       {
         name: 'dev.fleet_part_compat',
-        source: 'ClickHouse dev.fleet_* (config/estado editável) — matriz de 9 modelos de moto',
+        source: 'ClickHouse dev.fleet_* (config/estado editável) — matriz de compatibilidade CPX / COMFORT',
         formula:
-          'fetchCompatModels(): por linha, checa colunas BIKE_MODELS (MODEL_A1, MODEL_B3, MODEL_S2, …) == true → Set; retorna Map<sku_base, Set<model>>',
+          'fetchCompatModels(): por linha, deriveModels() consolida cpx/comfort (fallback nas colunas legadas por variante) → Set; retorna Map<sku_base, Set<model>>',
         notes:
           'O warehouse só conhece categoria grossa (BIKE/BATTERY/BOX); o detalhe por modelo vem daqui. Mapa vazio em erro → filtro não restringe por modelo.',
         ref: 'src/lib/planning/source/compat.ts',

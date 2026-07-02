@@ -13,9 +13,11 @@ import { usePurchaseOrders } from '@/hooks/usePurchaseOrders';
 import { HUB_LIST, HUBS } from '@/constants/hubs';
 import { fmtDate } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
+import { DateField } from '@/components/ui/DateField';
 import type { HubId, PurchaseOrder, PurchaseOrderStatus } from '@/types';
 import {
   createPurchaseOrder,
+  deletePedido,
   deletePurchaseOrder,
   updateOrderLine,
   updatePedidoHeader,
@@ -155,6 +157,16 @@ function PedidoGroupCard({
     });
   };
 
+  const removePedido = () => {
+    if (!window.confirm(`Excluir o pedido ${group.vo ?? ''} e suas ${group.lines.length} linha(s)?`)) return;
+    onError(null);
+    startTransition(async () => {
+      const res = await deletePedido(ids);
+      if (res.ok) onChanged();
+      else onError(res.error ?? 'Erro ao excluir pedido.');
+    });
+  };
+
   return (
     <div className="rounded-lg border border-border bg-card">
       {/* Header row */}
@@ -176,7 +188,7 @@ function PedidoGroupCard({
 
         <HeaderField label="Data do pedido">
           {isHead ? (
-            <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="h-8 w-36" />
+            <DateField value={orderDate} onChange={setOrderDate} className="h-8 w-36" aria-label="Data do pedido" />
           ) : (
             <span className="text-sm tabular-nums">{fmtDate(group.orderDate)}</span>
           )}
@@ -184,7 +196,7 @@ function PedidoGroupCard({
 
         <HeaderField label="ETA">
           {isHead ? (
-            <Input type="date" value={eta} onChange={(e) => setEta(e.target.value)} className="h-8 w-36" />
+            <DateField value={eta} onChange={setEta} className="h-8 w-36" aria-label="ETA" />
           ) : (
             <span className="text-sm tabular-nums">{fmtDate(group.eta)}</span>
           )}
@@ -208,9 +220,21 @@ function PedidoGroupCard({
           <span className="tabular-nums">{group.lines.length} SKUs · {totalQty} un.</span>
           <span className="uppercase">{group.source}</span>
           {isHead && (
-            <Button size="sm" onClick={saveHeader} disabled={!headerDirty || pending}>
-              <Check /> {pending ? '…' : 'Salvar'}
-            </Button>
+            <>
+              <Button size="sm" onClick={saveHeader} disabled={!headerDirty || pending}>
+                <Check /> {pending ? '…' : 'Salvar'}
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={removePedido}
+                disabled={pending}
+                aria-label="Excluir pedido"
+                className="text-muted-foreground hover:text-alert-error"
+              >
+                <Trash2 />
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -446,8 +470,8 @@ function NewPedidoForm({
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand-500">Novo pedido</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <Field label="VO"><Input value={vo} onChange={(e) => setVo(e.target.value)} placeholder="266" /></Field>
-        <Field label="Data do pedido"><Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} /></Field>
-        <Field label="ETA"><Input type="date" value={eta} onChange={(e) => setEta(e.target.value)} /></Field>
+        <Field label="Data do pedido"><DateField value={orderDate} onChange={setOrderDate} /></Field>
+        <Field label="ETA"><DateField value={eta} onChange={setEta} /></Field>
         <Field label="Modal">
           <NativeSelect value={modal} onChange={(e) => setModal(e.target.value)}>
             <option value="">—</option>

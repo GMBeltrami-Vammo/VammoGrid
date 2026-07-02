@@ -87,6 +87,8 @@ export type LeadTimeSource = 'national-file' | 'international-default' | 'manual
 
 export interface SkuPolicy {
   skuBase: string;
+  /** Display name for a manually-added SKU not yet in the warehouse snapshot. */
+  skuName?: string | null;
   /** Effective lead time used by the engines = the default modal's value. */
   leadTimeDays: number;
   leadTimeSource: LeadTimeSource;

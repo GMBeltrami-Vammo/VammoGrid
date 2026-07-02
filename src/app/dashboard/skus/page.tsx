@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import { safeComputeSnapshot } from '@/lib/planning/load';
 import { fetchActiveScope } from '@/lib/planning/source/scope';
+import { fetchSkuPolicies } from '@/lib/planning/source/policies';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { SkuTable, type SkuRow } from '@/components/planning/SkuTable';
 
@@ -11,9 +12,10 @@ export default async function SkusPage() {
   // list EVERY SKU (bypassing the default-scope narrowing) so the user can add/remove
   // any SKU to/from the default universe. The hand-picked cookie set + the default
   // scope both narrow every OTHER analysis, not this table.
-  const [snap, scopeSet, session] = await Promise.all([
+  const [snap, scopeSet, policies, session] = await Promise.all([
     safeComputeSnapshot(true),
     fetchActiveScope(),
+    fetchSkuPolicies(),
     auth(),
   ]);
   const isHead = session?.user?.isHead ?? false;
@@ -39,6 +41,25 @@ export default async function SkusPage() {
       isLate: p.isLate,
     };
   });
+
+  // Manually-added SKUs (a policy exists but the warehouse has no inventory yet) —
+  // union them in so they're visible/configurable right after being added. They show
+  // zero stock / no coverage until inventory for them lands.
+  const presentBases = new Set(snap.purchases.map((p) => p.skuBase));
+  for (const [base, pol] of policies) {
+    if (presentBases.has(base)) continue;
+    rows.push({
+      skuBase: base,
+      skuName: pol.skuName ?? base,
+      category: null,
+      abcClass: pol.abcClass ?? 'C',
+      onHand: 0,
+      dohDays: null,
+      status: 'OK',
+      stockoutDate: null,
+      isLate: false,
+    });
+  }
 
   // Sort: CRITICAL first, then REORDER, then OK; within each group by name
   const ORDER = { CRITICAL: 0, REORDER: 1, OK: 2 } as const;

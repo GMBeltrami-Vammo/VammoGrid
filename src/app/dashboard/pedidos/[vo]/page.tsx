@@ -8,6 +8,7 @@ import { toSkuBase } from '@/lib/planning/sku';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { EmptyState, PageHeader } from '@/components/planning/ui';
 import { PrepStatusControl } from '@/components/orders/PrepStatusControl';
+import { DeletePedidoButton } from '@/components/orders/DeletePedidoButton';
 import {
   MODAL_LABELS,
   PREP_STATUS_LABELS,
@@ -63,7 +64,10 @@ export default async function PedidoDetailPage({
 
   return (
     <div>
-      <BackLink />
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <BackLink />
+        {isHead && <DeletePedidoButton ids={group.map((o) => o.id)} />}
+      </div>
       <PageHeader
         eyebrow={group[0].vo ? `Pedido · VO ${group[0].vo}` : 'Pedido manual'}
         title={group[0].vo ?? group[0].skuName ?? key}

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DateField } from '@/components/ui/DateField';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFleetInfo } from '@/hooks/useFleetInfo';
 import { fmtDate } from '@/lib/planning/format';
@@ -249,11 +250,7 @@ function FleetEditor({
           />
         </Labeled>
         <Labeled label="Data de referência">
-          <Input
-            type="date"
-            value={draft.asOfDate}
-            onChange={(e) => set('asOfDate', e.target.value)}
-          />
+          <DateField value={draft.asOfDate} onChange={(v) => set('asOfDate', v)} aria-label="Data de referência" />
         </Labeled>
       </div>
       <div className="mt-4 flex gap-2">

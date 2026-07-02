@@ -28,6 +28,34 @@ export function fmtDate(iso: string | null | undefined): string {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
+// ── Editable DD-MM-YYYY date field helpers (used by <DateField>) ──────────────
+// The native <input type="date"> renders in the browser locale (often MM/DD/YYYY);
+// we always show/accept DD-MM-YYYY. These convert to/from the canonical ISO string.
+
+/** ISO YYYY-MM-DD → DD-MM-YYYY for display, or '' when empty/invalid. */
+export function isoToDisplayDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+}
+
+/**
+ * Parse a typed DD-MM-YYYY (or DD/MM/YYYY, 2-digit year → 20xx) into a canonical ISO
+ * YYYY-MM-DD, or null if incomplete/invalid. Rejects overflow dates (e.g. 31-02) via
+ * a round-trip check.
+ */
+export function parseDisplayDate(text: string): string | null {
+  const m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})$/.exec(text.trim());
+  if (!m) return null;
+  const d = Number(m[1]);
+  const mo = Number(m[2]);
+  let y = Number(m[3]);
+  if (y < 100) y += 2000;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 export function fmtDateLong(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(`${iso}T00:00:00Z`);

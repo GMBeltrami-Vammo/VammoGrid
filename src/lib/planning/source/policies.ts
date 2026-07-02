@@ -10,6 +10,7 @@ import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
 
 interface PolicyRow {
   sku_base: string;
+  sku_name: string | null;
   lead_time_days: number | null;
   lead_time_source: string | null;
   lead_time_sea_days: number | null;
@@ -45,6 +46,7 @@ export async function fetchSkuPolicies(): Promise<Map<string, Partial<SkuPolicy>
         recoveryRate: Number(r.recovery_rate) || 0,
         recoveryTurnaroundDays: Number(r.recovery_turnaround_days) || 14,
       };
+      if (r.sku_name != null) override.skuName = r.sku_name;
       if (r.lead_time_days != null) override.leadTimeDays = r.lead_time_days;
       if (r.lead_time_source != null)
         override.leadTimeSource = r.lead_time_source as SkuPolicy['leadTimeSource'];

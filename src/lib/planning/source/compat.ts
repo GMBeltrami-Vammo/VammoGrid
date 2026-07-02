@@ -1,11 +1,11 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
-import { BIKE_MODELS } from '@/types';
+import { deriveModels } from '@/constants/models';
 import { toSkuBase } from '../sku';
 
 // Bike-model compatibility from ClickHouse dev.fleet_part_compat (formerly Supabase
-// fleet.part_compat; see decisions.MD #11) — the 9-model matrix; the warehouse
+// fleet.part_compat; see decisions.MD #11) — the CPX/COMFORT matrix; the warehouse
 // only knows the coarse BIKE/BATTERY/BOX category. Keyed by sku_base. Returns an
 // empty map if ClickHouse is unconfigured — the filter then just won't constrain
 // by model.
@@ -27,7 +27,7 @@ export async function fetchCompatModels(): Promise<Map<string, Set<string>>> {
       const base = toSkuBase(String(row.sku ?? ''));
       if (!base) continue;
       const set = map.get(base) ?? new Set<string>();
-      for (const m of BIKE_MODELS) if (row[m] === true) set.add(m);
+      for (const [m, on] of Object.entries(deriveModels(row))) if (on) set.add(m);
       map.set(base, set);
     }
     return map;

@@ -3,11 +3,11 @@
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check } from 'lucide-react';
-import type { PurchaseStatus } from '@/types/planning';
+import { Check, Plus, X } from 'lucide-react';
+import type { PurchaseStatus, TransportModal } from '@/types/planning';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie } from '@/lib/planning/applyFilter';
-import { setSkuScope } from '@/app/dashboard/skus/actions';
+import { createSku, setSkuScope } from '@/app/dashboard/skus/actions';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -67,6 +67,7 @@ export function SkuTable({
   const [search, setSearch] = useState('');
   const [abcFilter, setAbcFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
+  const [addingSku, setAddingSku] = useState(false);
 
   // Local mirror of the active-scope set so toggles feel instant; the Server Action
   // persists to dev.fleet_sku_scope + busts the 'sku-scope' cache tag underneath.
@@ -176,6 +177,29 @@ export function SkuTable({
 
   return (
     <div>
+      {/* Add SKU */}
+      {isHead && (
+        <div className="mb-3 flex justify-end">
+          {!addingSku && (
+            <button
+              onClick={() => setAddingSku(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-400"
+            >
+              <Plus size={15} /> Adicionar SKU
+            </button>
+          )}
+        </div>
+      )}
+      {isHead && addingSku && (
+        <AddSkuForm
+          onDone={() => {
+            setAddingSku(false);
+            router.refresh();
+          }}
+          onCancel={() => setAddingSku(false)}
+        />
+      )}
+
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <input
@@ -458,5 +482,109 @@ export function SkuTable({
         </table>
       </div>
     </div>
+  );
+}
+
+const INPUT_CLASS =
+  'h-8 w-full rounded-md border border-border bg-card px-2.5 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50';
+
+// Register a brand-new SKU: its planning attributes (lead times, national/international,
+// default modal, ABC) + display name. Writes a policy + scope row via createSku, then
+// the page refreshes and the SKU appears (zero stock until inventory for it lands).
+function AddSkuForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [skuBase, setSkuBase] = useState('');
+  const [skuName, setSkuName] = useState('');
+  const [sea, setSea] = useState('110');
+  const [air, setAir] = useState('30');
+  const [isNational, setIsNational] = useState(false);
+  const [defaultModal, setDefaultModal] = useState<TransportModal>('sea');
+  const [abc, setAbc] = useState('C');
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = () => {
+    setErr(null);
+    if (!skuBase.trim()) {
+      setErr('Código do SKU é obrigatório.');
+      return;
+    }
+    start(async () => {
+      const res = await createSku({
+        skuBase,
+        skuName,
+        leadTimeSeaDays: sea === '' ? null : Number(sea),
+        leadTimeAirDays: air === '' ? null : Number(air),
+        isNational,
+        defaultModal,
+        abcClass: abc || null,
+      });
+      if (res.ok) onDone();
+      else setErr(res.error ?? 'Erro ao adicionar SKU.');
+    });
+  };
+
+  return (
+    <div className="mb-4 rounded-lg border border-brand-500/30 bg-brand-500/[0.03] p-4">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand-500">Novo SKU</p>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Labeled label="Código do SKU *">
+          <input value={skuBase} onChange={(e) => setSkuBase(e.target.value)} placeholder="VM-01-FRE0-1010" className={cn(INPUT_CLASS, 'font-mono text-xs')} />
+        </Labeled>
+        <Labeled label="Nome">
+          <input value={skuName} onChange={(e) => setSkuName(e.target.value)} placeholder="Pastilha de freio…" className={INPUT_CLASS} />
+        </Labeled>
+        <Labeled label="Lead marítimo (dias)">
+          <input type="number" min={0} value={sea} onChange={(e) => setSea(e.target.value)} className={cn(INPUT_CLASS, 'text-right tabular-nums')} />
+        </Labeled>
+        <Labeled label="Lead aéreo (dias)">
+          <input type="number" min={0} value={air} onChange={(e) => setAir(e.target.value)} className={cn(INPUT_CLASS, 'text-right tabular-nums')} />
+        </Labeled>
+        <Labeled label="Origem">
+          <select value={isNational ? 'nac' : 'int'} onChange={(e) => setIsNational(e.target.value === 'nac')} className={INPUT_CLASS}>
+            <option value="int">Internacional</option>
+            <option value="nac">Nacional</option>
+          </select>
+        </Labeled>
+        <Labeled label="Modal padrão">
+          <select value={defaultModal} onChange={(e) => setDefaultModal(e.target.value as TransportModal)} className={INPUT_CLASS}>
+            <option value="sea">Marítimo</option>
+            <option value="air">Aéreo</option>
+          </select>
+        </Labeled>
+        <Labeled label="Classe ABC">
+          <select value={abc} onChange={(e) => setAbc(e.target.value)} className={INPUT_CLASS}>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+          </select>
+        </Labeled>
+      </div>
+      {err && <p className="mt-3 rounded-md bg-alert-error/10 px-3 py-2 text-sm text-alert-error">{err}</p>}
+      <div className="mt-4 flex gap-2">
+        <button
+          onClick={submit}
+          disabled={pending}
+          className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
+        >
+          <Check size={15} /> {pending ? 'Adicionando…' : 'Adicionar SKU'}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={pending}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3.5 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/40"
+        >
+          <X size={15} /> Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      {children}
+    </label>
   );
 }

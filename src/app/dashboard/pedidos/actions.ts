@@ -262,3 +262,30 @@ export async function deletePurchaseOrder(id: string) {
   updateTag('orders');
   return { ok: true };
 }
+
+// Delete a WHOLE pedido (every line sharing the VO) at once — the pedido-level
+// counterpart of deletePurchaseOrder (which removes a single line). Soft-deletes each
+// line so the audit trail is preserved. Ids are resolved by the caller (the grouped VO).
+export async function deletePedido(ids: string[]): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const changedBy = await requireHead();
+    if (ids.length === 0) return { ok: true };
+    const rows = await readFleetTable<Row>(FLEET_TABLES.purchaseOrder);
+    const byId = new Map(rows.map((r) => [r.id as string, r]));
+    for (const id of ids) {
+      const current = byId.get(id);
+      if (!current) continue;
+      await softDeleteFleetRow({
+        table: FLEET_TABLES.purchaseOrder,
+        entityType: 'purchase_order',
+        entityId: id,
+        current,
+        changedBy,
+      });
+    }
+    updateTag('orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}

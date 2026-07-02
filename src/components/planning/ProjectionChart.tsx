@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Area,
   CartesianGrid,
@@ -47,6 +48,7 @@ export function ProjectionChart({
   height?: number;
   defaultUnit?: ChartUnit;
 }) {
+  const router = useRouter();
   const [unit, setUnit] = useState<ChartUnit>(defaultUnit);
   const isDoh = unit === 'doh';
   // Days-of-cover divisor: the avg daily demand over the NEXT 7 days at each point
@@ -199,19 +201,21 @@ export function ProjectionChart({
               isAnimationActive={false}
             />
           )}
-          {/* Pedido arrivals: a green line at each arrival date, labeled with VO + qty */}
+          {/* Pedido arrivals: a green line at each arrival date, labeled with VO + qty.
+              The label is clickable → the pedido page (when the arrival carries a VO). */}
           {arrivalMarkers.map((a) => (
             <ReferenceLine
               key={`po-${a.date}`}
               x={a.date}
               stroke="var(--color-alert-success)"
               strokeDasharray="3 2"
-              label={{
-                value: `${a.vos.length ? a.vos.join('/') + ' ' : ''}+${fmtInt(a.qty)}`,
-                position: 'insideTopRight',
-                fontSize: 9,
-                fill: 'var(--color-alert-success)',
-              }}
+              label={
+                <ArrivalLabel
+                  text={`${a.vos.length ? a.vos.join('/') + ' ' : ''}+${fmtInt(a.qty)}`}
+                  vo={a.vos[0]}
+                  onOpen={(v) => router.push(`/dashboard/pedidos/${encodeURIComponent(v)}`)}
+                />
+              }
             />
           ))}
           {horizonBoundary && (
@@ -247,5 +251,31 @@ export function ProjectionChart({
       </ResponsiveContainer>
       </div>
     </div>
+  );
+}
+
+// Clickable arrival marker label. Recharts clones this element into the ReferenceLine
+// with a `viewBox`; when the arrival carries a VO the text links to that pedido.
+function ArrivalLabel(props: {
+  text: string;
+  vo?: string;
+  onOpen: (vo: string) => void;
+  viewBox?: { x: number; y: number; width: number; height: number };
+}) {
+  const { text, vo, onOpen, viewBox } = props;
+  if (!viewBox) return null;
+  return (
+    <text
+      x={viewBox.x - 4}
+      y={viewBox.y + 10}
+      textAnchor="end"
+      fontSize={9}
+      fill="var(--color-alert-success)"
+      style={vo ? { cursor: 'pointer', textDecoration: 'underline' } : undefined}
+      onClick={vo ? () => onOpen(vo) : undefined}
+    >
+      {text}
+      {vo ? ' ↗' : ''}
+    </text>
   );
 }

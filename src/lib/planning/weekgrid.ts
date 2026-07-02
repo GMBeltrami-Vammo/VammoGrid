@@ -85,6 +85,24 @@ function modalArrivalsByWeek(
   return out;
 }
 
+/** Per-week list of linkable keys (VO, else row id) for the REGISTERED orders arriving
+ *  that week — lets the heatmap link a cell to the actual pedido page. */
+function registeredKeysByWeek(orders: OpenPurchaseOrder[], weeks: WeekMeta[], today: string): string[][] {
+  const out: string[][] = weeks.map(() => []);
+  for (const o of orders) {
+    if (!OPEN_STATUSES.has(o.status)) continue;
+    if (!countsAsInbound(o.prepStatus)) continue;
+    const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
+    if (!arrival) continue;
+    const offset = diffDays(today, arrival);
+    const wi = weeks.findIndex((w) => offset <= w.dayOffset && offset > w.dayOffset - 7);
+    if (wi === -1) continue;
+    const key = o.vo ?? o.id;
+    if (key && !out[wi].includes(key)) out[wi].push(key);
+  }
+  return out;
+}
+
 type ModalSplit = { sea: number; air: number }[];
 
 /** Sample one scope's projection timeline into per-week cells. `arrReg`/`arrSug` are the
@@ -98,6 +116,7 @@ function sampleCells(
   rop: number,
   arrReg: ModalSplit,
   arrSug: ModalSplit,
+  arrVosByWeek: string[][],
 ): WeekCell[] {
   return weeks.map((w, wi) => {
     const end = proj.timeline[w.dayOffset];
@@ -128,6 +147,7 @@ function sampleCells(
       inboundAir: Math.round(reg.air + sug.air),
       arrReg: { sea: Math.round(reg.sea), air: Math.round(reg.air) },
       arrSug: { sea: Math.round(sug.sea), air: Math.round(sug.air) },
+      arrVos: arrVosByWeek[wi] ?? [],
       recovery: Math.round(recovery),
       isOut: stock <= 0,
       isLow,
@@ -337,7 +357,9 @@ export function buildWeekGrid(args: {
     // hover tooltip can label each; the inline totals are their sum.
     const regArrivals = modalArrivalsByWeek(baseOrders, weeks, today);
     const sugArrivals = modalArrivalsByWeek(injected, weeks, today);
+    const regKeys = registeredKeysByWeek(baseOrders, weeks, today);
     const noArrivals = weeks.map(() => ({ sea: 0, air: 0 }));
+    const noKeys: string[][] = weeks.map(() => []);
     const rowFor = (proj: StockProjection, hasArrivals: boolean, scopeRop: number): WeekGridRow => ({
       ...meta,
       cells: sampleCells(
@@ -347,6 +369,7 @@ export function buildWeekGrid(args: {
         scopeRop,
         hasArrivals ? regArrivals : noArrivals,
         hasArrivals ? sugArrivals : noArrivals,
+        hasArrivals ? regKeys : noKeys,
       ),
     });
 

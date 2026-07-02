@@ -189,6 +189,10 @@ export function WeekGridView({
                   criteria={grid.criteria}
                   onHover={(e, content) => setTip({ x: e.clientX, y: e.clientY, content })}
                   onLeave={() => setTip(null)}
+                  onOpenPedido={(vos) => {
+                    setTip(null);
+                    router.push(vos.length === 1 ? `/dashboard/pedidos/${encodeURIComponent(vos[0])}` : '/dashboard/pedidos');
+                  }}
                 />
               ))
             )}
@@ -241,14 +245,33 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
           {criteria.mode === 'rop' ? 'Abaixo do ponto de recompra' : 'Abaixo do piso de cobertura'}
         </div>
       )}
-      {cell.arrReg.sea > 0 && (
-        <div className="text-[color:var(--color-alert-info)]">Pedido em trânsito (marítimo): +{fmtInt(cell.arrReg.sea)} un</div>
+      {(cell.arrReg.sea > 0 || cell.arrReg.air > 0) && (
+        <div className="mt-1 border-t border-border/60 pt-1">
+          <div className="font-medium text-alert-success">
+            ✓ Pedido já colocado (chega esta semana)
+          </div>
+          <div className="text-muted-foreground">
+            {cell.arrReg.sea > 0 && <span>Marítimo +{fmtInt(cell.arrReg.sea)} un. </span>}
+            {cell.arrReg.air > 0 && <span>Aéreo +{fmtInt(cell.arrReg.air)} un.</span>}
+          </div>
+          {cell.arrVos.length > 0 && (
+            <div className="text-brand-600">
+              {cell.arrVos.length === 1 ? `VO ${cell.arrVos[0]}` : `VOs ${cell.arrVos.join(', ')}`} · clique para abrir →
+            </div>
+          )}
+        </div>
       )}
-      {cell.arrReg.air > 0 && <div className="text-brand-600">Pedido em trânsito (aéreo): +{fmtInt(cell.arrReg.air)} un</div>}
-      {cell.arrSug.sea > 0 && (
-        <div className="text-[color:var(--color-alert-info)]">Pedido sugerido (marítimo): +{fmtInt(cell.arrSug.sea)} un</div>
+      {(cell.arrSug.sea > 0 || cell.arrSug.air > 0) && (
+        <div className="mt-1 border-t border-border/60 pt-1">
+          <div className="font-medium text-[color:var(--color-alert-warning)]">
+            💡 Sugestão de compra (cenário) — ainda NÃO é um pedido
+          </div>
+          <div className="text-muted-foreground">
+            {cell.arrSug.sea > 0 && <span>Marítimo +{fmtInt(cell.arrSug.sea)} un. </span>}
+            {cell.arrSug.air > 0 && <span>Aéreo +{fmtInt(cell.arrSug.air)} un.</span>}
+          </div>
+        </div>
       )}
-      {cell.arrSug.air > 0 && <div className="text-brand-600">Pedido sugerido (aéreo): +{fmtInt(cell.arrSug.air)} un</div>}
       {cell.recovery > 0 && (
         <div className="inline-flex items-center gap-1">
           <Recycle className="size-3" /> Recuperação: +{fmtInt(cell.recovery)} un
@@ -269,6 +292,7 @@ function GridRow({
   criteria,
   onHover,
   onLeave,
+  onOpenPedido,
 }: {
   row: WeekGridRow;
   unit: Unit;
@@ -276,6 +300,7 @@ function GridRow({
   criteria: PurchaseCriteria;
   onHover: (e: React.MouseEvent, content: React.ReactNode) => void;
   onLeave: () => void;
+  onOpenPedido: (vos: string[]) => void;
 }) {
   return (
     <tr className="hover:bg-muted/20">
@@ -296,17 +321,20 @@ function GridRow({
       </td>
       {row.cells.map((c, i) => {
         const isBuyBy = row.buyByWeekIdx === i + 1;
+        const clickable = c.arrVos.length > 0;
         return (
           <td
             key={i}
             className={cn(
-              'cursor-default border-l border-foreground/5 px-2 py-1.5 text-center align-middle tabular-nums',
+              'border-l border-foreground/5 px-2 py-1.5 text-center align-middle tabular-nums',
               weekCellClass(c),
               c.extrapolated && 'opacity-55',
+              clickable ? 'cursor-pointer hover:ring-1 hover:ring-inset hover:ring-brand-500/50' : 'cursor-default',
             )}
             onMouseEnter={(e) => onHover(e, cellTip(row, c, weeks[i], i, criteria))}
             onMouseMove={(e) => onHover(e, cellTip(row, c, weeks[i], i, criteria))}
             onMouseLeave={onLeave}
+            onClick={clickable ? () => onOpenPedido(c.arrVos) : undefined}
           >
             {unit === 'units' ? (
               <>

@@ -223,6 +223,9 @@ export interface WeekCell {
   arrReg: { sea: number; air: number };
   /** Suggested (scenario "buy when needed") arrivals this week, by modal — for the tooltip. */
   arrSug: { sea: number; air: number };
+  /** Linkable keys (VO, else row id) of the REGISTERED orders arriving this week — the
+   *  cell links to the pedido page. Empty = no real placed order arriving (or spoke hub). */
+  arrVos: string[];
   /** Recovered units credited during the week. */
   recovery: number;
   isOut: boolean;

@@ -4,7 +4,8 @@ import { randomUUID } from 'crypto';
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
 import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
-import type { Row } from '@/lib/clickhouse/reader';
+import { chInsert, type Row } from '@/lib/clickhouse/reader';
+import { addDays } from '@/lib/planning/dates';
 import type { PrepStatus, PurchaseOrderStatus } from '@/types';
 import type { TransportModal } from '@/types/planning';
 
@@ -63,58 +64,71 @@ export async function createPurchaseOrder(input: PurchaseOrderInput) {
   return { ok: true, id };
 }
 
-// The single write path for the elaboration rule (sub-project B6). Called only when
-// a human confirms a suggestion in Compras (never on a schedule). Creates a DRAFT
-// purchase_order (prep_status='elaborado', no VO yet) — excluded from projected
-// inbound until finalized ('feito'). Editable fields let the human override the
-// suggested qty/modal/date before confirming.
-export interface ElaboratedOrderInput {
+// Create ONE pedido (a single VO with N SKU lines) from the "Novo Pedido" builder in
+// Compras. The modal is a global choice for the whole order; each line's ETA is
+// order_date + that SKU's lead for the chosen modal. Lands as a draft
+// (prep_status='elaborado'), grouped by a generated VO — indistinguishable from the
+// pedidos synced/entered elsewhere. Called only on the explicit "Criar pedido" click.
+export interface NewPedidoLine {
   skuBase: string;
   skuName?: string | null;
   qty: number;
-  modal: TransportModal;
-  orderDate: string;
-  eta?: string | null;
-  leadTimeDays?: number | null;
-  hubId?: string;
-  notes?: string | null;
+  /** Lead time (days) for the chosen modal — drives this line's ETA. */
+  leadDays: number;
 }
 
-export async function createElaboratedOrder(
-  input: ElaboratedOrderInput,
-): Promise<{ ok: boolean; id?: string; error?: string }> {
+export async function createPedido(input: {
+  modal: TransportModal;
+  orderDate: string;
+  lines: NewPedidoLine[];
+}): Promise<{ ok: boolean; vo?: string; error?: string }> {
   try {
     const changedBy = await requireHead();
-    if (!input.skuBase?.trim()) return { ok: false, error: 'SKU é obrigatório.' };
-    if (!(input.qty > 0)) return { ok: false, error: 'Quantidade deve ser maior que zero.' };
-    const id = randomUUID();
+    const lines = input.lines.filter((l) => l.skuBase?.trim() && l.qty > 0);
+    if (lines.length === 0) return { ok: false, error: 'Selecione ao menos um SKU com quantidade.' };
+
     const now = new Date().toISOString();
-    await upsertFleetRow({
-      table: FLEET_TABLES.purchaseOrder,
-      entityType: 'purchase_order',
-      entityId: id,
-      current: null,
-      next: {
-        id,
-        vo: null,
-        sku: input.skuBase.trim(),
-        sku_name: input.skuName?.trim() || null,
-        qty_ordered: Math.round(input.qty),
-        order_date: input.orderDate,
-        eta: input.eta || null,
-        lead_time_days: input.leadTimeDays ?? null,
-        status: 'ordered',
-        modal: input.modal,
-        hub_id: input.hubId ?? 'osasco',
-        notes: input.notes?.trim() || null,
-        source: 'elaboracao',
-        prep_status: 'elaborado',
-        created_at: now,
+    // Human-ish shared VO so the lines group into one pedido everywhere.
+    const vo = `NP-${input.orderDate.replace(/-/g, '')}-${randomUUID().slice(0, 4).toUpperCase()}`;
+
+    const rows: Row[] = lines.map((l) => ({
+      id: randomUUID(),
+      vo,
+      sku: l.skuBase.trim(),
+      sku_name: l.skuName?.trim() || null,
+      qty_ordered: Math.round(l.qty),
+      order_date: input.orderDate,
+      eta: addDays(input.orderDate, Math.max(0, Math.round(l.leadDays))),
+      lead_time_days: Math.max(0, Math.round(l.leadDays)),
+      status: 'ordered',
+      modal: input.modal,
+      hub_id: 'osasco',
+      notes: null,
+      source: 'elaboracao',
+      prep_status: 'elaborado',
+      created_at: now,
+      updated_at: now,
+      is_deleted: false,
+    }));
+
+    // Bulk insert (machine-created, one pedido) — audited as a single creation event
+    // rather than a per-field diff per line.
+    await chInsert(FLEET_TABLES.purchaseOrder, rows);
+    await chInsert(FLEET_TABLES.auditLog, [
+      {
+        id: randomUUID(),
+        entity_type: 'purchase_order',
+        entity_id: vo,
+        field: 'created',
+        old_value: null,
+        new_value: JSON.stringify({ vo, lines: rows.length, modal: input.modal }),
+        changed_by: changedBy,
+        changed_at: now,
       },
-      changedBy,
-    });
+    ]);
+
     updateTag('orders');
-    return { ok: true, id };
+    return { ok: true, vo };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
   }

@@ -245,10 +245,10 @@ export interface ElaborationResult {
 }
 
 /**
- * Compute the elaboration-trigger list for the Compras page (B7). PURE computation
- * from the snapshot — projects each in-scope SKU, runs findElaborationTrigger, and
- * pairs each with a default quantity. Writes NOTHING; a human confirms rows one by
- * one via createElaboratedOrder. Never throws (returns empty + error note).
+ * Compute the elaboration-trigger list for the Compras "Novo Pedido" builder. PURE
+ * computation from the snapshot — projects each in-scope SKU, runs findElaborationTrigger,
+ * and pairs each with a default quantity. Writes NOTHING; the user selects SKUs and
+ * clicks "Criar pedido" (createPedido). Never throws (returns empty + error note).
  */
 export async function computeElaborations(ignoreSkuSelection = false): Promise<ElaborationResult> {
   try {

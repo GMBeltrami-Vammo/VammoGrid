@@ -28,8 +28,6 @@ export const FLEET_TABLES = {
   skuScope: 'dev.fleet_sku_scope',
   globalSettings: 'dev.fleet_global_settings',
   hubMaxStock: 'dev.fleet_sku_hub_max_stock',
-  bikeSalesLog: 'dev.fleet_bike_sales_log',
-  bikeOrderLog: 'dev.fleet_bike_order_log',
 } as const;
 
 const DDL: string[] = [
@@ -152,32 +150,6 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (sku_base, hub_id)`,
-
-  // Frota manual ledgers (sub-project F): bike sales and moto orders entered by hand,
-  // feeding the fleet-size total. Both share the same shape.
-  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.bikeSalesLog} (
-    id String,
-    date Date,
-    model String,
-    qty Int32,
-    note Nullable(String),
-    created_by Nullable(String),
-    created_at DateTime64(3) DEFAULT now64(3),
-    updated_at DateTime64(3) DEFAULT now64(3),
-    is_deleted Bool DEFAULT false
-  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY id`,
-
-  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.bikeOrderLog} (
-    id String,
-    date Date,
-    model String,
-    qty Int32,
-    note Nullable(String),
-    created_by Nullable(String),
-    created_at DateTime64(3) DEFAULT now64(3),
-    updated_at DateTime64(3) DEFAULT now64(3),
-    is_deleted Bool DEFAULT false
-  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY id`,
 ];
 
 // Idempotent column adds for tables that already exist in prod (CREATE TABLE IF NOT

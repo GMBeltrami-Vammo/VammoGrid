@@ -1,8 +1,11 @@
 import type { StockState } from '@/types/planning';
+import { BIKE_MODELS } from '@/types';
 
 // App-wide SKU filter, persisted in the `vg:filter` cookie so Server Components can
 // read it and narrow the dataset before the engines run. Bike models come from
 // part_compat; category from the warehouse (BIKE/BATTERY/BOX); q is free text.
+
+const VALID_MODELS: ReadonlySet<string> = new Set(BIKE_MODELS);
 
 export interface PlanningFilter {
   models: string[];
@@ -40,7 +43,10 @@ export function parseFilterCookie(raw: string | undefined): PlanningFilter {
   try {
     const o = JSON.parse(txt) as Partial<PlanningFilter>;
     return {
-      models: Array.isArray(o.models) ? o.models.map(String) : [],
+      // Drop stale model keys (e.g. the pre-consolidation `cpx_preta` after models
+      // collapsed to cpx/comfort) — otherwise a stale cookie matches NO SKU and
+      // silently empties every scoped page.
+      models: Array.isArray(o.models) ? o.models.map(String).filter((m) => VALID_MODELS.has(m)) : [],
       category: o.category ? String(o.category) : null,
       q: typeof o.q === 'string' ? o.q : '',
       skus: Array.isArray(o.skus) ? o.skus.map(String) : [],

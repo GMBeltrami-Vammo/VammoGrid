@@ -65,7 +65,11 @@ export default async function ExecutiveDashboard() {
       {snap.stocks.length === 0 ? (
         <EmptyState
           title="Sem dados de estoque"
-          hint="Configure CLICKHOUSE_HOST/USER/PASSWORD/DATABASE para carregar estoque, previsão e movimentos."
+          hint={
+            snap.backend === 'clickhouse'
+              ? 'Nenhum SKU no escopo/filtro atual. Limpe os filtros no topo ou ajuste o escopo padrão na aba SKUs.'
+              : 'Configure CLICKHOUSE_HOST/USER/PASSWORD/DATABASE para carregar estoque, previsão e movimentos.'
+          }
         />
       ) : (
         <>

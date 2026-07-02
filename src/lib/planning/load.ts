@@ -121,10 +121,14 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
   // reference universe. ignoreSkuSelection bypasses it (the "Lista completa" tab
   // and single-SKU deep links must still see every SKU). Fail-open: an empty
   // scope set means "no scope defined" → show all (never hide the whole catalog).
-  const scopedStocks =
-    !ignoreSkuSelection && scopeSet.size > 0
-      ? allStocks.filter((s) => scopeSet.has(s.skuBase))
-      : allStocks;
+  let scopedStocks = allStocks;
+  if (!ignoreSkuSelection && scopeSet.size > 0) {
+    const narrowed = allStocks.filter((s) => scopeSet.has(s.skuBase));
+    // Fail-open: a scope that matches NOTHING (stale or format-mismatched sku_bases)
+    // must not silently hide the whole catalog — fall back to all stocks. Only narrow
+    // when the scope actually selects something.
+    if (narrowed.length > 0) scopedStocks = narrowed;
+  }
 
   // Apply the app-wide filter once, here, so every downstream surface (dashboard,
   // projection, procurement, transfers) operates on the same narrowed SKU set.

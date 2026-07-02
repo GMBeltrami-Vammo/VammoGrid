@@ -1,22 +1,19 @@
 import { safeComputeSnapshot } from '@/lib/planning/load';
-import { buildWeekGrid } from '@/lib/planning/weekgrid';
+import { buildAllScenarioGrids } from '@/lib/planning/weekgrid';
 import { fetchServiceLevelTier } from '@/lib/planning/source/globalSettings';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { WeekGridView } from '@/components/planning/WeekGridView';
-import type { WeekGridScenario } from '@/types/planning';
 
 export const dynamic = 'force-dynamic';
 
-const SCENARIOS: WeekGridScenario[] = ['baseline', 'air_only', 'sea_only', 'complete'];
 const HORIZONS = [8, 12, 16, 20];
 
 export default async function SemanasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cenario?: string; sem?: string }>;
+  searchParams: Promise<{ sem?: string }>;
 }) {
   const sp = await searchParams;
-  const scenario = (SCENARIOS.includes(sp.cenario as WeekGridScenario) ? sp.cenario : 'baseline') as WeekGridScenario;
   const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 8;
 
   const [snap, tier] = await Promise.all([safeComputeSnapshot(), fetchServiceLevelTier()]);
@@ -31,11 +28,11 @@ export default async function SemanasPage({
     );
   }
 
-  const grid = buildWeekGrid({
+  // All 4 scenarios computed once; the client toggles between them with no round-trip.
+  const grids = buildAllScenarioGrids({
     inputs: snap,
     purchases: snap.purchases,
     weeks,
-    scenario,
     serviceLevelTier: tier,
   });
 
@@ -44,11 +41,11 @@ export default async function SemanasPage({
       <PageHeader
         eyebrow="Semanas"
         title="Heatmap semanal"
-        subtitle="Estoque projetado por SKU e semana — consumo médio/dia, cobertura, ruptura e chegada de pedidos marítimos/aéreos. Simule cobertura aérea/marítima e ajuste horizonte e piso de DOH."
+        subtitle="Estoque projetado por SKU e semana. Base = só pedidos já registrados; os cenários simulam comprar QUANDO NECESSÁRIO via aéreo, marítimo ou o melhor dos dois (combinado)."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
 
-      <WeekGridView grid={grid} scenario={scenario} weeks={weeks} tier={tier} />
+      <WeekGridView grids={grids} weeks={weeks} tier={tier} />
     </div>
   );
 }

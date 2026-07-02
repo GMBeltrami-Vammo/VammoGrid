@@ -119,48 +119,111 @@ function sampleCells(
   });
 }
 
-/** Build the what-if orders injected by a coverage scenario (C1). Air arrives at
- *  today + air lead; sea at the next monthly batch (1st) + sea lead. Quantity is the
- *  purchase engine's suggested orderQty (a lead-time-demand cover as fallback). */
-function scenarioOrders(
-  scenario: WeekGridScenario,
-  stock: StockState,
-  policy: SkuPolicy,
-  purchase: PurchaseSuggestion | undefined,
-  today: string,
-): OpenPurchaseOrder[] {
+const MAX_INJECTIONS = 6; // cap the when-needed reorder loop per SKU
+
+/** First day (offset 1..horizon) the projected DOH falls below the floor; -1 if never. */
+function firstBreachDay(proj: StockProjection, dohFloor: number, horizonDays: number): number {
+  for (let d = 1; d <= horizonDays; d++) {
+    const p = proj.timeline[d];
+    if (!p || p.demand <= 0) continue;
+    if (p.stock / p.demand < dohFloor) return d;
+  }
+  return -1;
+}
+
+/** Latest monthly-batch (1st-of-month) sea order whose arrival offset ≤ breach; if
+ *  even the first batch lands after the breach, the earliest batch (arriving late). */
+function seaArrivalForBreach(today: string, breachOffset: number, seaDays: number): number {
+  let earliest = -1;
+  let best = -1;
+  let cursor = nextFirstOfMonth(today);
+  for (let k = 0; k < 24; k++) {
+    const arrivalOffset = diffDays(today, cursor) + seaDays;
+    if (earliest === -1) earliest = arrivalOffset;
+    if (arrivalOffset <= breachOffset) best = arrivalOffset;
+    else break; // arrivals only grow month to month
+    cursor = nextFirstOfMonth(addDays(cursor, 1));
+  }
+  return best !== -1 ? best : earliest;
+}
+
+/**
+ * "Buy when needed" injection (request): instead of a buy-NOW arrival, repeatedly find
+ * the next point the projection would drop below the coverage floor and inject an order
+ * of the scenario's modal that lands right when needed — air at the breach (ordered
+ * breach−airLead, or ASAP if too soon), sea on the latest monthly batch that still
+ * arrives in time (else the earliest, late), complete = sea if a batch makes it, else
+ * air. Iterates so a long horizon gets successive reorders, like real replenishment.
+ */
+function whenNeededInjection(args: {
+  scenario: WeekGridScenario;
+  stock: StockState;
+  forecast: SkuForecast | null;
+  policy: SkuPolicy;
+  shares: Record<HubId, number>;
+  baseOrders: OpenPurchaseOrder[];
+  today: string;
+  dohFloor: number;
+  horizonDays: number;
+}): OpenPurchaseOrder[] {
+  const { scenario, stock, forecast, policy, shares, baseOrders, today, dohFloor, horizonDays } = args;
   if (scenario === 'baseline') return [];
-  const qty =
-    purchase && purchase.orderQty > 0
-      ? purchase.orderQty
-      : Math.max(0, Math.round(purchase?.expectedLeadTimeDemand ?? 0));
-  if (qty <= 0) return [];
 
   const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
   const airDays = Math.max(0, Math.round(policy.leadTimeAirDays ?? INTERNATIONAL_AIR_LEAD_DAYS));
-  const mk = (modal: 'sea' | 'air', arrival: string): OpenPurchaseOrder => ({
-    id: `scn-${modal}`,
-    vo: null,
-    skuCode: stock.skuBase,
-    skuBase: stock.skuBase,
-    skuName: stock.skuName,
-    qty,
-    orderDate: today,
-    eta: arrival,
-    leadTimeDays: modal === 'sea' ? seaDays : airDays,
-    modal,
-    status: 'ordered',
-    prepStatus: null, // a what-if arrival must count as inbound in the projection
-    hubId: 'osasco',
-    source: 'scenario',
-  });
+  const injected: OpenPurchaseOrder[] = [];
+  const orders = [...baseOrders];
 
-  const out: OpenPurchaseOrder[] = [];
-  if (scenario === 'air_only' || scenario === 'complete') out.push(mk('air', addDays(today, airDays)));
-  if (scenario === 'sea_only' || scenario === 'complete') {
-    out.push(mk('sea', addDays(nextFirstOfMonth(today), seaDays)));
+  for (let iter = 0; iter < MAX_INJECTIONS; iter++) {
+    const proj = projectSku({ stock, forecast, orders, policy, shares, today }).global;
+    const bd = firstBreachDay(proj, dohFloor, horizonDays);
+    if (bd < 0) break;
+    const dailyDemand = proj.dailyDemand > 0 ? proj.dailyDemand : proj.timeline[bd]?.demand ?? 0;
+    if (dailyDemand <= 0) break;
+    // Each order covers targetDoi (≥30) days of demand.
+    const qty = Math.max(1, Math.round(dailyDemand * Math.max(policy.targetDoi, 30)));
+
+    // Modal + arrival offset for THIS breach.
+    let modal: 'sea' | 'air';
+    let arrivalOffset: number;
+    if (scenario === 'air_only') {
+      modal = 'air';
+      arrivalOffset = airDays <= bd ? bd : airDays; // land at breach if we can, else ASAP
+    } else if (scenario === 'sea_only') {
+      modal = 'sea';
+      arrivalOffset = seaArrivalForBreach(today, bd, seaDays);
+    } else {
+      // complete: sea if a monthly batch arrives in time, else air at/after the breach.
+      const seaOff = seaArrivalForBreach(today, bd, seaDays);
+      if (seaOff <= bd) {
+        modal = 'sea';
+        arrivalOffset = seaOff;
+      } else {
+        modal = 'air';
+        arrivalOffset = airDays <= bd ? bd : airDays;
+      }
+    }
+    const lead = modal === 'sea' ? seaDays : airDays;
+    const ord: OpenPurchaseOrder = {
+      id: `scn-${iter}`,
+      vo: null,
+      skuCode: stock.skuBase,
+      skuBase: stock.skuBase,
+      skuName: stock.skuName,
+      qty,
+      orderDate: addDays(today, Math.max(0, arrivalOffset - lead)),
+      eta: addDays(today, arrivalOffset),
+      leadTimeDays: lead,
+      modal,
+      status: 'ordered',
+      prepStatus: null, // a what-if arrival counts as inbound in the projection
+      hubId: 'osasco',
+      source: 'scenario',
+    };
+    injected.push(ord);
+    orders.push(ord);
   }
-  return out;
+  return injected;
 }
 
 /** Which week column (1-based) a buy-by date falls in; null when none / beyond grid. */
@@ -204,9 +267,21 @@ export function buildWeekGrid(args: {
     const shares = resolveShares(stock, inputs.shares.get(stock.skuBase));
     const purchase = purchaseBySku.get(stock.skuBase);
 
-    // Baseline = real open orders only; a scenario appends what-if air/sea arrivals.
+    // Baseline = ONLY already-registered orders. A scenario appends "buy when needed"
+    // arrivals (air/sea/complete), bounded to the visible horizon.
     const baseOrders = inputs.ordersBySku.get(stock.skuBase) ?? [];
-    const orders = [...baseOrders, ...scenarioOrders(scenario, stock, policy, purchase, today)];
+    const injected = whenNeededInjection({
+      scenario,
+      stock,
+      forecast,
+      policy,
+      shares,
+      baseOrders,
+      today,
+      dohFloor,
+      horizonDays: weekCount * 7,
+    });
+    const orders = [...baseOrders, ...injected];
 
     const proj = projectSku({ stock, forecast, orders, policy, shares, today });
 
@@ -249,6 +324,23 @@ export function buildWeekGrid(args: {
   for (const h of HUBS) sortRows(byHub[h]);
 
   return { weeks, global, byHub, scenario, dohFloor };
+}
+
+/** All four coverage scenarios in one pass (shared inputs) so the client can toggle
+ *  between them instantly — no per-scenario server round-trip. This is the "calculate
+ *  everything and cache it" path: computed once per page load, held client-side. */
+export function buildAllScenarioGrids(args: {
+  inputs: WeekGridInputs;
+  purchases: PurchaseSuggestion[];
+  weeks?: number;
+  serviceLevelTier?: ServiceLevelTier;
+}): Record<WeekGridScenario, WeekGrid> {
+  const scenarios: WeekGridScenario[] = ['baseline', 'air_only', 'sea_only', 'complete'];
+  const out = {} as Record<WeekGridScenario, WeekGrid>;
+  for (const scenario of scenarios) {
+    out[scenario] = buildWeekGrid({ ...args, scenario });
+  }
+  return out;
 }
 
 // ─── Scope helper (shared label set with the chart components) ────────────────

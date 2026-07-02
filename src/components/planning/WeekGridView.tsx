@@ -11,9 +11,9 @@ import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { InfoHint } from '@/components/planning/InfoHint';
 
-// Weekly stockout heatmap (sub-project C). Scope + scenario + horizon controls (the
-// scenario/horizon reload the server-computed grid via the URL; scope/heat-filter/units
-// are instant client views). Rows = SKUs, columns = W1..Wn end-of-week projected state.
+// Weekly stockout heatmap. All 4 scenarios are precomputed server-side; the scenario
+// toggle, scope, filter and units are instant client-side views. Only the horizon
+// reloads (it changes how many weeks are computed). Rows = SKUs, columns = W1..Wn.
 
 type Scope = 'global' | HubId;
 const SCOPES: { id: Scope; label: string }[] = [
@@ -23,26 +23,25 @@ const SCOPES: { id: Scope; label: string }[] = [
   { id: 'sbc', label: 'SBC' },
 ];
 
+// Scenarios simulate buying WHEN NEEDED (not now). Base = registered orders only.
 const SCENARIOS: { id: WeekGridScenario; label: string }[] = [
-  { id: 'baseline', label: 'Base' },
-  { id: 'air_only', label: 'Só aéreo' },
-  { id: 'sea_only', label: 'Só marítimo' },
-  { id: 'complete', label: 'Completo' },
+  { id: 'baseline', label: 'Base (pedidos atuais)' },
+  { id: 'air_only', label: 'Aéreo qdo necessário' },
+  { id: 'sea_only', label: 'Marítimo qdo necessário' },
+  { id: 'complete', label: 'Combinado' },
 ];
 
 const HORIZONS = [8, 12, 16, 20];
 
-type HeatFilter = 'all' | 'critico' | 'baixo' | 'maritimo' | 'aereo';
+type HeatFilter = 'all' | 'critico' | 'baixo';
 type Unit = 'units' | 'doh';
 
 export function WeekGridView({
-  grid,
-  scenario,
+  grids,
   weeks,
   tier,
 }: {
-  grid: WeekGrid;
-  scenario: WeekGridScenario;
+  grids: Record<WeekGridScenario, WeekGrid>;
   weeks: number;
   tier: ServiceLevelTier;
 }) {
@@ -50,15 +49,17 @@ export function WeekGridView({
   const pathname = usePathname();
   const [navPending, startNav] = useTransition();
 
+  const [scenario, setScenario] = useState<WeekGridScenario>('baseline');
   const [scope, setScope] = useState<Scope>('global');
   const [search, setSearch] = useState('');
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
 
-  const go = (next: { cenario?: WeekGridScenario; sem?: number }) => {
+  const grid = grids[scenario];
+
+  const goHorizon = (sem: number) => {
     const params = new URLSearchParams();
-    params.set('cenario', next.cenario ?? scenario);
-    params.set('sem', String(next.sem ?? weeks));
+    params.set('sem', String(sem));
     startNav(() => router.push(`${pathname}?${params.toString()}`));
   };
 
@@ -70,8 +71,6 @@ export function WeekGridView({
       if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q)) return false;
       if (heat === 'critico' && !r.cells.some((c) => c.isOut)) return false;
       if (heat === 'baixo' && !r.cells.some((c) => c.isLow)) return false;
-      if (heat === 'maritimo' && r.defaultModal !== 'sea') return false;
-      if (heat === 'aereo' && r.defaultModal !== 'air') return false;
       return true;
     });
   }, [allRows, search, heat]);
@@ -109,16 +108,16 @@ export function WeekGridView({
         </div>
       </div>
 
-      {/* Row 2: scenario + horizon + heat filter */}
+      {/* Row 2: scenario (buy-when-needed) + horizon + heat filter */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Cobertura</span>
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Cenário</span>
         {SCENARIOS.map((s) => (
-          <Chip key={s.id} active={scenario === s.id} onClick={() => go({ cenario: s.id })}>{s.label}</Chip>
+          <Chip key={s.id} active={scenario === s.id} onClick={() => setScenario(s.id)}>{s.label}</Chip>
         ))}
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Semanas</span>
         {HORIZONS.map((h) => (
-          <Chip key={h} active={weeks === h} onClick={() => go({ sem: h })}>{h}</Chip>
+          <Chip key={h} active={weeks === h} onClick={() => goHorizon(h)}>{h}</Chip>
         ))}
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Filtro</span>
@@ -126,8 +125,6 @@ export function WeekGridView({
           ['all', 'Tudo'],
           ['critico', 'Crítico'],
           ['baixo', 'Baixo'],
-          ['maritimo', 'Marítimo'],
-          ['aereo', 'Aéreo'],
         ] as const).map(([id, label]) => (
           <Chip key={id} active={heat === id} onClick={() => setHeat(id)}>{label}</Chip>
         ))}

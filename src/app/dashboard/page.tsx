@@ -16,7 +16,6 @@ import { resolveShares } from '@/lib/planning/allocation';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { HUBS } from '@/constants/planningHubs';
 import { InfoHint } from '@/components/planning/InfoHint';
-import { FleetGrowthPanel } from '@/components/planning/FleetGrowthPanel';
 import {
   EmptyState,
   FreshnessBanner,
@@ -101,10 +100,6 @@ export default async function ExecutiveDashboard() {
               hint="próximo ciclo (terça)"
               tone="brand"
             />
-          </div>
-
-          <div className="mt-6">
-            <FleetGrowthPanel today={snap.today} />
           </div>
 
           <p className="mt-6 mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">

@@ -1,40 +1,46 @@
 import { addDays } from './dates';
 
-// Fleet-size growth projection (sub-project E). Pure/deterministic: given the current
-// fleet size and a steady monthly growth rate, project the weekly fleet-size curve by
-// compounding. Reads its inputs from dev.fleet_info (segment 'total'); this module only
-// does the math. NOT wired into the ML demand forecast — visibility only (see spec).
+// Fleet-size growth projection (sub-project E / request #4). Pure/deterministic.
+// LINEAR growth per the user's formula — each step adds rate × baseFleet × dt:
+//   size(t) = base × (1 + monthlyRate × months(t))
+// so the increment over dt is monthlyRate × base × dt (constant absolute rate off the
+// base fleet), NOT compounding. Reads inputs from dev.fleet_info; math only. NOT wired
+// into the ML demand forecast — visibility only.
 
-/** Average weeks per month (365.25 / 12 / 7). Converts the monthly rate to a weekly one. */
+/** Average weeks per month (365.25 / 12 / 7). Converts weeks ↔ months. */
 const WEEKS_PER_MONTH = 4.348;
 
 export interface FleetGrowthPoint {
+  /** Week offset from the anchor (can be negative for realized/past weeks). */
   week: number;
-  /** YYYY-MM-DD at the end of this week (from `today`). */
+  /** YYYY-MM-DD at this week. */
   date: string;
-  /** Projected fleet size, compounded. */
+  /** Projected fleet size (linear). */
   size: number;
 }
 
 /**
- * Weekly fleet-size curve for `weeks` weeks from `today`.
- * size(w) = current × (1 + monthlyRate)^(w / weeksPerMonth), rounded.
- * A zero/undefined rate yields a flat line at the current size.
+ * Weekly fleet-size curve, linear: size(w) = base × (1 + rate × w/weeksPerMonth).
+ * Anchored at `anchor` (the as-of date, size = base). `pastWeeks` extends the curve
+ * backward (realized) and `futureWeeks` forward (estimated); the boundary "today" is
+ * whichever week lands on `today`. A zero rate yields a flat line.
  */
 export function projectFleetGrowth(args: {
-  currentSize: number;
+  base: number;
   monthlyGrowthRate: number;
-  today: string;
-  weeks?: number;
+  anchor: string;
+  pastWeeks?: number;
+  futureWeeks?: number;
 }): FleetGrowthPoint[] {
-  const { currentSize, today } = args;
   const rate = Number.isFinite(args.monthlyGrowthRate) ? args.monthlyGrowthRate : 0;
-  const weeks = Math.max(1, Math.round(args.weeks ?? 26));
-  const base = Math.max(0, Math.round(currentSize));
+  const base = Math.max(0, Math.round(args.base));
+  const past = Math.max(0, Math.round(args.pastWeeks ?? 0));
+  const future = Math.max(1, Math.round(args.futureWeeks ?? 26));
 
-  return Array.from({ length: weeks + 1 }, (_, w) => ({
-    week: w,
-    date: addDays(today, w * 7),
-    size: Math.round(base * Math.pow(1 + rate, w / WEEKS_PER_MONTH)),
-  }));
+  const points: FleetGrowthPoint[] = [];
+  for (let w = -past; w <= future; w++) {
+    const size = Math.max(0, Math.round(base * (1 + rate * (w / WEEKS_PER_MONTH))));
+    points.push({ week: w, date: addDays(args.anchor, w * 7), size });
+  }
+  return points;
 }

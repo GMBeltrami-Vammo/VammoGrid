@@ -211,6 +211,9 @@ export interface WeekCell {
   doh: number | null;
   /** Units arriving (open POs) during the week. */
   inbound: number;
+  /** Arriving units split by modal (maritime vs air), for the arrival markers. */
+  inboundSea: number;
+  inboundAir: number;
   /** Recovered units credited during the week. */
   recovery: number;
   isOut: boolean;
@@ -225,6 +228,8 @@ export interface WeekGridRow {
   leadTimeSource: LeadTimeSource;
   /** Default transport modal — drives the marítimo/aéreo heat filter. */
   defaultModal: TransportModal;
+  /** Average daily consumption (units/day) for the scope — shown in the left column. */
+  dailyDemand: number;
   status: PurchaseStatus;
   isLate: boolean;
   /** Week column the buy-by date falls in (null = no buy-by, or beyond the grid). */

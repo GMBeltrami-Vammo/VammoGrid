@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Recycle, Flag, type LucideIcon } from 'lucide-react';
+import { Recycle, Flag, Ship, Plane, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekGridRow, WeekGridScenario } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import { SERVICE_LEVEL_LABEL, type ServiceLevelTier } from '@/lib/planning/constants';
@@ -161,6 +161,7 @@ export function WeekGridView({
           <thead>
             <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 font-medium">SKU</th>
+              <th className="border-l border-foreground/5 px-2 py-2 text-right font-medium">Consumo/dia</th>
               {grid.weeks.map((w) => (
                 <th key={w.idx} className="border-l border-foreground/5 px-2 py-2 text-center font-medium">
                   <span className="block">Sem {w.idx}</span>
@@ -172,7 +173,7 @@ export function WeekGridView({
           <tbody className="divide-y divide-foreground/5">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={grid.weeks.length + 1} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={grid.weeks.length + 2} className="px-3 py-8 text-center text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -203,6 +204,9 @@ function GridRow({ row, unit }: { row: WeekGridRow; unit: Unit }) {
           {row.skuName}
         </span>
       </td>
+      <td className="border-l border-foreground/5 px-2 py-1.5 text-right align-middle tabular-nums text-xs text-muted-foreground">
+        {row.dailyDemand > 0 ? `${row.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}/d` : '—'}
+      </td>
       {row.cells.map((c, i) => {
         const isBuyBy = row.buyByWeekIdx === i + 1;
         return (
@@ -226,9 +230,20 @@ function GridRow({ row, unit }: { row: WeekGridRow; unit: Unit }) {
                 <span className="block text-[10px] opacity-70">{fmtInt(c.stock)}</span>
               </>
             )}
-            {(c.inbound > 0 || c.recovery > 0) && (
-              <span className="flex items-center justify-center gap-1 text-[9px] font-medium opacity-90">
-                {c.inbound > 0 && <span>{`+${fmtInt(c.inbound)}`}</span>}
+            {(c.inboundSea > 0 || c.inboundAir > 0 || c.recovery > 0) && (
+              <span className="flex flex-wrap items-center justify-center gap-x-1 text-[9px] font-medium opacity-90">
+                {c.inboundSea > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-[color:var(--color-alert-info)]" title="Chegada marítima">
+                    <Ship className="size-2.5" />
+                    {fmtInt(c.inboundSea)}
+                  </span>
+                )}
+                {c.inboundAir > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-brand-600" title="Chegada aérea">
+                    <Plane className="size-2.5" />
+                    {fmtInt(c.inboundAir)}
+                  </span>
+                )}
                 {c.recovery > 0 && (
                   <span className="inline-flex items-center gap-0.5">
                     <Recycle className="size-2.5" />
@@ -253,7 +268,6 @@ function Legend({ dohFloor }: { dohFloor: number }) {
   const items: { cls: string; label: string; hint: Parameters<typeof InfoHint>[0]['id']; icon?: LucideIcon }[] = [
     { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' },
     { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: `Cobertura < ${dohFloor}d (piso)`, hint: 'week-doh' },
-    { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido (+un)', hint: 'week-inbound' },
     { cls: 'bg-brand-500/10 text-brand-600', label: 'Recuperação', hint: 'recovery-line', icon: Recycle },
   ];
   return (
@@ -264,6 +278,12 @@ function Legend({ dohFloor }: { dohFloor: number }) {
           {it.label} {it.icon && <it.icon className="size-3" />} <InfoHint id={it.hint} />
         </span>
       ))}
+      <span className="flex items-center gap-1.5 text-[color:var(--color-alert-info)]">
+        <Ship className="size-3" /> Chegada marítima <InfoHint id="week-inbound" />
+      </span>
+      <span className="flex items-center gap-1.5 text-brand-600">
+        <Plane className="size-3" /> Chegada aérea
+      </span>
       <span className="flex items-center gap-1.5">
         <Flag className="size-3 text-alert-warning" /> Semana-limite de compra <InfoHint id="buy-by-week" />
       </span>

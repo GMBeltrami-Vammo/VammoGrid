@@ -12,6 +12,7 @@ import type {
   WeekGridScenario,
   WeekMeta,
 } from '@/types/planning';
+import { countsAsInbound } from '@/types/planning';
 import { resolveShares } from './allocation';
 import {
   DEFAULT_LEAD_TIME_DAYS,
@@ -57,9 +58,40 @@ interface WeekGridInputs {
   today: string;
 }
 
-/** Sample one scope's projection timeline into per-week cells. */
-function sampleCells(proj: StockProjection, weeks: WeekMeta[], dohFloor: number): WeekCell[] {
-  return weeks.map((w) => {
+const OPEN_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
+
+/** Per-week arriving units split by modal, from the SKU's orders (same arrival rule
+ *  the projection uses). Applied to the scopes that receive POs (global + Osasco). */
+function modalArrivalsByWeek(
+  orders: OpenPurchaseOrder[],
+  weeks: WeekMeta[],
+  today: string,
+): { sea: number; air: number }[] {
+  const out = weeks.map(() => ({ sea: 0, air: 0 }));
+  for (const o of orders) {
+    if (!OPEN_STATUSES.has(o.status)) continue;
+    if (!countsAsInbound(o.prepStatus)) continue;
+    const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
+    if (!arrival) continue;
+    const offset = diffDays(today, arrival);
+    // Bucket into the week whose [end-6 .. end] window contains the arrival offset.
+    const wi = weeks.findIndex((w) => offset <= w.dayOffset && offset > w.dayOffset - 7);
+    if (wi === -1) continue;
+    if (o.modal === 'air') out[wi].air += o.qty;
+    else out[wi].sea += o.qty; // default/unknown modal counts as maritime
+  }
+  return out;
+}
+
+/** Sample one scope's projection timeline into per-week cells. `modalArrivals` is the
+ *  per-week sea/air split for this scope (zeros for spoke hubs, which receive no POs). */
+function sampleCells(
+  proj: StockProjection,
+  weeks: WeekMeta[],
+  dohFloor: number,
+  modalArrivals: { sea: number; air: number }[],
+): WeekCell[] {
+  return weeks.map((w, wi) => {
     const end = proj.timeline[w.dayOffset];
     const stock = end?.stock ?? 0;
     const demand = end?.demand ?? 0;
@@ -77,6 +109,8 @@ function sampleCells(proj: StockProjection, weeks: WeekMeta[], dohFloor: number)
       stock,
       doh,
       inbound: Math.round(inbound),
+      inboundSea: Math.round(modalArrivals[wi]?.sea ?? 0),
+      inboundAir: Math.round(modalArrivals[wi]?.air ?? 0),
       recovery: Math.round(recovery),
       isOut: stock <= 0,
       isLow: doh != null && doh < dohFloor,
@@ -181,18 +215,22 @@ export function buildWeekGrid(args: {
       skuName: stock.skuName,
       leadTimeSource: policy.leadTimeSource,
       defaultModal: policy.defaultModal,
+      dailyDemand: Math.round((proj.global.dailyDemand + Number.EPSILON) * 100) / 100,
       status: purchase?.status ?? 'OK',
       isLate: purchase?.isLate ?? false,
       buyByWeekIdx: buyByWeek(purchase?.buyByDate ?? null, today, weekCount),
     } as const;
 
-    const rowFor = (proj: StockProjection): WeekGridRow => ({
+    // POs land at Osasco → only the global + Osasco streams see arrivals; spokes get 0.
+    const arrivals = modalArrivalsByWeek(orders, weeks, today);
+    const noArrivals = weeks.map(() => ({ sea: 0, air: 0 }));
+    const rowFor = (proj: StockProjection, hasArrivals: boolean): WeekGridRow => ({
       ...meta,
-      cells: sampleCells(proj, weeks, dohFloor),
+      cells: sampleCells(proj, weeks, dohFloor, hasArrivals ? arrivals : noArrivals),
     });
 
-    global.push(rowFor(proj.global));
-    for (const h of HUBS) byHub[h].push(rowFor(proj.byHub[h]));
+    global.push(rowFor(proj.global, true));
+    for (const h of HUBS) byHub[h].push(rowFor(proj.byHub[h], h === 'osasco'));
   }
 
   // Sort each scope: earliest stockout first, then by name. A row's urgency is the

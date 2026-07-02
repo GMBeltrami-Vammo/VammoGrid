@@ -23,7 +23,7 @@ import {
 } from './constants';
 import { addDays, diffDays, nextFirstOfMonth } from './dates';
 import { defaultPolicyFor } from './policy';
-import { projectSku } from './projection';
+import { forwardAvgDemand, projectSku } from './projection';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly stockout heatmap — a VIEW of the existing projection, sampled at week
@@ -83,18 +83,24 @@ function modalArrivalsByWeek(
   return out;
 }
 
-/** Sample one scope's projection timeline into per-week cells. `modalArrivals` is the
- *  per-week sea/air split for this scope (zeros for spoke hubs, which receive no POs). */
+type ModalSplit = { sea: number; air: number }[];
+
+/** Sample one scope's projection timeline into per-week cells. `arrReg`/`arrSug` are the
+ *  per-week sea/air arrival splits for REGISTERED (already-placed) vs SUGGESTED (scenario
+ *  when-needed) orders — zeros for spoke hubs, which receive no POs. */
 function sampleCells(
   proj: StockProjection,
   weeks: WeekMeta[],
   dohFloor: number,
-  modalArrivals: { sea: number; air: number }[],
+  arrReg: ModalSplit,
+  arrSug: ModalSplit,
 ): WeekCell[] {
   return weeks.map((w, wi) => {
     const end = proj.timeline[w.dayOffset];
     const stock = end?.stock ?? 0;
-    const demand = end?.demand ?? 0;
+    // DOH = stock ÷ the NEXT 7 days' average daily demand (not the single end-of-week
+    // day, which was erratic). Consistent with the SKU-detail chart + breach detection.
+    const fwd = forwardAvgDemand(proj.timeline, w.dayOffset, 7);
     // Sum inbound + recovery over the 7 days that make up this week.
     let inbound = 0;
     let recovery = 0;
@@ -104,13 +110,17 @@ function sampleCells(
       inbound += p.inbound;
       recovery += p.recovery;
     }
-    const doh = demand > 0 ? Math.round(stock / demand) : null;
+    const doh = fwd > 0 ? Math.round(stock / fwd) : null;
+    const reg = arrReg[wi] ?? { sea: 0, air: 0 };
+    const sug = arrSug[wi] ?? { sea: 0, air: 0 };
     return {
       stock,
       doh,
       inbound: Math.round(inbound),
-      inboundSea: Math.round(modalArrivals[wi]?.sea ?? 0),
-      inboundAir: Math.round(modalArrivals[wi]?.air ?? 0),
+      inboundSea: Math.round(reg.sea + sug.sea),
+      inboundAir: Math.round(reg.air + sug.air),
+      arrReg: { sea: Math.round(reg.sea), air: Math.round(reg.air) },
+      arrSug: { sea: Math.round(sug.sea), air: Math.round(sug.air) },
       recovery: Math.round(recovery),
       isOut: stock <= 0,
       isLow: doh != null && doh < dohFloor,
@@ -121,12 +131,16 @@ function sampleCells(
 
 const MAX_INJECTIONS = 6; // cap the when-needed reorder loop per SKU
 
-/** First day (offset 1..horizon) the projected DOH falls below the floor; -1 if never. */
+/** First day (offset 1..horizon) the projected DOH falls below the floor; -1 if never.
+ *  Uses the same forward-7-day-average DOH as the cells, so the scenario's when-needed
+ *  orders target exactly the coverage number the heatmap shows. */
 function firstBreachDay(proj: StockProjection, dohFloor: number, horizonDays: number): number {
   for (let d = 1; d <= horizonDays; d++) {
     const p = proj.timeline[d];
-    if (!p || p.demand <= 0) continue;
-    if (p.stock / p.demand < dohFloor) return d;
+    if (!p) continue;
+    const fwd = forwardAvgDemand(proj.timeline, d, 7);
+    if (fwd <= 0) continue;
+    if (p.stock / fwd < dohFloor) return d;
   }
   return -1;
 }
@@ -297,11 +311,20 @@ export function buildWeekGrid(args: {
     } as const;
 
     // POs land at Osasco → only the global + Osasco streams see arrivals; spokes get 0.
-    const arrivals = modalArrivalsByWeek(orders, weeks, today);
+    // Split registered (already-placed) from suggested (scenario when-needed) so the
+    // hover tooltip can label each; the inline totals are their sum.
+    const regArrivals = modalArrivalsByWeek(baseOrders, weeks, today);
+    const sugArrivals = modalArrivalsByWeek(injected, weeks, today);
     const noArrivals = weeks.map(() => ({ sea: 0, air: 0 }));
     const rowFor = (proj: StockProjection, hasArrivals: boolean): WeekGridRow => ({
       ...meta,
-      cells: sampleCells(proj, weeks, dohFloor, hasArrivals ? arrivals : noArrivals),
+      cells: sampleCells(
+        proj,
+        weeks,
+        dohFloor,
+        hasArrivals ? regArrivals : noArrivals,
+        hasArrivals ? sugArrivals : noArrivals,
+      ),
     });
 
     global.push(rowFor(proj.global, true));

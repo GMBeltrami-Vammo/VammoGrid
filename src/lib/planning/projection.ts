@@ -33,6 +33,30 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/**
+ * Days-of-cover denominator: the average daily consumption over the NEXT `window` days
+ * (default 7 — "next week's predicted daily average"). This is the canonical DOH rate
+ * across the app — stock ÷ this = coverage. It replaces dividing by a single day's
+ * forecast, which is erratic (a spiky/zero day made DOH jump or vanish). Falls back to
+ * the point's own demand at the very end of the horizon (no forward days left).
+ */
+export function forwardAvgDemand(
+  timeline: { demand: number }[],
+  fromDay: number,
+  window = 7,
+): number {
+  let sum = 0;
+  let n = 0;
+  for (let k = 1; k <= window; k++) {
+    const p = timeline[fromDay + k];
+    if (!p) break;
+    sum += p.demand;
+    n++;
+  }
+  if (n === 0) return timeline[fromDay]?.demand ?? 0;
+  return sum / n;
+}
+
 /** Inbound open-PO units bucketed by arrival day-offset from `today`. */
 function bucketReceipts(orders: OpenPurchaseOrder[], today: string, horizon: number): number[] {
   const receipts = new Array<number>(horizon + 1).fill(0);
@@ -165,7 +189,12 @@ export function projectStream(i: StreamInput): StockProjection {
     });
   }
 
-  const dohNow = avgDaily > 0 ? i.startStock / avgDaily : null;
+  // Current coverage uses the NEXT 7 days' average daily demand (the canonical DOH
+  // rate) so it matches the projection chart's starting point and the heatmap cells —
+  // one definition of "days of cover" everywhere. dailyDemand stays a 30-day mean (a
+  // stable "typical consumption" figure).
+  const nextWeekRate = forwardAvgDemand(timeline, 0, 7);
+  const dohNow = nextWeekRate > 0 ? i.startStock / nextWeekRate : null;
   return {
     skuBase: i.skuBase,
     skuName: i.skuName,

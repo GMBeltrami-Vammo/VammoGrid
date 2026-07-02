@@ -6,6 +6,7 @@ import type {
 } from '@/types/planning';
 import { DEFAULT_LEAD_TIME_DAYS, ELABORATION_DOH_THRESHOLD, INTERNATIONAL_AIR_LEAD_DAYS } from './constants';
 import { addDays, nextFirstOfMonth } from './dates';
+import { forwardAvgDemand } from './projection';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Elaboration trigger (sub-project B5) — Compras' reorder rule, per the user's
@@ -13,7 +14,7 @@ import { addDays, nextFirstOfMonth } from './dates';
 // never on a schedule that writes. Distinct from the statistical ROP:
 //
 //   1. Scan the projected stock timeline for the first day DOH < threshold (75).
-//      DOH(d) = stock(d) / daily demand(d); no demand ⇒ no breach.
+//      DOH(d) = stock(d) / avg demand of the next 7 days; no demand ⇒ no breach.
 //   2. If none in the horizon → no order.
 //   3. Otherwise pick the modal:
 //      • Maritime is the default, but sea orders only go out on the 1st of the
@@ -46,12 +47,15 @@ export function findElaborationTrigger(args: {
     leadTimeAirDays: airDays,
   };
 
-  // 1. First day projected DOH dips below the threshold.
+  // 1. First day projected DOH dips below the threshold. DOH uses the NEXT 7 days'
+  //    average demand (canonical rate) — not that single day's demand, which was erratic.
   let firstBreachDate: string | null = null;
   let breachDoh: number | null = null;
   for (const p of projection.timeline) {
-    if (p.day === 0 || p.demand <= 0) continue;
-    const doh = p.stock / p.demand;
+    if (p.day === 0) continue;
+    const rate = forwardAvgDemand(projection.timeline, p.day, 7);
+    if (rate <= 0) continue;
+    const doh = p.stock / rate;
     if (doh < threshold) {
       firstBreachDate = p.date;
       breachDoh = Math.round(doh);

@@ -334,8 +334,8 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         name: 'dohNow (Days on Hand inicial)',
         source: 'src/lib/planning/projection.ts',
         formula:
-          'window = min(30, horizon); avgDaily = Σ(demand.yhat[d] d=1..window)/window; dohNow = avgDaily>0 ? startStock/avgDaily : null → round1',
-        notes: 'Média diária sobre os primeiros min(30,horizon) dias (exclui d=0). Null quando avgDaily=0.',
+          'nextWeekRate = média(demand[d] d=1..7) (forwardAvgDemand); dohNow = nextWeekRate>0 ? startStock/nextWeekRate : null → round1',
+        notes: 'DOH canônico = estoque ÷ consumo médio dos próximos 7 dias (mesma taxa do gráfico e do heatmap). dailyDemand segue média de 30d.',
         ref: 'src/lib/planning/projection.ts:84-128',
       },
       {

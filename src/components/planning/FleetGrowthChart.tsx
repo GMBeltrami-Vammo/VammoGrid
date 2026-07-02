@@ -30,7 +30,16 @@ export interface FleetSegment {
   asOfDate: string | null;
 }
 
-const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
+// Distinct categorical hues (the --chart-* ramp is all one brand-cyan hue, so multiple
+// models rendered as indistinguishable blues). These are visually separable per model.
+const COLORS = [
+  'var(--color-brand-500)', // cyan
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#10b981', // emerald
+  '#ef4444', // red
+  '#ec4899', // pink
+];
 const PAST_WEEKS = 12;
 const FUTURE_WEEKS = 26;
 

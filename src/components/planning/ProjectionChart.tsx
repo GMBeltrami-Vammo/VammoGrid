@@ -14,13 +14,14 @@ import {
   YAxis,
 } from 'recharts';
 import type { ProjectionPoint } from '@/types/planning';
-import type { PoArrival } from '@/lib/planning/projection';
+import { forwardAvgDemand, type PoArrival } from '@/lib/planning/projection';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 
 // Projection cone: shaded lo–hi band + the central stock line, with a red marker at
 // the projected stockout date. Defaults to DOH (days of cover) with a toggle to raw
-// units; DOH(day) = stock(day) / daily demand(day), history uses today's rate.
+// units; DOH(day) = stock(day) / avg daily demand of the NEXT 7 days (not that single
+// day's demand — that was erratic); history uses today's forward rate.
 
 type ChartUnit = 'doh' | 'units';
 
@@ -48,8 +49,9 @@ export function ProjectionChart({
 }) {
   const [unit, setUnit] = useState<ChartUnit>(defaultUnit);
   const isDoh = unit === 'doh';
-  // Days-of-cover divisor: each projection day's own demand; history uses today's rate.
-  const todayRate = timeline[0]?.demand ?? 0;
+  // Days-of-cover divisor: the avg daily demand over the NEXT 7 days at each point
+  // (canonical DOH rate). History uses today's forward rate.
+  const todayRate = forwardAvgDemand(timeline, 0, 7);
   const toVal = (units: number | undefined, rate: number): number | undefined => {
     if (units == null) return undefined;
     if (!isDoh) return units;
@@ -78,7 +80,7 @@ export function ProjectionChart({
   const projData = timeline.map((p, i) => {
     const nextExtrap = i + 1 < timeline.length ? timeline[i + 1].extrapolated : false;
     const isBoundary = !p.extrapolated && nextExtrap;
-    const rate = p.demand;
+    const rate = forwardAvgDemand(timeline, i, 7);
     const lo = toVal(p.stockLo, rate);
     const hi = toVal(p.stockHi, rate);
     const band = lo != null && hi != null ? ([lo, hi] as [number, number]) : undefined;

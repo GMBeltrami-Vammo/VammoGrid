@@ -118,11 +118,11 @@ export const HUB_SHORT: Record<string, string> = {
   sbc: 'SBC',
 };
 
-/** Weekly-grid cell color. Precedence: out > low > inbound (PO) > recovery > ok. */
+/** Weekly-grid cell color. Precedence: out > low > inbound (PO) > ok. Recovery does NOT
+ *  recolor the whole cell — it shows only as a small in-cell detail (the Recycle icon). */
 export function weekCellClass(c: WeekCell): string {
   if (c.isOut) return 'bg-alert-error/15 text-alert-error';
   if (c.isLow) return 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]';
   if (c.inbound > 0) return 'bg-alert-success/10 text-alert-success';
-  if (c.recovery > 0) return 'bg-brand-500/10 text-brand-600';
   return 'text-foreground';
 }

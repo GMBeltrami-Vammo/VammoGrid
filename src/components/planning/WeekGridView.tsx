@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { Recycle, Flag, Ship, Plane, type LucideIcon } from 'lucide-react';
-import type { HubId, WeekGridRow, WeekGridScenario } from '@/types/planning';
+import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import { SERVICE_LEVEL_LABEL, type ServiceLevelTier } from '@/lib/planning/constants';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
@@ -54,6 +54,8 @@ export function WeekGridView({
   const [search, setSearch] = useState('');
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
+  // Cursor-following hover tooltip (fixed-position so it never clips in the scroll area).
+  const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
   const grid = grids[scenario];
 
@@ -175,18 +177,99 @@ export function WeekGridView({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => <GridRow key={r.skuBase} row={r} unit={unit} />)
+              rows.map((r) => (
+                <GridRow
+                  key={r.skuBase}
+                  row={r}
+                  unit={unit}
+                  weeks={grid.weeks}
+                  dohFloor={grid.dohFloor}
+                  onHover={(e, content) => setTip({ x: e.clientX, y: e.clientY, content })}
+                  onLeave={() => setTip(null)}
+                />
+              ))
             )}
           </tbody>
         </table>
       </div>
 
       <Legend dohFloor={grid.dohFloor} />
+
+      {tip && (
+        <div
+          className="pointer-events-none fixed z-50 w-60 rounded-lg border border-border bg-popover px-3 py-2 text-[11px] leading-relaxed shadow-lg"
+          style={{
+            left: Math.min(tip.x + 14, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 252),
+            top: tip.y + 14,
+          }}
+        >
+          {tip.content}
+        </div>
+      )}
     </div>
   );
 }
 
-function GridRow({ row, unit }: { row: WeekGridRow; unit: Unit }) {
+// The hover-detail for one cell: stock, coverage vs floor, and WHAT is happening —
+// registered orders in transit vs suggested (scenario) orders, recovery income, and the
+// buy-by flag. This is the "small window explaining what it is" the heatmap needed.
+function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, dohFloor: number) {
+  return (
+    <div className="space-y-0.5">
+      <div className="font-semibold text-foreground">
+        {row.skuBase} · Sem {idx + 1}
+      </div>
+      <div className="text-muted-foreground">Fim da semana: {fmtDate(week.endDate)}</div>
+      <div>
+        Estoque: <b>{fmtInt(cell.stock)}</b> un
+      </div>
+      <div>
+        Cobertura: <b>{cell.doh != null ? `${cell.doh}d` : '—'}</b>{' '}
+        <span className="text-muted-foreground">(piso {dohFloor}d · próx. 7 dias)</span>
+      </div>
+      <div className="text-muted-foreground">
+        Consumo base: {row.dailyDemand > 0 ? `${row.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}/d` : '—'}
+      </div>
+      {cell.isOut && <div className="font-medium text-alert-error">⚠ Ruptura projetada</div>}
+      {!cell.isOut && cell.isLow && (
+        <div className="font-medium text-[color:var(--color-alert-warning)]">Abaixo do piso de cobertura</div>
+      )}
+      {cell.arrReg.sea > 0 && (
+        <div className="text-[color:var(--color-alert-info)]">Pedido em trânsito (marítimo): +{fmtInt(cell.arrReg.sea)} un</div>
+      )}
+      {cell.arrReg.air > 0 && <div className="text-brand-600">Pedido em trânsito (aéreo): +{fmtInt(cell.arrReg.air)} un</div>}
+      {cell.arrSug.sea > 0 && (
+        <div className="text-[color:var(--color-alert-info)]">Pedido sugerido (marítimo): +{fmtInt(cell.arrSug.sea)} un</div>
+      )}
+      {cell.arrSug.air > 0 && <div className="text-brand-600">Pedido sugerido (aéreo): +{fmtInt(cell.arrSug.air)} un</div>}
+      {cell.recovery > 0 && (
+        <div className="inline-flex items-center gap-1">
+          <Recycle className="size-3" /> Recuperação: +{fmtInt(cell.recovery)} un
+        </div>
+      )}
+      {row.buyByWeekIdx === idx + 1 && (
+        <div className="font-medium text-[color:var(--color-alert-warning)]">Comprar até esta semana</div>
+      )}
+      {cell.extrapolated && <div className="text-muted-foreground">Extrapolado (além do modelo)</div>}
+    </div>
+  );
+}
+
+function GridRow({
+  row,
+  unit,
+  weeks,
+  dohFloor,
+  onHover,
+  onLeave,
+}: {
+  row: WeekGridRow;
+  unit: Unit;
+  weeks: WeekMeta[];
+  dohFloor: number;
+  onHover: (e: React.MouseEvent, content: React.ReactNode) => void;
+  onLeave: () => void;
+}) {
   return (
     <tr className="hover:bg-muted/20">
       <td className="sticky left-0 z-10 bg-card px-3 py-1.5 align-middle">
@@ -210,11 +293,13 @@ function GridRow({ row, unit }: { row: WeekGridRow; unit: Unit }) {
           <td
             key={i}
             className={cn(
-              'border-l border-foreground/5 px-2 py-1.5 text-center align-middle tabular-nums',
+              'cursor-default border-l border-foreground/5 px-2 py-1.5 text-center align-middle tabular-nums',
               weekCellClass(c),
               c.extrapolated && 'opacity-55',
             )}
-            title={c.extrapolated ? 'Além do horizonte do modelo — extrapolado' : undefined}
+            onMouseEnter={(e) => onHover(e, cellTip(row, c, weeks[i], i, dohFloor))}
+            onMouseMove={(e) => onHover(e, cellTip(row, c, weeks[i], i, dohFloor))}
+            onMouseLeave={onLeave}
           >
             {unit === 'units' ? (
               <>
@@ -265,7 +350,7 @@ function Legend({ dohFloor }: { dohFloor: number }) {
   const items: { cls: string; label: string; hint: Parameters<typeof InfoHint>[0]['id']; icon?: LucideIcon }[] = [
     { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' },
     { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: `Cobertura < ${dohFloor}d (piso)`, hint: 'week-doh' },
-    { cls: 'bg-brand-500/10 text-brand-600', label: 'Recuperação', hint: 'recovery-line', icon: Recycle },
+    { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido', hint: 'week-inbound' },
   ];
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
@@ -280,6 +365,9 @@ function Legend({ dohFloor }: { dohFloor: number }) {
       </span>
       <span className="flex items-center gap-1.5 text-brand-600">
         <Plane className="size-3" /> Chegada aérea
+      </span>
+      <span className="flex items-center gap-1.5 text-brand-600">
+        <Recycle className="size-3" /> Recuperação (entrada de peças) <InfoHint id="recovery-line" />
       </span>
       <span className="flex items-center gap-1.5">
         <Flag className="size-3 text-alert-warning" /> Semana-limite de compra <InfoHint id="buy-by-week" />

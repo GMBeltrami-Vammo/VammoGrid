@@ -185,7 +185,8 @@ export interface StockProjection {
   currentStock: number;
   /** Total forecast daily demand at this scope at the start (units/day). */
   dailyDemand: number;
-  /** Days of cover at the current rate, ignoring inbound/recovery. */
+  /** Days of cover = stock ÷ the next 7 days' average demand (canonical DOH rate),
+   *  ignoring inbound/recovery. */
   dohNow: number | null;
   /** First date stock hits 0 considering inbound + recovery; null if none in horizon. */
   stockoutDate: string | null;
@@ -209,13 +210,19 @@ export interface WeekMeta {
 /** One SKU × week cell: end-of-week projected state. */
 export interface WeekCell {
   stock: number;
-  /** Days-of-hand at week end = stock / that day's daily demand; null when no demand. */
+  /** Days-of-hand at week end = stock / the NEXT 7 days' average daily demand; null when
+   *  no upcoming demand. */
   doh: number | null;
   /** Units arriving (open POs) during the week. */
   inbound: number;
-  /** Arriving units split by modal (maritime vs air), for the arrival markers. */
+  /** Arriving units split by modal (maritime vs air) — totals (registered + suggested),
+   *  for the inline arrival markers. */
   inboundSea: number;
   inboundAir: number;
+  /** Registered (already-placed) order arrivals this week, by modal — for the tooltip. */
+  arrReg: { sea: number; air: number };
+  /** Suggested (scenario "buy when needed") arrivals this week, by modal — for the tooltip. */
+  arrSug: { sea: number; air: number };
   /** Recovered units credited during the week. */
   recovery: number;
   isOut: boolean;

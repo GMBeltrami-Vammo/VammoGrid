@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Check, Plus, X } from 'lucide-react';
@@ -54,12 +54,20 @@ export function SkuTable({
   rows,
   filter,
   scopeSkus,
+  matchingSkus,
+  filterSignature,
   isHead = false,
 }: {
   rows: SkuRow[];
   filter: PlanningFilter;
   /** sku_bases in the active default universe (sub-project A). Undefined = no scope defined. */
   scopeSkus?: string[];
+  /** SKUs matching the current TOP filter (Com previsão / Modelos / categoria). When set
+   *  (a top filter is active), the selection syncs to it — filtering checks/unchecks. null
+   *  = no top filter active → the selection is left alone. */
+  matchingSkus?: string[] | null;
+  /** Serialized top-filter state — the sync effect fires only when this changes. */
+  filterSignature?: string;
   /** Only Heads may edit the scope. */
   isHead?: boolean;
 }) {
@@ -109,6 +117,15 @@ export function SkuTable({
     // The selection lives in its own chunked cookies (it can be large) — not in vg:filter.
     writeSkusCookies([...next]);
   };
+
+  // The top filters (Com previsão / Modelos / categoria) drive the selection: when a top
+  // filter is active, sync the selection to exactly the SKUs it matches — filtering
+  // checks/unchecks. Fires only when the filter changes, so manual checkbox edits persist.
+  useEffect(() => {
+    if (matchingSkus == null) return; // no top filter active → leave the selection alone
+    persist(new Set(matchingSkus));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterSignature]);
 
   const toggle = (skuBase: string) => {
     const next = new Set(selected);

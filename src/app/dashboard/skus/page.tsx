@@ -8,17 +8,33 @@ import { SkuTable, type SkuRow } from '@/components/planning/SkuTable';
 export const dynamic = 'force-dynamic';
 
 export default async function SkusPage() {
-  // ignoreSkuSelection: the SKUs page is the full catalog + scope MANAGER — it must
-  // list EVERY SKU (bypassing the default-scope narrowing) so the user can add/remove
-  // any SKU to/from the default universe. The hand-picked cookie set + the default
-  // scope both narrow every OTHER analysis, not this table.
+  // The SKUs page lists EVERY SKU always (ignoreSkuSelection + ignoreFilter) — neither
+  // the default scope nor the top filter hides rows here. The checkbox = the hand-picked
+  // selection, which IS "visible to the other pages". The top filters drive that
+  // selection: `matchingSkus` = the SKUs passing the current top filter, which the table
+  // syncs into the selection so filtering checks/unchecks SKUs.
   const [snap, scopeSet, policies, session] = await Promise.all([
-    safeComputeSnapshot(true),
+    safeComputeSnapshot(true, true),
     fetchActiveScope(),
     fetchSkuPolicies(),
     auth(),
   ]);
   const isHead = session?.user?.isHead ?? false;
+
+  // Which SKUs the current top filter (models / category / q / com previsão) matches.
+  // null when no top filter is active (→ the table leaves the selection alone).
+  const tf = snap.filter;
+  const topFilterActive =
+    tf.models.length > 0 || tf.category != null || tf.q.trim().length > 0 || tf.withForecast;
+  const matchingSkus = topFilterActive
+    ? (await safeComputeSnapshot(true, false)).stocks.map((s) => s.skuBase)
+    : null;
+  const filterSignature = JSON.stringify({
+    models: tf.models,
+    category: tf.category,
+    q: tf.q,
+    withForecast: tf.withForecast,
+  });
 
   const stockByBase = new Map(snap.stocks.map((s) => [s.skuBase, s]));
 
@@ -74,7 +90,7 @@ export default async function SkusPage() {
       <PageHeader
         eyebrow="Catálogo · Lista completa"
         title="SKUs"
-        subtitle="Todos os SKUs (catálogo completo). Marque quais entram no escopo padrão — o conjunto que todas as análises usam por padrão. Filtre por categoria, classe ABC, risco ou escopo."
+        subtitle="Todos os SKUs. A caixa de seleção marca os SKUs visíveis nas demais páginas (análises) — quando há seleção, ela define exatamente o que as análises mostram. Use os filtros do topo (Com previsão, Modelos, categoria) para marcar/desmarcar em lote, ou marque manualmente."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
 
@@ -85,6 +101,8 @@ export default async function SkusPage() {
           rows={rows}
           filter={snap.filter}
           scopeSkus={[...scopeSet]}
+          matchingSkus={matchingSkus}
+          filterSignature={filterSignature}
           isHead={isHead}
         />
       )}

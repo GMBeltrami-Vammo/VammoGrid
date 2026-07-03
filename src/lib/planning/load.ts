@@ -105,7 +105,7 @@ function readSkuChunkCookies(cookieStore: Awaited<ReturnType<typeof cookies>>): 
   );
 }
 
-export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Promise<PlanningInputs> => {
+export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignoreFilter = false): Promise<PlanningInputs> => {
   const today = todayUtc();
   const nowIso = new Date().toISOString();
   const cookieStore = await cookies();
@@ -147,19 +147,30 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Prom
     if (narrowed.length > 0) scopedStocks = narrowed;
   }
 
-  // Apply the app-wide filter once, here, so every downstream surface (dashboard,
-  // projection, procurement, transfers) operates on the same narrowed SKU set.
-  // The SKU manager + single-SKU detail views pass ignoreSkuSelection so they can
-  // still list/show every SKU; all aggregate analyses respect the hand-picked set.
-  const narrowFilter = ignoreSkuSelection ? { ...filter, skus: [] } : filter;
-  const stocks = isFilterActive(narrowFilter)
-    ? scopedStocks.filter(
-        (s) =>
-          skuPasses(narrowFilter, s, compatModels) &&
-          // "Com previsão": only SKUs with a demand forecast (needs the forecast map).
-          (!narrowFilter.withForecast || forecastBundle.bySku.has(s.skuBase)),
-      )
-    : scopedStocks;
+  // Which SKUs the analyses see. Three modes:
+  //   • ignoreFilter → the full catalog (SKUs page: every SKU always listed).
+  //   • a hand-picked selection is present → EXACTLY that selection, from the full
+  //     catalog, OVERRIDING the default scope + top filter. The SKUs-page checkbox is
+  //     then the single "visible to the analyses" control: checked ⟺ visible.
+  //   • otherwise → the default scope narrowed by the top filter (models/category/q/
+  //     withForecast).
+  let stocks: StockState[];
+  if (ignoreFilter) {
+    stocks = allStocks;
+  } else if (!ignoreSkuSelection && filter.skus.length > 0) {
+    const sel = new Set(filter.skus);
+    stocks = allStocks.filter((s) => sel.has(s.skuBase));
+  } else {
+    const narrowFilter = ignoreSkuSelection ? { ...filter, skus: [] } : filter;
+    stocks = isFilterActive(narrowFilter)
+      ? scopedStocks.filter(
+          (s) =>
+            skuPasses(narrowFilter, s, compatModels) &&
+            // "Com previsão": only SKUs with a demand forecast (needs the forecast map).
+            (!narrowFilter.withForecast || forecastBundle.bySku.has(s.skuBase)),
+        )
+      : scopedStocks;
+  }
 
   // Apply the what-if scenario (read-only): scale demand, delay open POs. Done here
   // so the entire app reflects the simulation without touching production data.
@@ -197,8 +208,8 @@ export interface PlanningSnapshot extends PlanningInputs {
   transfers: TransferSuggestion[];
 }
 
-export const computeSnapshot = cache(async (ignoreSkuSelection = false): Promise<PlanningSnapshot> => {
-  const inp = await loadPlanningInputs(ignoreSkuSelection);
+export const computeSnapshot = cache(async (ignoreSkuSelection = false, ignoreFilter = false): Promise<PlanningSnapshot> => {
+  const inp = await loadPlanningInputs(ignoreSkuSelection, ignoreFilter);
 
   const purchases = purchaseForAll({
     stocks: inp.stocks,
@@ -227,9 +238,10 @@ export const computeSnapshot = cache(async (ignoreSkuSelection = false): Promise
  *  so pages can render the shell + a banner instead of crashing. */
 export async function safeComputeSnapshot(
   ignoreSkuSelection = false,
+  ignoreFilter = false,
 ): Promise<PlanningSnapshot & { error?: string }> {
   try {
-    return await computeSnapshot(ignoreSkuSelection);
+    return await computeSnapshot(ignoreSkuSelection, ignoreFilter);
   } catch (e) {
     console.error('[safeComputeSnapshot]', e instanceof Error ? e.message : e);
     const today = todayUtc();

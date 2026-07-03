@@ -207,7 +207,11 @@ export function projectStream(i: StreamInput): StockProjection {
         : 0;
 
     // Central walk on the expected demand (yhat). POs + recovery are treated as known.
-    stock = stock + inbound + recovery - demand;
+    // FLOORED at 0 (lost-sales semantics): during a rupture, unmet demand is LOST, not
+    // backordered — without the floor the deficit kept accumulating negatively and a
+    // later PO arrival was silently swallowed paying it off (the chart showed the
+    // arrival marker but no stock bump, the reported VO-276 case).
+    stock = Math.max(0, stock + inbound + recovery - demand);
     if (d > 0) {
       const devLo = Math.max(0, i.demand.yhat[d] - i.demand.lo[d]);
       const devHi = Math.max(0, i.demand.hi[d] - i.demand.yhat[d]);

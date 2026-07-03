@@ -156,9 +156,9 @@ exports[`buildAllScenarioGrids — characterization (regression gate) > doh crit
   "  w3 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w4 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w5 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
-  "  w6 stock=1480 doh=148 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
-  "  w7 stock=1410 doh=141 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
-  "  w8 stock=1340 doh=134 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w6 stock=1770 doh=177 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
+  "  w7 stock=1700 doh=170 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w8 stock=1630 doh=163 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
   "[global] SKU-REPAIR name=Repairable Part lead=international-default modal=sea dd=4 status=OK late=false buyBy=6",
   "  w1 stock=1616 doh=404 in=1440 sea=0 air=1440 reg=0/0 sug=0/1440 vos=[] rec=4 out=false low=false x=false",
   "  w2 stock=1602 doh=401 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=14 out=false low=false x=false",
@@ -192,9 +192,9 @@ exports[`buildAllScenarioGrids — characterization (regression gate) > doh crit
   "  w3 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w4 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w5 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
-  "  w6 stock=1544 doh=193 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
-  "  w7 stock=1488 doh=186 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
-  "  w8 stock=1432 doh=179 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w6 stock=1776 doh=222 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
+  "  w7 stock=1720 doh=215 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w8 stock=1664 doh=208 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
   "[osasco] SKU-REPAIR name=Repairable Part lead=international-default modal=sea dd=4 status=OK late=false buyBy=6",
   "  w1 stock=1546 doh=644 in=1440 sea=0 air=1440 reg=0/0 sug=0/1440 vos=[] rec=2 out=false low=false x=false",
   "  w2 stock=1537 doh=640 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=8 out=false low=false x=false",
@@ -448,9 +448,9 @@ exports[`buildAllScenarioGrids — characterization (regression gate) > doh crit
   "  w3 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w4 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w5 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
-  "  w6 stock=1480 doh=148 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
-  "  w7 stock=1410 doh=141 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
-  "  w8 stock=1340 doh=134 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w6 stock=1770 doh=177 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
+  "  w7 stock=1700 doh=170 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w8 stock=1630 doh=163 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
   "[global] SKU-REPAIR name=Repairable Part lead=international-default modal=sea dd=4 status=OK late=false buyBy=6",
   "  w1 stock=1616 doh=404 in=1440 sea=0 air=1440 reg=0/0 sug=0/1440 vos=[] rec=4 out=false low=false x=false",
   "  w2 stock=1602 doh=401 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=14 out=false low=false x=false",
@@ -484,9 +484,9 @@ exports[`buildAllScenarioGrids — characterization (regression gate) > doh crit
   "  w3 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w4 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
   "  w5 stock=0 doh=0 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=true low=true x=false",
-  "  w6 stock=1544 doh=193 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
-  "  w7 stock=1488 doh=186 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
-  "  w8 stock=1432 doh=179 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w6 stock=1776 doh=222 in=1800 sea=0 air=1800 reg=0/0 sug=0/1800 vos=[] rec=0 out=false low=false x=false",
+  "  w7 stock=1720 doh=215 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
+  "  w8 stock=1664 doh=208 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=0 out=false low=false x=false",
   "[osasco] SKU-REPAIR name=Repairable Part lead=international-default modal=sea dd=4 status=OK late=false buyBy=6",
   "  w1 stock=1546 doh=644 in=1440 sea=0 air=1440 reg=0/0 sug=0/1440 vos=[] rec=2 out=false low=false x=false",
   "  w2 stock=1537 doh=640 in=0 sea=0 air=0 reg=0/0 sug=0/0 vos=[] rec=8 out=false low=false x=false",
@@ -589,8 +589,8 @@ exports[`buildAllScenarioGrids — characterization (regression gate) > doh crit
 ]
 `;
 
-exports[`buildAllScenarioGrids — characterization (regression gate) > doh criteria, 20 weeks — digest 1`] = `"5c8b06b385141a4d729658af2cf73a881aacc440a4bd5b5bb7ad0e642d430b06"`;
+exports[`buildAllScenarioGrids — characterization (regression gate) > doh criteria, 20 weeks — digest 1`] = `"78866188ab90aeff7be83d3fd49db9706ec594d16e4d5df8e033fdf679444d37"`;
 
-exports[`buildAllScenarioGrids — characterization (regression gate) > rop criteria, 8 weeks — digest 1`] = `"932dad13d1fb99656df8f716c6e63b35530a4743de169a6c401b969b0e3ad881"`;
+exports[`buildAllScenarioGrids — characterization (regression gate) > rop criteria, 8 weeks — digest 1`] = `"b83d18ee928b9ab5e549b90cfeb7bbc8fc5dc13598fe1f07d2d2dd4c7f931694"`;
 
-exports[`buildAllScenarioGrids — characterization (regression gate) > rop criteria, 20 weeks — digest 1`] = `"66c2704e05ae0ad9e243cf3364a2e989bcc46d79319addbd7d56f046bb554ca1"`;
+exports[`buildAllScenarioGrids — characterization (regression gate) > rop criteria, 20 weeks — digest 1`] = `"54bab1711e4f83148c11eac2931dc8d0b80aeba3a080741246f3e62b511c000f"`;

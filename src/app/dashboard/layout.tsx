@@ -2,12 +2,25 @@ import { cookies } from 'next/headers';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { FilterBar } from '@/components/planning/FilterBar';
 import { ScenarioBar } from '@/components/planning/ScenarioBar';
-import { FILTER_COOKIE, parseFilterCookie } from '@/lib/planning/filter';
+import {
+  FILTER_COOKIE,
+  MAX_SKU_CHUNKS,
+  SKU_CHUNK_PREFIX,
+  decodeSkuChunks,
+  parseFilterCookie,
+} from '@/lib/planning/filter';
 import { SCENARIO_COOKIE, parseScenarioCookie } from '@/lib/planning/scenario';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
-  const filter = parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value);
+  const filter = {
+    ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
+    // The selection lives in the chunked vg:skus* cookies — merge it so the bar's
+    // "N selecionados" chip is accurate.
+    skus: decodeSkuChunks(
+      Array.from({ length: MAX_SKU_CHUNKS }, (_, i) => cookieStore.get(`${SKU_CHUNK_PREFIX}${i}`)?.value),
+    ),
+  };
   const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
   return (

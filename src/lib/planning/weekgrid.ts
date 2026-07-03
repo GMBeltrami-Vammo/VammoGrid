@@ -62,6 +62,16 @@ interface WeekGridInputs {
 
 const OPEN_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
 
+/** Which week bucket an arrival day-offset lands in. Weeks are contiguous 7-day
+ *  buckets (week i covers offsets [7i+1 .. 7i+7]), so this is pure index math —
+ *  equivalent to the old `weeks.findIndex(w => offset <= w.dayOffset && offset >
+ *  w.dayOffset - 7)` but O(1): offset ≤ 0 (today/past) never lands in a week. */
+function weekIndexFor(offset: number, weekCount: number): number {
+  if (offset <= 0) return -1;
+  const wi = Math.ceil(offset / 7) - 1;
+  return wi < weekCount ? wi : -1;
+}
+
 /** Per-week arriving units split by modal, from the SKU's orders (same arrival rule
  *  the projection uses). Applied to the scopes that receive POs (global + Osasco). */
 function modalArrivalsByWeek(
@@ -75,9 +85,7 @@ function modalArrivalsByWeek(
     if (!countsAsInbound(o.prepStatus)) continue;
     const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
     if (!arrival) continue;
-    const offset = diffDays(today, arrival);
-    // Bucket into the week whose [end-6 .. end] window contains the arrival offset.
-    const wi = weeks.findIndex((w) => offset <= w.dayOffset && offset > w.dayOffset - 7);
+    const wi = weekIndexFor(diffDays(today, arrival), weeks.length);
     if (wi === -1) continue;
     if (o.modal === 'air') out[wi].air += o.qty;
     else out[wi].sea += o.qty; // default/unknown modal counts as maritime
@@ -94,8 +102,7 @@ function registeredKeysByWeek(orders: OpenPurchaseOrder[], weeks: WeekMeta[], to
     if (!countsAsInbound(o.prepStatus)) continue;
     const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
     if (!arrival) continue;
-    const offset = diffDays(today, arrival);
-    const wi = weeks.findIndex((w) => offset <= w.dayOffset && offset > w.dayOffset - 7);
+    const wi = weekIndexFor(diffDays(today, arrival), weeks.length);
     if (wi === -1) continue;
     const key = o.vo ?? o.id;
     if (key && !out[wi].includes(key)) out[wi].push(key);

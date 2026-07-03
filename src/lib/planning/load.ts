@@ -18,7 +18,7 @@ import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
 import { todayUtc } from './dates';
 import { buildPolicies, defaultPolicyFor } from './policy';
-import { projectSku, type SkuProjections } from './projection';
+import { projectGlobal, projectSku, type SkuProjections } from './projection';
 import { purchaseForAll } from './purchase';
 import { transferForAll } from './transfer';
 import { fetchSopAlerts } from './source/alerts';
@@ -305,18 +305,19 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
       const policy =
         inp.policies.get(stock.skuBase) ??
         defaultPolicyFor(stock.skuBase, stock, forecast?.abcClass ?? 'C', inp.today);
-      const proj = projectSku({
+      // Global scope only — the trigger + quantity plan never read the per-hub streams,
+      // so projecting all 4 scopes here was 4× the needed work.
+      const proj = projectGlobal({
         stock,
         forecast,
         orders: inp.ordersBySku.get(stock.skuBase) ?? [],
         policy,
-        shares: resolveShares(stock, inp.shares.get(stock.skuBase)),
         today: inp.today,
       });
       const purchase = purchaseBySku.get(stock.skuBase);
       const suggestion = findElaborationTrigger({
         stock,
-        projection: proj.global,
+        projection: proj,
         policy,
         today: inp.today,
         criteria,
@@ -326,12 +327,12 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
 
       // Combined air+sea plan: air bridges until the monthly sea order lands, sea sustains.
       const mq = suggestModalQuantities({
-        projection: proj.global,
+        projection: proj,
         policy,
         today: inp.today,
         dohThreshold: criteria.dohThreshold,
       });
-      const fallbackQty = Math.max(0, Math.ceil(proj.global.dailyDemand * Math.max(policy.targetDoi, 30)));
+      const fallbackQty = Math.max(0, Math.ceil(proj.dailyDemand * Math.max(policy.targetDoi, 30)));
       const suggestedQtyAir = mq.airQty; // 0 = air not needed for this SKU
       const suggestedQtySea = mq.seaQty > 0 ? mq.seaQty : fallbackQty;
       // Recommended default = the qty for the modal the trigger picked (fall back if 0).

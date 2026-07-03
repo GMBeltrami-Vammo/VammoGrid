@@ -259,6 +259,51 @@ export interface SkuProjections {
   byHub: Record<HubId, StockProjection>;
 }
 
+interface GlobalProjectionArgs {
+  stock: StockState;
+  forecast: SkuForecast | null;
+  orders: OpenPurchaseOrder[];
+  policy: SkuPolicy;
+  today: string;
+  horizon?: number;
+}
+
+/** The global-scope stream — shared by projectSku and projectGlobal so both entry
+ *  points produce bit-identical global projections through one code path. */
+function globalStream(
+  args: GlobalProjectionArgs,
+  fleet: DailyDemand,
+  receipts: number[],
+  horizon: number,
+): StockProjection {
+  return projectStream({
+    skuBase: args.stock.skuBase,
+    skuName: args.stock.skuName,
+    scope: 'global',
+    startStock: args.stock.total,
+    demand: fleet,
+    receipts,
+    recoveryRate: args.policy.recoveryRate,
+    recoveryTurnaround: args.policy.recoveryTurnaroundDays,
+    creditsRecovery: true,
+    isRepairable: args.policy.isRepairable,
+    today: args.today,
+    horizon,
+  });
+}
+
+/**
+ * Project one SKU at GLOBAL scope only — for consumers that never read the per-hub
+ * streams (the Compras elaboration scan, the heatmap's when-needed injection loop).
+ * 1/4 the work of projectSku; identical global numbers (same code path).
+ */
+export function projectGlobal(args: GlobalProjectionArgs): StockProjection {
+  const horizon = args.horizon ?? HORIZON_DAYS;
+  const fleet = buildDailyDemand(args.forecast, horizon);
+  const receipts = bucketReceipts(args.orders, args.today, horizon);
+  return globalStream(args, fleet, receipts, horizon);
+}
+
 /** Project one SKU at global scope and per hub, using per-hub demand shares. */
 export function projectSku(args: {
   stock: StockState;
@@ -274,20 +319,7 @@ export function projectSku(args: {
   const receiptsGlobal = bucketReceipts(args.orders, args.today, horizon);
   const zeros = new Array<number>(horizon + 1).fill(0);
 
-  const global = projectStream({
-    skuBase: args.stock.skuBase,
-    skuName: args.stock.skuName,
-    scope: 'global',
-    startStock: args.stock.total,
-    demand: fleet,
-    receipts: receiptsGlobal,
-    recoveryRate: args.policy.recoveryRate,
-    recoveryTurnaround: args.policy.recoveryTurnaroundDays,
-    creditsRecovery: true,
-    isRepairable: args.policy.isRepairable,
-    today: args.today,
-    horizon,
-  });
+  const global = globalStream(args, fleet, receiptsGlobal, horizon);
 
   const byHub = {} as Record<HubId, StockProjection>;
   for (const h of HUBS) {

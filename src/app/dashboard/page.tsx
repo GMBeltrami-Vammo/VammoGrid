@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { safeComputeSnapshot } from '@/lib/planning/load';
+import { safeComputeSnapshot, safeComputeTransfers } from '@/lib/planning/load';
 import {
   actionablePurchases,
   computeHubRisk,
@@ -30,13 +30,15 @@ import {
 export const dynamic = 'force-dynamic';
 
 export default async function ExecutiveDashboard() {
-  const snap = await safeComputeSnapshot();
+  // Transfers are computed separately (only this page + Transferências use them);
+  // both share one loadPlanningInputs fetch via React cache().
+  const [snap, transfers] = await Promise.all([safeComputeSnapshot(), safeComputeTransfers()]);
   const counts = countByStatus(snap.purchases);
   const score = healthScore(snap.purchases);
   const actionable = actionablePurchases(snap.purchases);
   const stockouts = upcomingStockouts(snap.purchases, snap.today, 30);
   const cost = totalOrderCost(actionable.filter((p) => p.orderQty > 0));
-  const tByHub = transfersByHub(snap.transfers);
+  const tByHub = transfersByHub(transfers);
   const net = networkOnHand(snap.stocks);
   const purchasesBySku = new Map(snap.purchases.map((p) => [p.skuBase, p]));
   const hubRisk = computeHubRisk({
@@ -102,7 +104,7 @@ export default async function ExecutiveDashboard() {
             />
             <KpiCard
               label="Transferências"
-              value={fmtInt(snap.transfers.length)}
+              value={fmtInt(transfers.length)}
               hint="próximo ciclo (terça)"
               tone="brand"
             />

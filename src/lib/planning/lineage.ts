@@ -569,7 +569,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         name: 'computeSnapshot / safeComputeSnapshot',
         source: 'src/lib/planning/load.ts',
         formula:
-          'computeSnapshot = cache(async): inp = loadPlanningInputs; purchases = purchaseForAll; transfers = transferForAll; return {...inp, purchases, transfers}. safe envolve em try/catch → empty + error',
+          'computeSnapshot = cache(async): inp = loadPlanningInputs; purchases = purchaseForAll; return {...inp, purchases}. transfers vivem em computeTransfers/safeComputeTransfers separados (só dashboard + Transferências usam; compartilham o loadPlanningInputs via React cache). safe envolve em try/catch → empty + error',
         notes: 'Engine core: inputs → compras → transferências, cacheado por request. safe nunca lança; páginas renderizam shell + banner em falha.',
         ref: 'src/lib/planning/load.ts:152-194',
       },

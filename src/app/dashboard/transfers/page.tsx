@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { safeComputeSnapshot } from '@/lib/planning/load';
+import { safeComputeSnapshot, safeComputeTransfers } from '@/lib/planning/load';
 import { isFilterActive } from '@/lib/planning/filter';
 import { fmtDate, fmtInt, HUB_SHORT } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
@@ -10,9 +10,10 @@ import { cn } from '@/lib/utils';
 export const dynamic = 'force-dynamic';
 
 export default async function TransfersPage() {
-  const snap = await safeComputeSnapshot();
-  const cycle1 = snap.transfers.filter((t) => t.cycle === 1).sort((a, b) => b.qty - a.qty);
-  const cycle2 = snap.transfers.filter((t) => t.cycle === 2).sort((a, b) => b.qty - a.qty);
+  // Transfers are computed separately from the snapshot (shared loadPlanningInputs).
+  const [snap, allTransfers] = await Promise.all([safeComputeSnapshot(), safeComputeTransfers()]);
+  const cycle1 = allTransfers.filter((t) => t.cycle === 1).sort((a, b) => b.qty - a.qty);
+  const cycle2 = allTransfers.filter((t) => t.cycle === 2).sort((a, b) => b.qty - a.qty);
   const transfers = [...cycle1, ...cycle2];
   const unitsC1 = cycle1.reduce((s, t) => s + t.qty, 0);
 

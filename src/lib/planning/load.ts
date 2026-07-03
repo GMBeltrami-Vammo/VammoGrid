@@ -205,9 +205,12 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
 
 export interface PlanningSnapshot extends PlanningInputs {
   purchases: PurchaseSuggestion[];
-  transfers: TransferSuggestion[];
 }
 
+// NOTE on React cache(): it memoizes on the ACTUAL argument list, so f() and
+// f(false, false) are different entries. Every internal caller passes both params
+// explicitly so computeSnapshot and computeTransfers share ONE loadPlanningInputs
+// fetch per render.
 export const computeSnapshot = cache(async (ignoreSkuSelection = false, ignoreFilter = false): Promise<PlanningSnapshot> => {
   const inp = await loadPlanningInputs(ignoreSkuSelection, ignoreFilter);
 
@@ -222,17 +225,39 @@ export const computeSnapshot = cache(async (ignoreSkuSelection = false, ignoreFi
     serviceLevelZ: inp.serviceLevelZ,
   });
 
-  const transfers = transferForAll({
-    stocks: inp.stocks,
-    forecasts: inp.forecasts,
-    sharesBySku: inp.shares,
-    resolveShares: (stock) => resolveShares(stock, inp.shares.get(stock.skuBase)),
-    today: inp.today,
-    asOfDate: inp.asOfDate,
-  });
-
-  return { ...inp, purchases, transfers };
+  return { ...inp, purchases };
 });
+
+/** Transfer suggestions, split out of computeSnapshot: only the dashboard and the
+ *  Transferências page read them — Semanas/Compras/SKUs/lead-times were paying for
+ *  transferForAll on every load without using it. Shares loadPlanningInputs (React
+ *  cache) with computeSnapshot in the same render. */
+export const computeTransfers = cache(
+  async (ignoreSkuSelection = false, ignoreFilter = false): Promise<TransferSuggestion[]> => {
+    const inp = await loadPlanningInputs(ignoreSkuSelection, ignoreFilter);
+    return transferForAll({
+      stocks: inp.stocks,
+      forecasts: inp.forecasts,
+      sharesBySku: inp.shares,
+      resolveShares: (stock) => resolveShares(stock, inp.shares.get(stock.skuBase)),
+      today: inp.today,
+      asOfDate: inp.asOfDate,
+    });
+  },
+);
+
+/** computeTransfers that never throws — [] + console error on failure. */
+export async function safeComputeTransfers(
+  ignoreSkuSelection = false,
+  ignoreFilter = false,
+): Promise<TransferSuggestion[]> {
+  try {
+    return await computeTransfers(ignoreSkuSelection, ignoreFilter);
+  } catch (e) {
+    console.error('[safeComputeTransfers]', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
 
 /** computeSnapshot that never throws — returns empty + an error note on failure,
  *  so pages can render the shell + a banner instead of crashing. */
@@ -249,7 +274,6 @@ export async function safeComputeSnapshot(
       ...emptyInputs(today),
       backend: activeBackendKind(),
       purchases: [],
-      transfers: [],
       error: e instanceof Error ? e.message : 'erro ao carregar dados',
     };
   }
@@ -294,7 +318,8 @@ export interface ElaborationResult {
 export async function computeElaborations(ignoreSkuSelection = false): Promise<ElaborationResult> {
   try {
     const [inp, criteria] = await Promise.all([
-      computeSnapshot(ignoreSkuSelection),
+      // Both args explicit — cache() keys on the argument list (see computeSnapshot).
+      computeSnapshot(ignoreSkuSelection, false),
       fetchPurchaseCriteria(),
     ]);
     const purchaseBySku = new Map(inp.purchases.map((p) => [p.skuBase, p]));

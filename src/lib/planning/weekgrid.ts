@@ -23,7 +23,7 @@ import {
 } from './constants';
 import { addDays, diffDays, nextFirstOfMonth } from './dates';
 import { defaultPolicyFor } from './policy';
-import { forwardAvgDemand, projectSku } from './projection';
+import { forwardAvgDemand, projectGlobal, projectSku, type SkuProjections } from './projection';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly stockout heatmap — a VIEW of the existing projection, sampled at week
@@ -219,8 +219,10 @@ function whenNeededInjection(args: {
   stock: StockState;
   forecast: SkuForecast | null;
   policy: SkuPolicy;
-  shares: Record<HubId, number>;
   baseOrders: OpenPurchaseOrder[];
+  /** The base-orders-only GLOBAL projection (shared across scenarios) — iteration 0
+   *  of the loop is exactly this projection, so it's reused instead of recomputed. */
+  baselineGlobal: StockProjection;
   today: string;
   criteria: PurchaseCriteria;
   rop: number;
@@ -229,7 +231,7 @@ function whenNeededInjection(args: {
    *  affect days the grid never reads, so results are identical to the 150d default. */
   projectionHorizon: number;
 }): OpenPurchaseOrder[] {
-  const { scenario, stock, forecast, policy, shares, baseOrders, today, criteria, rop, horizonDays, projectionHorizon } = args;
+  const { scenario, stock, forecast, policy, baseOrders, baselineGlobal, today, criteria, rop, horizonDays, projectionHorizon } = args;
   if (scenario === 'baseline') return [];
 
   const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
@@ -238,7 +240,11 @@ function whenNeededInjection(args: {
   const orders = [...baseOrders];
 
   for (let iter = 0; iter < MAX_INJECTIONS; iter++) {
-    const proj = projectSku({ stock, forecast, orders, policy, shares, today, horizon: projectionHorizon }).global;
+    // Only the GLOBAL stream matters here (breach scan) — the hubs were 3/4 wasted work.
+    const proj =
+      iter === 0
+        ? baselineGlobal
+        : projectGlobal({ stock, forecast, orders, policy, today, horizon: projectionHorizon });
     const bd = firstBreachDay(proj, criteria, rop, horizonDays);
     if (bd < 0) break;
     const dailyDemand = proj.dailyDemand > 0 ? proj.dailyDemand : proj.timeline[bd]?.demand ?? 0;
@@ -297,19 +303,78 @@ function buyByWeek(buyByDate: string | null, today: string, weeks: number): numb
   return Math.max(1, Math.ceil(offset / 7)); // past/near → week 1
 }
 
-export function buildWeekGrid(args: {
+// ── Shared per-page context: everything scenario-INVARIANT, computed once ─────
+// The four scenario grids share the same weeks, criteria, and — per SKU — the same
+// policy/shares/purchase meta, registered arrivals, and (crucially) the same
+// base-orders-only projection: the baseline scenario IS that projection, and every
+// other scenario's injection loop starts from it. A SKU that never breaches injects
+// nothing, so its rows are identical across all four grids and are reused outright.
+
+type ScopeRows = { global: WeekGridRow; byHub: Record<HubId, WeekGridRow> };
+
+interface SkuWeekContext {
+  stock: StockState;
+  forecast: SkuForecast | null;
+  policy: SkuPolicy;
+  shares: Record<HubId, number>;
+  rop: number;
+  baseOrders: OpenPurchaseOrder[];
+  /** Base-orders-only projection at the grid horizon — the baseline of every scenario. */
+  baseProj: SkuProjections;
+  regArrivals: ModalSplit;
+  regKeys: string[][];
+  meta: Omit<WeekGridRow, 'cells'>;
+  baselineRows: ScopeRows;
+}
+
+interface SharedGridContext {
+  weekCount: number;
+  criteria: PurchaseCriteria;
+  dohFloor: number;
+  today: string;
+  weeks: WeekMeta[];
+  projectionHorizon: number;
+  noArrivals: ModalSplit;
+  noKeys: string[][];
+  contexts: SkuWeekContext[];
+}
+
+function rowsForProjection(
+  ctx: SkuWeekContext,
+  shared: SharedGridContext,
+  proj: SkuProjections,
+  sugArrivals: ModalSplit,
+): ScopeRows {
+  const { weeks, criteria, noArrivals, noKeys } = shared;
+  const rowFor = (p: StockProjection, hasArrivals: boolean, scopeRop: number): WeekGridRow => ({
+    ...ctx.meta,
+    cells: sampleCells(
+      p,
+      weeks,
+      criteria,
+      scopeRop,
+      hasArrivals ? ctx.regArrivals : noArrivals,
+      hasArrivals ? sugArrivals : noArrivals,
+      hasArrivals ? ctx.regKeys : noKeys,
+    ),
+  });
+  const byHub = {} as Record<HubId, WeekGridRow>;
+  // POs land at Osasco → only the global + Osasco streams see arrivals; spokes get 0.
+  // Hub ROP is the global one pro-rated by demand share (a spoke's slice of the network
+  // reorder point) for ROP-mode coloring.
+  for (const h of HUBS) byHub[h] = rowFor(proj.byHub[h], h === 'osasco', ctx.rop * (ctx.shares[h] ?? 0));
+  return { global: rowFor(proj.global, true, ctx.rop), byHub };
+}
+
+function buildSharedContext(args: {
   inputs: WeekGridInputs;
   purchases: PurchaseSuggestion[];
   weeks?: number;
-  scenario?: WeekGridScenario;
-  /** Active purchase criteria → drives the "low"/breach coloring + when-needed injection. */
   criteria?: PurchaseCriteria;
-}): WeekGrid {
+}): SharedGridContext {
   const { inputs } = args;
   const weekCount = args.weeks ?? DEFAULT_WEEKS;
-  const scenario = args.scenario ?? 'baseline';
   const criteria = args.criteria ?? DEFAULT_PURCHASE_CRITERIA;
-  const dohFloor = criteria.dohThreshold;
   const today = inputs.today;
   // Project only as far as the grid reads: the last sampled day (weekCount*7) plus the
   // 7-day forward-avg DOH window. Clamped ≥30 so dailyDemand's min(30,horizon) window —
@@ -321,11 +386,21 @@ export function buildWeekGrid(args: {
     const dayOffset = (i + 1) * 7;
     return { idx: i + 1, dayOffset, endDate: addDays(today, dayOffset) };
   });
+  const noArrivals: ModalSplit = weeks.map(() => ({ sea: 0, air: 0 }));
+  const noKeys: string[][] = weeks.map(() => []);
 
   const purchaseBySku = new Map(args.purchases.map((p) => [p.skuBase, p]));
-
-  const global: WeekGridRow[] = [];
-  const byHub: Record<HubId, WeekGridRow[]> = { osasco: [], mooca: [], sbc: [] };
+  const shared: SharedGridContext = {
+    weekCount,
+    criteria,
+    dohFloor: criteria.dohThreshold,
+    today,
+    weeks,
+    projectionHorizon,
+    noArrivals,
+    noKeys,
+    contexts: [],
+  };
 
   for (const stock of inputs.stocks) {
     const forecast = inputs.forecasts.get(stock.skuBase) ?? null;
@@ -334,64 +409,83 @@ export function buildWeekGrid(args: {
       defaultPolicyFor(stock.skuBase, stock, forecast?.abcClass ?? 'C', today);
     const shares = resolveShares(stock, inputs.shares.get(stock.skuBase));
     const purchase = purchaseBySku.get(stock.skuBase);
-    // Global reorder point for ROP-mode coloring/breach; hub scopes get it pro-rated by
-    // their demand share (a spoke's slice of the network reorder point).
     const rop = purchase?.rop ?? 0;
 
-    // Baseline = ONLY already-registered orders. A scenario appends "buy when needed"
-    // arrivals (air/sea/complete), bounded to the visible horizon.
+    // Baseline = ONLY already-registered orders; scenarios append when-needed arrivals.
     const baseOrders = inputs.ordersBySku.get(stock.skuBase) ?? [];
-    const injected = whenNeededInjection({
-      scenario,
-      stock,
-      forecast,
-      policy,
-      shares,
-      baseOrders,
-      today,
-      criteria,
-      rop,
-      horizonDays: weekCount * 7,
-      projectionHorizon,
-    });
-    const orders = [...baseOrders, ...injected];
+    const baseProj = projectSku({ stock, forecast, orders: baseOrders, policy, shares, today, horizon: projectionHorizon });
 
-    const proj = projectSku({ stock, forecast, orders, policy, shares, today, horizon: projectionHorizon });
-
-    const meta = {
+    // dailyDemand comes from the forecast only (receipts never change demand), so the
+    // baseline projection's figure is identical to any scenario's.
+    const meta: Omit<WeekGridRow, 'cells'> = {
       skuBase: stock.skuBase,
       skuName: stock.skuName,
       leadTimeSource: policy.leadTimeSource,
       defaultModal: policy.defaultModal,
-      dailyDemand: Math.round((proj.global.dailyDemand + Number.EPSILON) * 100) / 100,
+      dailyDemand: Math.round((baseProj.global.dailyDemand + Number.EPSILON) * 100) / 100,
       status: purchase?.status ?? 'OK',
       isLate: purchase?.isLate ?? false,
       buyByWeekIdx: buyByWeek(purchase?.buyByDate ?? null, today, weekCount),
-    } as const;
+    };
 
-    // POs land at Osasco → only the global + Osasco streams see arrivals; spokes get 0.
-    // Split registered (already-placed) from suggested (scenario when-needed) so the
-    // hover tooltip can label each; the inline totals are their sum.
-    const regArrivals = modalArrivalsByWeek(baseOrders, weeks, today);
-    const sugArrivals = modalArrivalsByWeek(injected, weeks, today);
-    const regKeys = registeredKeysByWeek(baseOrders, weeks, today);
-    const noArrivals = weeks.map(() => ({ sea: 0, air: 0 }));
-    const noKeys: string[][] = weeks.map(() => []);
-    const rowFor = (proj: StockProjection, hasArrivals: boolean, scopeRop: number): WeekGridRow => ({
-      ...meta,
-      cells: sampleCells(
-        proj,
-        weeks,
+    const ctx: SkuWeekContext = {
+      stock,
+      forecast,
+      policy,
+      shares,
+      rop,
+      baseOrders,
+      baseProj,
+      regArrivals: modalArrivalsByWeek(baseOrders, weeks, today),
+      regKeys: registeredKeysByWeek(baseOrders, weeks, today),
+      meta,
+      baselineRows: undefined as unknown as ScopeRows, // set right below
+    };
+    ctx.baselineRows = rowsForProjection(ctx, shared, baseProj, noArrivals);
+    shared.contexts.push(ctx);
+  }
+
+  return shared;
+}
+
+function buildGridForScenario(shared: SharedGridContext, scenario: WeekGridScenario): WeekGrid {
+  const { weekCount, criteria, dohFloor, today, weeks, projectionHorizon } = shared;
+  const global: WeekGridRow[] = [];
+  const byHub: Record<HubId, WeekGridRow[]> = { osasco: [], mooca: [], sbc: [] };
+
+  for (const ctx of shared.contexts) {
+    let rows = ctx.baselineRows;
+    if (scenario !== 'baseline') {
+      const injected = whenNeededInjection({
+        scenario,
+        stock: ctx.stock,
+        forecast: ctx.forecast,
+        policy: ctx.policy,
+        baseOrders: ctx.baseOrders,
+        baselineGlobal: ctx.baseProj.global,
+        today,
         criteria,
-        scopeRop,
-        hasArrivals ? regArrivals : noArrivals,
-        hasArrivals ? sugArrivals : noArrivals,
-        hasArrivals ? regKeys : noKeys,
-      ),
-    });
-
-    global.push(rowFor(proj.global, true, rop));
-    for (const h of HUBS) byHub[h].push(rowFor(proj.byHub[h], h === 'osasco', rop * (shares[h] ?? 0)));
+        rop: ctx.rop,
+        horizonDays: weekCount * 7,
+        projectionHorizon,
+      });
+      // No injections → the scenario projection equals the baseline one; reuse the rows
+      // (they're immutable after construction — each grid only sorts its own arrays).
+      if (injected.length > 0) {
+        const proj = projectSku({
+          stock: ctx.stock,
+          forecast: ctx.forecast,
+          orders: [...ctx.baseOrders, ...injected],
+          policy: ctx.policy,
+          shares: ctx.shares,
+          today,
+          horizon: projectionHorizon,
+        });
+        rows = rowsForProjection(ctx, shared, proj, modalArrivalsByWeek(injected, weeks, today));
+      }
+    }
+    global.push(rows.global);
+    for (const h of HUBS) byHub[h].push(rows.byHub[h]);
   }
 
   // Sort each scope: earliest stockout first, then by name. A row's urgency is the
@@ -412,19 +506,32 @@ export function buildWeekGrid(args: {
   return { weeks, global, byHub, scenario, dohFloor, criteria };
 }
 
+export function buildWeekGrid(args: {
+  inputs: WeekGridInputs;
+  purchases: PurchaseSuggestion[];
+  weeks?: number;
+  scenario?: WeekGridScenario;
+  /** Active purchase criteria → drives the "low"/breach coloring + when-needed injection. */
+  criteria?: PurchaseCriteria;
+}): WeekGrid {
+  return buildGridForScenario(buildSharedContext(args), args.scenario ?? 'baseline');
+}
+
 /** All four coverage scenarios in one pass (shared inputs) so the client can toggle
- *  between them instantly — no per-scenario server round-trip. This is the "calculate
- *  everything and cache it" path: computed once per page load, held client-side. */
+ *  between them instantly — no per-scenario server round-trip. The scenario-invariant
+ *  work (baseline projections, registered arrivals, meta, baseline rows) is computed
+ *  ONCE and shared; scenarios only recompute the SKUs that actually inject orders. */
 export function buildAllScenarioGrids(args: {
   inputs: WeekGridInputs;
   purchases: PurchaseSuggestion[];
   weeks?: number;
   criteria?: PurchaseCriteria;
 }): Record<WeekGridScenario, WeekGrid> {
+  const shared = buildSharedContext(args);
   const scenarios: WeekGridScenario[] = ['baseline', 'air_only', 'sea_only', 'complete'];
   const out = {} as Record<WeekGridScenario, WeekGrid>;
   for (const scenario of scenarios) {
-    out[scenario] = buildWeekGrid({ ...args, scenario });
+    out[scenario] = buildGridForScenario(shared, scenario);
   }
   return out;
 }

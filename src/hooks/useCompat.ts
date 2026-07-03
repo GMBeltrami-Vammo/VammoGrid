@@ -11,6 +11,7 @@ export function useCompat() {
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Erro ao carregar');
       return res.json();
     },
-    staleTime: 60_000,
+    // Compat changes ~monthly; edits invalidate the key (CompatPanel) → long staleTime.
+    staleTime: 600_000,
   });
 }

@@ -11,6 +11,7 @@ export function useFleetInfo() {
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'Erro ao carregar');
       return res.json();
     },
-    staleTime: 60_000,
+    // Fleet segments change rarely; edits invalidate the key (FleetInfoPanel) → long staleTime.
+    staleTime: 600_000,
   });
 }

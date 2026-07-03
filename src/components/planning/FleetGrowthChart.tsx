@@ -1,27 +1,23 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { Check, Pencil } from 'lucide-react';
 import { projectFleetGrowth } from '@/lib/planning/fleetGrowth';
 import { upsertFleetInfo } from '@/app/dashboard/admin/actions';
-import { fmtDate, fmtInt } from '@/lib/planning/format';
-import { cn } from '@/lib/utils';
+import { fmtInt } from '@/lib/planning/format';
 
 // Fleet-size chart (request #4): one line per model segment, realized (past, left of
 // "hoje") + estimated (future, right), with an editable monthly growth rate per model.
 // Linear: future = rate × current × dt (see projectFleetGrowth).
+// Recharts is lazy-loaded via the Inner split (repo-standard next/dynamic pattern) so
+// it stays off the frota route's initial bundle; the editable rate list paints at once.
+
+const FleetGrowthChartInner = dynamic(() => import('./FleetGrowthChartInner'), {
+  ssr: false,
+  loading: () => <div className="h-[320px] animate-pulse rounded-lg bg-muted/40" />,
+});
 
 export interface FleetSegment {
   segment: string;
@@ -30,16 +26,6 @@ export interface FleetSegment {
   asOfDate: string | null;
 }
 
-// Distinct categorical hues (the --chart-* ramp is all one brand-cyan hue, so multiple
-// models rendered as indistinguishable blues). These are visually separable per model.
-const COLORS = [
-  'var(--color-brand-500)', // cyan
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#10b981', // emerald
-  '#ef4444', // red
-  '#ec4899', // pink
-];
 const PAST_WEEKS = 12;
 const FUTURE_WEEKS = 26;
 
@@ -88,54 +74,7 @@ export function FleetGrowthChart({
 
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-      <div style={{ width: '100%', height: 320 }}>
-        <ResponsiveContainer>
-          <LineChart data={data} margin={{ top: 12, right: 16, bottom: 4, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tickFormatter={fmtDate}
-              interval={Math.max(0, Math.floor(data.length / 8) - 1)}
-              tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
-              stroke="var(--color-border)"
-            />
-            <YAxis
-              tickFormatter={(v) => fmtInt(v)}
-              width={56}
-              tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
-              stroke="var(--color-border)"
-            />
-            <Tooltip
-              labelFormatter={(l) => fmtDate(String(l))}
-              formatter={(v: unknown, name: unknown) => [fmtInt(Number(v)), String(name)]}
-              contentStyle={{
-                background: 'var(--color-popover)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 10,
-                fontSize: 12,
-              }}
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <ReferenceLine
-              x={today}
-              stroke="var(--color-muted-foreground)"
-              strokeDasharray="2 2"
-              label={{ value: 'hoje', fill: 'var(--color-muted-foreground)', fontSize: 10, position: 'top' }}
-            />
-            {keys.map((k, i) => (
-              <Line
-                key={k}
-                dataKey={k}
-                name={k}
-                stroke={COLORS[i % COLORS.length]}
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      <FleetGrowthChartInner data={data} keys={keys} today={today} />
       <p className="mt-1 text-center text-[11px] text-muted-foreground">
         À esquerda de <b>hoje</b>: realizado (retroprojetado) · à direita: estimado — crescimento linear
         (futuro = taxa × frota atual × dt).

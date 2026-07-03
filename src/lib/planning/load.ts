@@ -75,6 +75,10 @@ export interface PlanningInputs {
   recoveryRates: Map<string, HistoricalRecovery>;
   /** Global service-level z (B1) applied to every SKU's safety stock. */
   serviceLevelZ: number;
+  /** Bike-model compatibility (sku_base → set of model keys) — already fetched for the
+   *  filter; exposed so pages can re-apply skuPasses in-memory (e.g. the SKUs page's
+   *  matchingSkus) without a second engine run. */
+  compatModels: Map<string, Set<string>>;
 }
 
 function emptyInputs(today: string): PlanningInputs {
@@ -94,6 +98,7 @@ function emptyInputs(today: string): PlanningInputs {
     scenario: EMPTY_SCENARIO,
     recoveryRates: new Map(),
     serviceLevelZ: SERVICE_LEVEL_Z[DEFAULT_SERVICE_LEVEL_TIER],
+    compatModels: new Map(),
   };
 }
 
@@ -200,6 +205,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
     scenario,
     recoveryRates,
     serviceLevelZ,
+    compatModels,
   };
 });
 
@@ -575,6 +581,7 @@ export const loadSkuView = cache(
       scenario,
       recoveryRates,
       serviceLevelZ,
+      compatModels,
     };
     return { inputs, selected };
   },

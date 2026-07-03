@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import { safeComputeSnapshot } from '@/lib/planning/load';
+import { skuPasses } from '@/lib/planning/filter';
 import { fetchActiveScope } from '@/lib/planning/source/scope';
 import { fetchSkuPolicies } from '@/lib/planning/source/policies';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
@@ -23,11 +24,22 @@ export default async function SkusPage() {
 
   // Which SKUs the current top filter (models / category / q / com previsão) matches.
   // null when no top filter is active (→ the table leaves the selection alone).
+  // Computed IN-MEMORY against the full-catalog snapshot with the same predicate the
+  // loader uses (skuPasses + forecast presence) — replaces a second full engine run.
+  // Semantics match the old safeComputeSnapshot(true, false): ignoreSkuSelection skips
+  // the default-scope narrowing, so this is full catalog ∩ top-filter (no selection).
   const tf = snap.filter;
   const topFilterActive =
     tf.models.length > 0 || tf.category != null || tf.q.trim().length > 0 || tf.withForecast;
+  const narrowFilter = { ...tf, skus: [] };
   const matchingSkus = topFilterActive
-    ? (await safeComputeSnapshot(true, false)).stocks.map((s) => s.skuBase)
+    ? snap.stocks
+        .filter(
+          (s) =>
+            skuPasses(narrowFilter, s, snap.compatModels) &&
+            (!tf.withForecast || snap.forecasts.has(s.skuBase)),
+        )
+        .map((s) => s.skuBase)
     : null;
   const filterSignature = JSON.stringify({
     models: tf.models,

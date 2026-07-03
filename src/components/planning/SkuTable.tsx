@@ -42,6 +42,9 @@ const ABC_CLASS: Record<string, string> = {
   C: 'text-muted-foreground',
 };
 
+/** Rows rendered before "Mostrar mais" — keeps the DOM small on the full catalog. */
+const INITIAL_VISIBLE_ROWS = 300;
+
 // App-wide category options — same set + values as the top FilterBar, so the two
 // controls drive the one shared `vg:filter` cookie and stay in sync.
 const CATEGORIES: { v: string | null; label: string }[] = [
@@ -162,6 +165,16 @@ export function SkuTable({
       return true;
     });
   }, [rows, search, abcFilter, statusFilter, scopeFilter, scope]);
+
+  // DOM relief: render at most `visibleCount` rows (the full catalog can exceed 1000
+  // <tr>s) with a "Mostrar mais" escape hatch. IMPORTANT: selection/bulk actions and
+  // the counters keep operating on `filtered` (ALL matching rows), never the slice —
+  // the in-table search/filters are the supported way to find a row (not ctrl+F).
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_ROWS);
+  }, [search, abcFilter, statusFilter, scopeFilter, filter.category]);
+  const visibleRows = filtered.length > visibleCount ? filtered.slice(0, visibleCount) : filtered;
 
   const allVisibleSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.skuBase));
   const toggleAllVisible = () => {
@@ -394,7 +407,7 @@ export function SkuTable({
                 </td>
               </tr>
             ) : (
-              filtered.map((r) => {
+              visibleRows.map((r) => {
                 const isSel = selected.has(r.skuBase);
                 return (
                   <tr
@@ -499,6 +512,17 @@ export function SkuTable({
           </tbody>
         </table>
       </div>
+
+      {filtered.length > visibleCount && (
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => setVisibleCount((c) => c + INITIAL_VISIBLE_ROWS)}
+            className="rounded-md border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+          >
+            Mostrar mais ({fmtInt(filtered.length - visibleCount)} restantes)
+          </button>
+        </div>
+      )}
     </div>
   );
 }

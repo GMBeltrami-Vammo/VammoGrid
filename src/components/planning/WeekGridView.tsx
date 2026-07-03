@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { Recycle, Flag, Ship, Plane, type LucideIcon } from 'lucide-react';
@@ -32,6 +32,9 @@ const SCENARIOS: { id: WeekGridScenario; label: string }[] = [
 ];
 
 const HORIZONS = [8, 12, 16, 20];
+
+/** Rows rendered before "Mostrar mais" — keeps the grid's DOM small on big scopes. */
+const INITIAL_VISIBLE_ROWS = 300;
 
 type HeatFilter = 'all' | 'critico' | 'baixo';
 type Unit = 'units' | 'doh';
@@ -79,6 +82,14 @@ export function WeekGridView({
       return true;
     });
   }, [allRows, search, heat]);
+
+  // DOM relief: each row is weeks+2 cells, so big scopes explode the node count.
+  // The per-week summary + totalAtRisk keep computing from allRows (unsliced).
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_ROWS);
+  }, [scenario, scope, search, heat]);
+  const visibleRows = rows.length > visibleCount ? rows.slice(0, visibleCount) : rows;
 
   const summary = useMemo(() => {
     const counts = grid.weeks.map(() => 0);
@@ -180,7 +191,7 @@ export function WeekGridView({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
+              visibleRows.map((r) => (
                 <GridRow
                   key={r.skuBase}
                   row={r}
@@ -199,6 +210,17 @@ export function WeekGridView({
           </tbody>
         </table>
       </div>
+
+      {rows.length > visibleCount && (
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => setVisibleCount((c) => c + INITIAL_VISIBLE_ROWS)}
+            className="rounded-md border border-border bg-card px-4 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+          >
+            Mostrar mais ({fmtInt(rows.length - visibleCount)} restantes)
+          </button>
+        </div>
+      )}
 
       <Legend criteria={grid.criteria} />
 

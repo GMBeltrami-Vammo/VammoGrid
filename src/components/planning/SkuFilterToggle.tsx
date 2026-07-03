@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { Check, Plus } from 'lucide-react';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
-import { writeFilterCookie } from '@/lib/planning/applyFilter';
+import { writeSkusCookies } from '@/lib/planning/applyFilter';
 import { cn } from '@/lib/utils';
 
 // Adds/removes this SKU from the app-wide hand-picked selection (vg:filter.skus)
@@ -20,7 +20,7 @@ export function SkuFilterToggle({ skuBase, filter }: { skuBase: string; filter: 
     const skus = selected
       ? filter.skus.filter((s) => s !== skuBase)
       : [...filter.skus, skuBase];
-    writeFilterCookie({ ...filter, skus });
+    writeSkusCookies(skus);
     router.refresh();
   };
 

@@ -35,6 +35,9 @@ import { SERVICE_LEVEL_Z, DEFAULT_SERVICE_LEVEL_TIER } from './constants';
 import {
   EMPTY_FILTER,
   FILTER_COOKIE,
+  MAX_SKU_CHUNKS,
+  SKU_CHUNK_PREFIX,
+  decodeSkuChunks,
   isFilterActive,
   parseFilterCookie,
   skuPasses,
@@ -94,11 +97,22 @@ function emptyInputs(today: string): PlanningInputs {
   };
 }
 
+/** The hand-picked selection, read from the chunked `vg:skus*` cookies (it can be large
+ *  → chunked across cookies to beat the ~4KB single-cookie limit). */
+function readSkuChunkCookies(cookieStore: Awaited<ReturnType<typeof cookies>>): string[] {
+  return decodeSkuChunks(
+    Array.from({ length: MAX_SKU_CHUNKS }, (_, i) => cookieStore.get(`${SKU_CHUNK_PREFIX}${i}`)?.value),
+  );
+}
+
 export const loadPlanningInputs = cache(async (ignoreSkuSelection = false): Promise<PlanningInputs> => {
   const today = todayUtc();
   const nowIso = new Date().toISOString();
   const cookieStore = await cookies();
-  const filter = parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value);
+  const filter = {
+    ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
+    skus: readSkuChunkCookies(cookieStore),
+  };
   const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
   // No warehouse credentials configured → render the shell with empty states
@@ -428,7 +442,10 @@ export const loadSkuView = cache(
     const today = todayUtc();
     const nowIso = new Date().toISOString();
     const cookieStore = await cookies();
-    const filter = parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value);
+    const filter = {
+      ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
+      skus: readSkuChunkCookies(cookieStore),
+    };
     const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
     if (activeBackendKind() === 'none') {

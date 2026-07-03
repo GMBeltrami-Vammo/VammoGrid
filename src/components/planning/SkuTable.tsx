@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Check, Plus, X } from 'lucide-react';
 import type { PurchaseStatus, TransportModal } from '@/types/planning';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
-import { writeFilterCookie } from '@/lib/planning/applyFilter';
+import { writeFilterCookie, writeSkusCookies } from '@/lib/planning/applyFilter';
 import { createSku, setSkuScope } from '@/app/dashboard/skus/actions';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
@@ -106,7 +106,8 @@ export function SkuTable({
 
   const persist = (next: Set<string>) => {
     setSelected(next);
-    writeFilterCookie({ ...filter, skus: [...next] });
+    // The selection lives in its own chunked cookies (it can be large) — not in vg:filter.
+    writeSkusCookies([...next]);
   };
 
   const toggle = (skuBase: string) => {
@@ -127,7 +128,7 @@ export function SkuTable({
   // Category is the APP-WIDE scope filter (drives every page + syncs with the top
   // bar): write the shared cookie and refresh so the server re-renders the set.
   const setCategory = (v: string | null) => {
-    writeFilterCookie({ ...filter, category: v, skus: [...selected] });
+    writeFilterCookie({ ...filter, category: v });
     router.refresh();
   };
 

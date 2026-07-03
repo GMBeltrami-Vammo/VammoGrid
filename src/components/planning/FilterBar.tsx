@@ -6,7 +6,7 @@ import { Search, Bike, X, TrendingUp } from 'lucide-react';
 import { MODEL_LABELS } from '@/constants/models';
 import { BIKE_MODELS } from '@/types';
 import { type PlanningFilter } from '@/lib/planning/filter';
-import { writeFilterCookie } from '@/lib/planning/applyFilter';
+import { writeFilterCookie, writeSkusCookies } from '@/lib/planning/applyFilter';
 import { cn } from '@/lib/utils';
 
 // App-wide filter bar. Writes the `vg:filter` cookie and refreshes so the server
@@ -32,6 +32,8 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
   // across category/model/search edits and offers a one-click clear.
   const skus = initial.skus;
 
+  // The hand-picked selection lives in its own chunked cookies — edits here don't touch
+  // it (it's preserved automatically).
   function apply(next: Pick<PlanningFilter, 'models' | 'category' | 'q'>, wf = withForecast) {
     writeFilterCookie({ ...next, skus, withForecast: wf });
     router.refresh();
@@ -57,10 +59,11 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
     setWithForecast(false);
     // "Limpar filtro" clears everything, including the hand-picked selection.
     writeFilterCookie({ models: [], category: null, q: '', skus: [], withForecast: false });
+    writeSkusCookies([]);
     router.refresh();
   };
   const clearSelection = () => {
-    writeFilterCookie({ models, category, q, skus: [], withForecast });
+    writeSkusCookies([]);
     router.refresh();
   };
 

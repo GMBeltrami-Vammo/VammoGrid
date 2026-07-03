@@ -34,9 +34,10 @@ export async function setServiceLevelTier(
   try {
     const email = await requireHead();
     if (!isServiceLevelTier(tier)) return { ok: false, error: `Nível inválido: ${tier}` };
+    // setSetting already busts 'global-settings' — the only cache holding the tier.
+    // (The sku_policy cache doesn't contain it, and engine outputs are computed
+    // per-request, so busting 'policies' here just discarded a warm cache.)
     await setSetting(SERVICE_LEVEL_TIER_KEY, tier, email);
-    // The tier changes safety stock everywhere the purchase engine is read.
-    updateTag('policies');
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };

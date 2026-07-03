@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Bike, X, TrendingUp } from 'lucide-react';
 import { MODEL_LABELS } from '@/constants/models';
 import { BIKE_MODELS } from '@/types';
 import { type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie, writeSkusCookies } from '@/lib/planning/applyFilter';
+import { useSkuCatalog } from '@/hooks/useSkuCatalog';
 import { cn } from '@/lib/utils';
 
 // App-wide filter bar. Writes the `vg:filter` cookie and refreshes so the server
@@ -25,6 +26,25 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
   const [category, setCategory] = useState<string | null>(initial.category);
   const [models, setModels] = useState<string[]>(initial.models);
   const [open, setOpen] = useState(false);
+
+  // Search typeahead: typing shows clickable SKU matches that navigate straight to the
+  // SKU page (Enter still applies the text filter to the analyses, as before). The
+  // catalog is fetched lazily on the first real query and cached client-side.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const wantsSearch = q.trim().length >= 2;
+  const { data: catalog } = useSkuCatalog(wantsSearch);
+  const matches = useMemo(() => {
+    const n = q.trim().toLowerCase();
+    if (n.length < 2 || !catalog) return [];
+    return catalog
+      .filter((s) => s.skuBase.toLowerCase().includes(n) || s.skuName.toLowerCase().includes(n))
+      .slice(0, 8);
+  }, [catalog, q]);
+
+  const goToSku = (skuBase: string) => {
+    setSearchOpen(false);
+    router.push(`/dashboard/estoque?sku=${encodeURIComponent(skuBase)}`);
+  };
 
   const [withForecast, setWithForecast] = useState(initial.withForecast);
 
@@ -75,6 +95,7 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          setSearchOpen(false);
           apply({ models, category, q });
         }}
         className="relative"
@@ -82,10 +103,38 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setSearchOpen(true);
+          }}
+          onFocus={() => setSearchOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setSearchOpen(false);
+          }}
           placeholder="Buscar SKU ou descrição…"
           className="h-8 w-56 rounded-md border border-border bg-background pl-8 pr-2 text-sm outline-none focus:border-brand-500"
         />
+        {searchOpen && wantsSearch && matches.length > 0 && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setSearchOpen(false)} />
+            <div className="absolute left-0 top-full z-20 mt-1 w-80 overflow-hidden rounded-lg bg-popover shadow-lg ring-1 ring-foreground/10">
+              {matches.map((m) => (
+                <button
+                  key={m.skuBase}
+                  type="button"
+                  onClick={() => goToSku(m.skuBase)}
+                  className="flex w-full flex-col items-start gap-0 px-3 py-1.5 text-left hover:bg-muted"
+                >
+                  <span className="max-w-full truncate text-sm text-foreground">{m.skuName}</span>
+                  <span className="font-mono text-[11px] text-brand-500">{m.skuBase}</span>
+                </button>
+              ))}
+              <p className="border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
+                Clique para abrir o SKU · Enter filtra as análises
+              </p>
+            </div>
+          </>
+        )}
       </form>
 
       <div className="flex gap-1">

@@ -3,7 +3,7 @@
 import { randomUUID } from 'crypto';
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import { chInsert, type Row } from '@/lib/clickhouse/reader';
 import { addDays } from '@/lib/planning/dates';
 import type { PrepStatus, PurchaseOrderStatus } from '@/types';
@@ -43,9 +43,8 @@ function toRow(input: PurchaseOrderInput) {
   };
 }
 
-async function findOrder(id: string): Promise<Row | null> {
-  const rows = await readFleetTable<Row>(FLEET_TABLES.purchaseOrder);
-  return rows.find((r) => r.id === id) ?? null;
+function findOrder(id: string): Promise<Row | null> {
+  return readFleetRow<Row>(FLEET_TABLES.purchaseOrder, { id });
 }
 
 export async function createPurchaseOrder(input: PurchaseOrderInput) {

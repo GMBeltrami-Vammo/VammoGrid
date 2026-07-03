@@ -2,7 +2,7 @@
 
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 import { BIKE_MODELS } from '@/types';
 import type { BikeModel } from '@/types';
@@ -19,9 +19,8 @@ export interface CompatInput {
   models: Record<BikeModel, boolean>;
 }
 
-async function findCompat(sku: string): Promise<Row | null> {
-  const rows = await readFleetTable<Row>(FLEET_TABLES.partCompat);
-  return rows.find((r) => r.sku === sku) ?? null;
+function findCompat(sku: string): Promise<Row | null> {
+  return readFleetRow<Row>(FLEET_TABLES.partCompat, { sku });
 }
 
 export async function upsertCompat(input: CompatInput) {

@@ -199,6 +199,32 @@ export async function readFleetTable<T = Row>(table: string): Promise<T[]> {
   return chQuery<T>(`SELECT * FROM ${table} FINAL WHERE is_deleted = 0`);
 }
 
+/** Build the escaped WHERE for readFleetRow. Column names are asserted against a strict
+ *  identifier pattern (they're internal constants, never user input); values are
+ *  single-quote-doubled — the same escaping convention as readAuditLog below.
+ *  Exported for unit tests: a wrong/lossy match would make the caller see current=null
+ *  and a subsequent full-row upsert would blank untouched columns. */
+export function fleetRowWhere(where: Record<string, string>): string {
+  const parts = Object.entries(where).map(([col, value]) => {
+    if (!/^[a-z][a-z0-9_]*$/.test(col)) throw new Error(`Invalid fleet column name: ${col}`);
+    return `${col} = '${String(value).replace(/'/g, "''")}'`;
+  });
+  if (parts.length === 0) throw new Error('readFleetRow requires at least one key column');
+  return parts.join(' AND ');
+}
+
+/** Read ONE live row by key column(s) — replaces the "read the whole table, .find()
+ *  one row" pattern in single-row server actions (a full FINAL scan per mutation). */
+export async function readFleetRow<T = Row>(
+  table: string,
+  where: Record<string, string>,
+): Promise<T | null> {
+  const rows = await chQuery<T>(
+    `SELECT * FROM ${table} FINAL WHERE is_deleted = 0 AND ${fleetRowWhere(where)} LIMIT 1`,
+  );
+  return rows[0] ?? null;
+}
+
 const IGNORED_DIFF_FIELDS = new Set(['updated_at', 'created_at', 'is_deleted']);
 
 /**

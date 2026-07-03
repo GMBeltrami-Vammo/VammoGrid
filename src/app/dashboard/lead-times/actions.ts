@@ -2,7 +2,7 @@
 
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 import type { TransportModal } from '@/types/planning';
 
@@ -22,8 +22,7 @@ export async function updateLeadTimePolicy(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const email = await requireHead();
-    const rows = await readFleetTable<Row>(FLEET_TABLES.skuPolicy);
-    const current = rows.find((r) => r.sku_base === skuBase) ?? null;
+    const current = await readFleetRow<Row>(FLEET_TABLES.skuPolicy, { sku_base: skuBase });
 
     // Update the modal lead-time fields, plus optionally σ_LT and the national flag;
     // leave recovery, abc_class, etc. untouched (full-row write merges over the current

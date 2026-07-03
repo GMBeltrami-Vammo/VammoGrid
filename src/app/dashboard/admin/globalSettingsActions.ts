@@ -2,7 +2,7 @@
 
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 import {
   PURCHASE_CRITERIA_KEY,
@@ -14,8 +14,7 @@ import {
 // Head-gated writes to dev.fleet_global_settings (sub-projects B1, E1). value is a
 // JSON string; every write goes through the shared audit log.
 async function setSetting(key: string, value: unknown, email: string): Promise<void> {
-  const rows = await readFleetTable<Row>(FLEET_TABLES.globalSettings);
-  const current = rows.find((r) => r.key === key) ?? null;
+  const current = await readFleetRow<Row>(FLEET_TABLES.globalSettings, { key });
   await upsertFleetRow({
     table: FLEET_TABLES.globalSettings,
     entityType: 'global_settings',

@@ -2,7 +2,7 @@
 
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 import type { TransportModal } from '@/types/planning';
 
@@ -27,8 +27,7 @@ export async function createSku(input: NewSkuInput): Promise<{ ok: boolean; erro
     if (!skuBase) return { ok: false, error: 'Código do SKU é obrigatório.' };
 
     // Policy row (holds every configured attribute + the display name).
-    const policyRows = await readFleetTable<Row>(FLEET_TABLES.skuPolicy);
-    const currentPolicy = policyRows.find((r) => r.sku_base === skuBase) ?? null;
+    const currentPolicy = await readFleetRow<Row>(FLEET_TABLES.skuPolicy, { sku_base: skuBase });
     await upsertFleetRow({
       table: FLEET_TABLES.skuPolicy,
       entityType: 'sku_policy',
@@ -49,8 +48,7 @@ export async function createSku(input: NewSkuInput): Promise<{ ok: boolean; erro
     });
 
     // Add to the default visible universe.
-    const scopeRows = await readFleetTable<Row>(FLEET_TABLES.skuScope);
-    const currentScope = scopeRows.find((r) => r.sku_base === skuBase) ?? null;
+    const currentScope = await readFleetRow<Row>(FLEET_TABLES.skuScope, { sku_base: skuBase });
     await upsertFleetRow({
       table: FLEET_TABLES.skuScope,
       entityType: 'sku_scope',
@@ -78,8 +76,7 @@ export async function setSkuScope(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const email = await requireHead();
-    const rows = await readFleetTable<Row>(FLEET_TABLES.skuScope);
-    const current = rows.find((r) => r.sku_base === skuBase) ?? null;
+    const current = await readFleetRow<Row>(FLEET_TABLES.skuScope, { sku_base: skuBase });
 
     await upsertFleetRow({
       table: FLEET_TABLES.skuScope,

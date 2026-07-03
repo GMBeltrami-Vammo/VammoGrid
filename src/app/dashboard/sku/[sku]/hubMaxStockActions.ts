@@ -2,7 +2,7 @@
 
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 import type { HubId } from '@/types/planning';
 
@@ -17,8 +17,7 @@ export async function setHubMaxStock(
   try {
     const email = await requireHead();
     const entityId = `${skuBase}|${hubId}`;
-    const rows = await readFleetTable<Row>(FLEET_TABLES.hubMaxStock);
-    const current = rows.find((r) => r.sku_base === skuBase && r.hub_id === hubId) ?? null;
+    const current = await readFleetRow<Row>(FLEET_TABLES.hubMaxStock, { sku_base: skuBase, hub_id: hubId });
 
     if (maxQty == null) {
       if (current) {

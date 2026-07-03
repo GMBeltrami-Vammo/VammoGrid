@@ -2,7 +2,7 @@
 
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetTable, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 
 // Returns a structured result instead of throwing: Next.js redacts THROWN server
@@ -10,9 +10,8 @@ import type { Row } from '@/lib/clickhouse/reader';
 // cause (e.g. a permission error) never reaches the UI. Returned values are not
 // redacted, so the client can surface the actual message.
 
-async function findPolicy(skuBase: string): Promise<Row | null> {
-  const rows = await readFleetTable<Row>(FLEET_TABLES.skuPolicy);
-  return rows.find((r) => r.sku_base === skuBase) ?? null;
+function findPolicy(skuBase: string): Promise<Row | null> {
+  return readFleetRow<Row>(FLEET_TABLES.skuPolicy, { sku_base: skuBase });
 }
 
 export async function updateRecoveryPolicy(

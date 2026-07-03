@@ -193,6 +193,13 @@ export function ProjectionView({
                 ''
               )}
               {sugProj ? <span className="text-[#f59e0b]">Linha amarela = estoque com o pedido sugerido (aéreo + marítimo). </span> : ''}
+              {proj.timeline.some((p) => p.backlog > 0) ? (
+                <span className="text-alert-error">
+                  Linha vermelha tracejada = demanda acumulada não fornecida (perdida na ruptura — pedidos não a abatem).{' '}
+                </span>
+              ) : (
+                ''
+              )}
               Faixa azul = banda lo–hi da previsão. <InfoHint id="band" /> Faixa cinza (após o “limite
               do modelo”, ~90d) = extrapolação, menos confiável.
             </p>

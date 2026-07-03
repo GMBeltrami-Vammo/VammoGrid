@@ -92,6 +92,7 @@ export function ProjectionChart({
       bandExtrap: undefined as [number, number] | undefined,
       sim: undefined as number | undefined,
       sugg: undefined as number | undefined,
+      back: undefined as number | undefined,
     }));
   // Split the band at the model horizon: the in-model portion (brand) vs the
   // extrapolated tail (grey), so the made-up-beyond-the-model uncertainty reads as
@@ -110,8 +111,11 @@ export function ProjectionChart({
       bandExtrap: p.extrapolated || isBoundary ? band : undefined,
       sim: toVal(overlayTimeline?.[i]?.stock, rate),
       sugg: toVal(suggestionTimeline?.[i]?.stock, rate),
+      back: toVal(p.backlog, rate),
     };
   });
+  // Backlog line only when there IS unmet demand — an always-zero red line is noise.
+  const hasBacklog = timeline.some((p) => (p.backlog ?? 0) > 0);
   const data = [...histData, ...projData];
 
   // Where the model horizon ends and extrapolation begins (null if all in-model).
@@ -179,6 +183,7 @@ export function ProjectionChart({
               }
               if (name === 'sim') return [fmtY(Number(value)), overlayLabel];
               if (name === 'sugg') return [fmtY(Number(value)), suggestionLabel];
+              if (name === 'back') return [fmtY(Number(value)), 'Demanda acum. não fornecida'];
               return [fmtY(Number(value)), valLabel];
             }}
             contentStyle={{
@@ -225,6 +230,17 @@ export function ProjectionChart({
               dataKey="sugg"
               stroke={suggestionColor}
               strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+          )}
+          {/* Cumulative unmet demand (lost sales) — grows during a rupture, never repaid. */}
+          {hasBacklog && (
+            <Line
+              dataKey="back"
+              stroke="var(--color-alert-error)"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
               dot={false}
               isAnimationActive={false}
             />

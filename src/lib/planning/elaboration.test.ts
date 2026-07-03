@@ -20,6 +20,7 @@ function projection(today: string, start = 100, demand = 1, horizon = 150): Stoc
       recovery: 0,
       transferIn: 0,
       transferOut: 0,
+      backlog: 0,
       extrapolated: false,
     };
   });

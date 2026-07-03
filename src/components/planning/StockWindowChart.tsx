@@ -124,6 +124,11 @@ export function StockWindowChart({
         ) : (
           ''
         )}
+        {proj.timeline.some((p) => p.backlog > 0) ? (
+          <span className="text-alert-error"> · vermelha tracejada = demanda acum. não fornecida</span>
+        ) : (
+          ''
+        )}
       </p>
     </div>
   );

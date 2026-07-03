@@ -174,6 +174,10 @@ export interface ProjectionPoint {
   recovery: number;
   transferIn: number;
   transferOut: number;
+  /** Cumulative demand NOT served up to this day (units) — the "lost sales" the
+   *  floored stock walk drops. Monotonically non-decreasing; arrivals go to stock,
+   *  never to paying this off. Charted as the red backlog line. */
+  backlog: number;
   /** True once `day` exceeds the model horizon (demand is extrapolated). */
   extrapolated: boolean;
 }

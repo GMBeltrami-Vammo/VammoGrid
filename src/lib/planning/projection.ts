@@ -191,6 +191,7 @@ export function projectStream(i: StreamInput): StockProjection {
   let sumSqHi = 0; // Σ (hi − yhat)² → pessimistic lower band (demand above forecast)
   let stockoutDay: number | null = null;
   let incomingUnits = 0;
+  let backlog = 0; // cumulative demand NOT served (lost sales under the floored walk)
 
   const window = Math.min(30, horizon);
   let avgDaily = 0;
@@ -210,8 +211,11 @@ export function projectStream(i: StreamInput): StockProjection {
     // FLOORED at 0 (lost-sales semantics): during a rupture, unmet demand is LOST, not
     // backordered — without the floor the deficit kept accumulating negatively and a
     // later PO arrival was silently swallowed paying it off (the chart showed the
-    // arrival marker but no stock bump, the reported VO-276 case).
-    stock = Math.max(0, stock + inbound + recovery - demand);
+    // arrival marker but no stock bump, the reported VO-276 case). The lost demand is
+    // TRACKED as `backlog` (cumulative, never repaid) so the chart can show it.
+    const afterSupply = stock + inbound + recovery;
+    backlog += Math.max(0, demand - afterSupply);
+    stock = Math.max(0, afterSupply - demand);
     if (d > 0) {
       const devLo = Math.max(0, i.demand.yhat[d] - i.demand.lo[d]);
       const devHi = Math.max(0, i.demand.hi[d] - i.demand.yhat[d]);
@@ -234,6 +238,7 @@ export function projectStream(i: StreamInput): StockProjection {
       recovery: round1(recovery),
       transferIn: 0,
       transferOut: 0,
+      backlog: Math.round(backlog),
       extrapolated: d > i.demand.horizon,
     });
   }

@@ -351,7 +351,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         source: 'src/lib/planning/projection.ts',
         formula:
           'projectSku → {global, byHub{osasco,mooca,sbc}}; cada StockProjection: currentStock, dailyDemand (avg 30d), dohNow, stockoutDate, daysUntilStockout, incomingUnits, timeline (ProjectionPoint[] d=0..horizon)',
-        notes: 'ProjectionPoint: date, day, stock, stockLo, stockHi, demand, inbound, recovery, transferIn=0, transferOut=0, extrapolated (d>demand.horizon).',
+        notes: 'ProjectionPoint: date, day, stock (piso 0 — lost sales), stockLo, stockHi, demand, inbound, recovery, transferIn=0, transferOut=0, backlog (demanda acumulada não fornecida, nunca abatida), extrapolated (d>demand.horizon).',
         ref: 'src/lib/planning/projection.ts:75-190',
       },
     ],

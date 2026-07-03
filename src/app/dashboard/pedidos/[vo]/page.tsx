@@ -12,9 +12,11 @@ import { DeletePedidoButton } from '@/components/orders/DeletePedidoButton';
 import {
   MODAL_LABELS,
   PREP_STATUS_LABELS,
+  SOURCE_LABELS,
   STATUS_LABELS,
   STATUS_STYLES,
   lifecycleLabel,
+  sourceLabel,
 } from '@/components/orders/orderMeta';
 import type { PrepStatus, PurchaseOrder } from '@/types';
 import { cn } from '@/lib/utils';
@@ -83,7 +85,7 @@ export default async function PedidoDetailPage({
         </Summary>
         <Summary label="Data do pedido">{orderDate ? fmtDate(orderDate) : '—'}</Summary>
         <Summary label="ETA">{eta ? fmtDate(eta) : '—'}</Summary>
-        <Summary label="Origem">{group[0].source}</Summary>
+        <Summary label="Origem">{sourceLabel(group[0].source)}</Summary>
       </div>
 
       {/* Prep lifecycle (drafts only) */}
@@ -187,6 +189,15 @@ const FIELD_LABELS: Record<string, string> = {
   hub_id: 'Base',
   notes: 'Notas',
   is_deleted: 'Removido',
+  created: 'Criação',
+  id: 'ID',
+  vo: 'VO',
+  sku: 'SKU',
+  sku_name: 'Item',
+  order_date: 'Data do pedido',
+  lead_time_days: 'Lead time (dias)',
+  source: 'Origem',
+  updated_by: 'Atualizado por',
 };
 function fieldLabel(field: string): string {
   return FIELD_LABELS[field] ?? field;
@@ -199,10 +210,16 @@ function fmtVal(v: unknown): string {
     const parsed = JSON.parse(s);
     if (parsed === null) return '—';
     if (typeof parsed === 'boolean') return parsed ? 'sim' : 'não';
-    const prep = PREP_STATUS_LABELS[parsed as PrepStatus];
-    if (prep) return prep;
-    const st = STATUS_LABELS[parsed as keyof typeof STATUS_LABELS];
-    return st ?? String(parsed);
+    const asStr = String(parsed);
+    // Dates land as ISO (YYYY-MM-DD[…]) — display dd-mm-YYYY like the rest of the app.
+    if (/^\d{4}-\d{2}-\d{2}/.test(asStr)) return fmtDate(asStr);
+    return (
+      PREP_STATUS_LABELS[parsed as PrepStatus] ??
+      STATUS_LABELS[parsed as keyof typeof STATUS_LABELS] ??
+      MODAL_LABELS[asStr] ??
+      SOURCE_LABELS[asStr] ??
+      asStr
+    );
   } catch {
     return s;
   }

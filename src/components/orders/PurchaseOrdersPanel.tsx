@@ -22,7 +22,7 @@ import {
   updateOrderLine,
   updatePedidoHeader,
 } from '@/app/dashboard/pedidos/actions';
-import { MODAL_LABELS, STATUS_LABELS, STATUS_ORDER, STATUS_STYLES, lifecycleLabel } from './orderMeta';
+import { MODAL_LABELS, STATUS_LABELS, STATUS_ORDER, STATUS_STYLES, lifecycleLabel, sourceLabel } from './orderMeta';
 
 // Pedidos are edited at the PEDIDO level (request #1): each group (one VO) has its own
 // status / ETA / order-date (VO read-only) applied to all lines at once, plus an
@@ -218,7 +218,7 @@ function PedidoGroupCard({
 
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
           <span className="tabular-nums">{group.lines.length} SKUs · {totalQty} un.</span>
-          <span className="uppercase">{group.source}</span>
+          <span>{sourceLabel(group.source)}</span>
           {isHead && (
             <>
               <Button size="sm" onClick={saveHeader} disabled={!headerDirty || pending}>

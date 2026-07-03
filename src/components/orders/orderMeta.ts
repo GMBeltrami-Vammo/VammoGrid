@@ -34,6 +34,18 @@ export const MODAL_LABELS: Record<string, string> = {
   sea: 'Marítimo',
 };
 
+/** Where the pedido came from (dev.fleet_purchase_order.source) — pt-BR display. */
+export const SOURCE_LABELS: Record<string, string> = {
+  clickhouse: 'Sincronizado',
+  manual: 'Manual',
+  elaboracao: 'Novo Pedido',
+};
+
+export function sourceLabel(source: string | null | undefined): string {
+  if (!source) return '—';
+  return SOURCE_LABELS[source] ?? source;
+}
+
 // Preparation lifecycle (sub-projects B6/D1), preceding the shipping status.
 export const PREP_STATUS_LABELS: Record<PrepStatus, string> = {
   elaborado: 'Elaborado',

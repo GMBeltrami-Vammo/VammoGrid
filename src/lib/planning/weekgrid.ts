@@ -16,6 +16,7 @@ import { countsAsInbound } from '@/types/planning';
 import { resolveShares } from './allocation';
 import {
   DEFAULT_LEAD_TIME_DAYS,
+  HORIZON_DAYS,
   INTERNATIONAL_AIR_LEAD_DAYS,
   DEFAULT_PURCHASE_CRITERIA,
   type PurchaseCriteria,
@@ -224,8 +225,11 @@ function whenNeededInjection(args: {
   criteria: PurchaseCriteria;
   rop: number;
   horizonDays: number;
+  /** Projection horizon (grid window + fwd-avg margin) — receipts beyond it only
+   *  affect days the grid never reads, so results are identical to the 150d default. */
+  projectionHorizon: number;
 }): OpenPurchaseOrder[] {
-  const { scenario, stock, forecast, policy, shares, baseOrders, today, criteria, rop, horizonDays } = args;
+  const { scenario, stock, forecast, policy, shares, baseOrders, today, criteria, rop, horizonDays, projectionHorizon } = args;
   if (scenario === 'baseline') return [];
 
   const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
@@ -234,7 +238,7 @@ function whenNeededInjection(args: {
   const orders = [...baseOrders];
 
   for (let iter = 0; iter < MAX_INJECTIONS; iter++) {
-    const proj = projectSku({ stock, forecast, orders, policy, shares, today }).global;
+    const proj = projectSku({ stock, forecast, orders, policy, shares, today, horizon: projectionHorizon }).global;
     const bd = firstBreachDay(proj, criteria, rop, horizonDays);
     if (bd < 0) break;
     const dailyDemand = proj.dailyDemand > 0 ? proj.dailyDemand : proj.timeline[bd]?.demand ?? 0;
@@ -307,6 +311,11 @@ export function buildWeekGrid(args: {
   const criteria = args.criteria ?? DEFAULT_PURCHASE_CRITERIA;
   const dohFloor = criteria.dohThreshold;
   const today = inputs.today;
+  // Project only as far as the grid reads: the last sampled day (weekCount*7) plus the
+  // 7-day forward-avg DOH window. Clamped ≥30 so dailyDemand's min(30,horizon) window —
+  // and therefore every displayed number — is identical to the old 150d projections;
+  // capped at HORIZON_DAYS so an out-of-range `weeks` arg reproduces today's behavior.
+  const projectionHorizon = Math.min(HORIZON_DAYS, Math.max(weekCount * 7 + 7, 30));
 
   const weeks: WeekMeta[] = Array.from({ length: weekCount }, (_, i) => {
     const dayOffset = (i + 1) * 7;
@@ -343,10 +352,11 @@ export function buildWeekGrid(args: {
       criteria,
       rop,
       horizonDays: weekCount * 7,
+      projectionHorizon,
     });
     const orders = [...baseOrders, ...injected];
 
-    const proj = projectSku({ stock, forecast, orders, policy, shares, today });
+    const proj = projectSku({ stock, forecast, orders, policy, shares, today, horizon: projectionHorizon });
 
     const meta = {
       skuBase: stock.skuBase,

@@ -45,6 +45,24 @@ function resolveClickhouseUrl(host: string): URL {
   }
 }
 
+// Fail fast instead of hanging until the platform kills the function: a hung/unreachable
+// warehouse should surface as a clear error in ~15s, not block a page render for the
+// full Vercel limit. 15s < the crons' maxDuration 60, so even those fail gracefully.
+const CLICKHOUSE_TIMEOUT_MS = 15_000;
+
+async function timedFetch(url: URL, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(CLICKHOUSE_TIMEOUT_MS) });
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new Error(
+        `ClickHouse request timed out after ${CLICKHOUSE_TIMEOUT_MS} ms — the warehouse did not respond. Retry or check CLICKHOUSE_HOST connectivity.`,
+      );
+    }
+    throw e;
+  }
+}
+
 async function clickhouseQuery<T = Row>(sql: string): Promise<T[]> {
   const host = process.env.CLICKHOUSE_HOST;
   if (!host) {
@@ -59,7 +77,7 @@ async function clickhouseQuery<T = Row>(sql: string): Promise<T[]> {
   // ClickHouse HTTP interface: append FORMAT JSONEachRow → newline-delimited JSON.
   const url = resolveClickhouseUrl(host);
   url.searchParams.set('database', database);
-  const res = await fetch(url, {
+  const res = await timedFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'text/plain',
@@ -96,7 +114,7 @@ async function clickhouseExecute(sql: string): Promise<void> {
 
   const url = resolveClickhouseUrl(host);
   url.searchParams.set('database', database);
-  const res = await fetch(url, {
+  const res = await timedFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'text/plain',

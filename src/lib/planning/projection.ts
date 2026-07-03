@@ -33,18 +33,63 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+// Per-timeline cache of the forward-7-day averages (the default/canonical window).
+// Built once per timeline array via prefix sums — O(H) — then every call is O(1).
+// forwardAvgDemand is on the hottest paths (heatmap cells, breach scans, elaboration
+// scans, chart points: ~900 calls × N SKUs per page), so this removes the O(window)
+// inner loop from all of them without changing any call site.
+// INVARIANT: a timeline's `demand` values must not be mutated after the first call
+// (true everywhere — timelines are built once by projectStream and read-only after).
+// WeakMap keys on the array identity, so per-request timelines are GC'd normally.
+const fwd7Cache = new WeakMap<object, Float64Array>();
+// Sentinel for "not cacheable" (sparse array — the loop's early-break semantics differ).
+const FWD7_MISS = new Float64Array(0);
+
+function buildFwd7(timeline: { demand: number }[]): Float64Array {
+  const len = timeline.length;
+  const out = new Float64Array(len);
+  for (let i = 0; i < len; i++) {
+    // A hole (sparse array) breaks the equivalence with the loop's `if (!p) break`
+    // semantics — refuse to cache and let every call use the loop.
+    if (!timeline[i]) return FWD7_MISS;
+    // Verbatim naive summation (same order, same ops) so each entry is BIT-identical
+    // to the fallback loop — a prefix-sum difference could shift results by 1 ULP.
+    let sum = 0;
+    let n = 0;
+    for (let k = 1; k <= 7; k++) {
+      const p = timeline[i + k];
+      if (!p) break;
+      sum += p.demand;
+      n++;
+    }
+    out[i] = n === 0 ? timeline[i].demand ?? 0 : sum / n;
+  }
+  return out;
+}
+
 /**
  * Days-of-cover denominator: the average daily consumption over the NEXT `window` days
  * (default 7 — "next week's predicted daily average"). This is the canonical DOH rate
  * across the app — stock ÷ this = coverage. It replaces dividing by a single day's
  * forecast, which is erratic (a spiky/zero day made DOH jump or vanish). Falls back to
  * the point's own demand at the very end of the horizon (no forward days left).
+ *
+ * O(1) for the default 7-day window via a per-timeline prefix-sum table (see above);
+ * other windows / out-of-range days fall through to the original loop.
  */
 export function forwardAvgDemand(
   timeline: { demand: number }[],
   fromDay: number,
   window = 7,
 ): number {
+  if (window === 7 && Number.isInteger(fromDay) && fromDay >= 0 && fromDay < timeline.length) {
+    let table = fwd7Cache.get(timeline);
+    if (!table) {
+      table = buildFwd7(timeline);
+      fwd7Cache.set(timeline, table);
+    }
+    if (table !== FWD7_MISS) return table[fromDay];
+  }
   let sum = 0;
   let n = 0;
   for (let k = 1; k <= window; k++) {

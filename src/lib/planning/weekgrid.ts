@@ -63,14 +63,14 @@ interface WeekGridInputs {
 
 const OPEN_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
 
-/** Which week bucket an arrival day-offset lands in. Weeks are contiguous 7-day
- *  buckets (week i covers offsets [7i+1 .. 7i+7]), so this is pure index math —
- *  equivalent to the old `weeks.findIndex(w => offset <= w.dayOffset && offset >
- *  w.dayOffset - 7)` but O(1): offset ≤ 0 (today/past) never lands in a week. */
-function weekIndexFor(offset: number, weekCount: number): number {
-  if (offset <= 0) return -1;
-  const wi = Math.ceil(offset / 7) - 1;
-  return wi < weekCount ? wi : -1;
+/** Which week column an arrival day-offset lands in. Column 0 is "Hoje" (dayOffset 0
+ *  — today and anything overdue, matching the projection's day-0 credit for late
+ *  POs); column i ≥ 1 covers offsets [7(i−1)+1 .. 7i]. Pure O(1) index math.
+ *  `totalCols` = weeks.length (the Hoje column + N week columns). */
+function weekIndexFor(offset: number, totalCols: number): number {
+  if (offset <= 0) return 0;
+  const wi = Math.ceil(offset / 7);
+  return wi < totalCols ? wi : -1;
 }
 
 /** Per-week arriving units split by modal, from the SKU's orders (same arrival rule
@@ -295,12 +295,13 @@ function whenNeededInjection(args: {
   return injected;
 }
 
-/** Which week column (1-based) a buy-by date falls in; null when none / beyond grid. */
+/** Which week column a buy-by date falls in (0 = the "Hoje" column, for buy-by today
+ *  or already overdue); null when none / beyond the grid. Matches WeekMeta.idx. */
 function buyByWeek(buyByDate: string | null, today: string, weeks: number): number | null {
   if (!buyByDate) return null;
   const offset = diffDays(today, buyByDate);
   if (offset > weeks * 7) return null; // plenty of runway — no flag in the window
-  return Math.max(1, Math.ceil(offset / 7)); // past/near → week 1
+  return Math.max(0, Math.ceil(offset / 7)); // past/today → the Hoje column
 }
 
 // ── Shared per-page context: everything scenario-INVARIANT, computed once ─────
@@ -382,10 +383,16 @@ function buildSharedContext(args: {
   // capped at HORIZON_DAYS so an out-of-range `weeks` arg reproduces today's behavior.
   const projectionHorizon = Math.min(HORIZON_DAYS, Math.max(weekCount * 7 + 7, 30));
 
-  const weeks: WeekMeta[] = Array.from({ length: weekCount }, (_, i) => {
-    const dayOffset = (i + 1) * 7;
-    return { idx: i + 1, dayOffset, endDate: addDays(today, dayOffset) };
-  });
+  // Column 0 = "Hoje" (the current position — the review flagged that the grid only
+  // started a week out); columns 1..N = end-of-week samples. WeekMeta.idx === array
+  // index, so cell i ↔ weeks[i] everywhere.
+  const weeks: WeekMeta[] = [
+    { idx: 0, dayOffset: 0, endDate: today },
+    ...Array.from({ length: weekCount }, (_, i) => {
+      const dayOffset = (i + 1) * 7;
+      return { idx: i + 1, dayOffset, endDate: addDays(today, dayOffset) };
+    }),
+  ];
   const noArrivals: ModalSplit = weeks.map(() => ({ sea: 0, air: 0 }));
   const noKeys: string[][] = weeks.map(() => []);
 

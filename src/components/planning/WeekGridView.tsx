@@ -150,7 +150,7 @@ export function WeekGridView({
       </div>
 
       {/* Per-week new-stockout summary */}
-      <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-8">
+      <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-9">
         {grid.weeks.map((w, i) => (
           <div
             key={w.idx}
@@ -159,7 +159,7 @@ export function WeekGridView({
               summary[i] > 0 ? 'border-alert-error/30 bg-alert-error/5' : 'border-border bg-muted/20',
             )}
           >
-            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Sem {w.idx}</p>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{w.idx === 0 ? 'Hoje' : `Sem ${w.idx}`}</p>
             <p className="text-[10px] text-muted-foreground">{fmtDate(w.endDate)}</p>
             <p className={cn('mt-0.5 text-lg font-bold tabular-nums', summary[i] > 0 ? 'text-alert-error' : 'text-muted-foreground/40')}>
               {summary[i]}
@@ -177,7 +177,7 @@ export function WeekGridView({
               <th className="border-l border-foreground/5 px-2 py-2 text-right font-medium">Consumo/dia</th>
               {grid.weeks.map((w) => (
                 <th key={w.idx} className="border-l border-foreground/5 px-2 py-2 text-center font-medium">
-                  <span className="block">Sem {w.idx}</span>
+                  <span className="block">{w.idx === 0 ? 'Hoje' : `Sem ${w.idx}`}</span>
                   <span className="block text-[10px] normal-case text-muted-foreground/70">{fmtDate(w.endDate)}</span>
                 </th>
               ))}
@@ -246,9 +246,11 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
   return (
     <div className="space-y-0.5">
       <div className="font-semibold text-foreground">
-        {row.skuBase} · Sem {idx + 1}
+        {row.skuBase} · {week.idx === 0 ? 'Hoje' : `Sem ${week.idx}`}
       </div>
-      <div className="text-muted-foreground">Fim da semana: {fmtDate(week.endDate)}</div>
+      <div className="text-muted-foreground">
+        {week.idx === 0 ? 'Posição de hoje' : 'Fim da semana'}: {fmtDate(week.endDate)}
+      </div>
       <div>
         Estoque: <b>{fmtInt(cell.stock)}</b> un
       </div>
@@ -299,7 +301,7 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
           <Recycle className="size-3" /> Recuperação: +{fmtInt(cell.recovery)} un
         </div>
       )}
-      {row.buyByWeekIdx === idx + 1 && (
+      {row.buyByWeekIdx === week.idx && (
         <div className="font-medium text-[color:var(--color-alert-warning)]">Comprar até esta semana</div>
       )}
       {cell.extrapolated && <div className="text-muted-foreground">Extrapolado (além do modelo)</div>}
@@ -342,7 +344,7 @@ function GridRow({
         {row.dailyDemand > 0 ? `${row.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}/d` : '—'}
       </td>
       {row.cells.map((c, i) => {
-        const isBuyBy = row.buyByWeekIdx === i + 1;
+        const isBuyBy = row.buyByWeekIdx === weeks[i].idx;
         const clickable = c.arrVos.length > 0;
         return (
           <td

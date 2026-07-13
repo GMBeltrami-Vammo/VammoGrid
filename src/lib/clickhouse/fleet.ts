@@ -55,6 +55,8 @@ const DDL: string[] = [
   `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.purchaseOrder} (
     id String,
     vo Nullable(String),
+    pedido_name Nullable(String),
+    order_type Nullable(String),
     sku String,
     sku_name Nullable(String),
     qty_ordered Int32,
@@ -67,6 +69,7 @@ const DDL: string[] = [
     notes Nullable(String),
     source String DEFAULT 'manual',
     prep_status Nullable(String),
+    elaboration_snapshot Nullable(String),
     created_at DateTime64(3) DEFAULT now64(3),
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
@@ -173,6 +176,11 @@ const MIGRATIONS: string[] = [
   // Manually-added SKUs carry their display name on the policy row (the warehouse
   // snapshot doesn't know a SKU that isn't in inventory yet).
   `ALTER TABLE ${FLEET_TABLES.skuPolicy} ADD COLUMN IF NOT EXISTS sku_name Nullable(String)`,
+  // Stakeholder review (itens 7a/3b): pedido-level name + nacional/internacional type.
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS pedido_name Nullable(String)`,
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS order_type Nullable(String)`,
+  // Item 8: frozen elaboration basis (forecast asOf, criteria, suggested vs chosen) per line.
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS elaboration_snapshot Nullable(String)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.

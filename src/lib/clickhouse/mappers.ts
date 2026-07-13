@@ -18,6 +18,8 @@ export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
   return {
     id: String(row.id),
     vo: row.vo ?? null,
+    pedidoName: row.pedido_name ?? null,
+    orderType: row.order_type === 'nacional' || row.order_type === 'internacional' ? row.order_type : null,
     sku: String(row.sku),
     skuName: row.sku_name ?? null,
     qtyOrdered: Number(row.qty_ordered) || 0,

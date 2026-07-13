@@ -6,7 +6,7 @@ import { requireHead } from '@/lib/auth/requireHead';
 import { FLEET_TABLES, readFleetRow, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import { chInsert, type Row } from '@/lib/clickhouse/reader';
 import { addDays } from '@/lib/planning/dates';
-import type { PrepStatus, PurchaseOrderStatus } from '@/types';
+import type { OrderType, PrepStatus, PurchaseOrderStatus } from '@/types';
 import type { TransportModal } from '@/types/planning';
 
 // Head-gated mutations for purchase orders (dev.fleet_purchase_order — formerly
@@ -15,6 +15,8 @@ import type { TransportModal } from '@/types/planning';
 
 export interface PurchaseOrderInput {
   vo?: string | null;
+  pedidoName?: string | null;
+  orderType?: OrderType | null;
   sku: string;
   skuName?: string | null;
   qtyOrdered: number;
@@ -30,6 +32,8 @@ export interface PurchaseOrderInput {
 function toRow(input: PurchaseOrderInput) {
   return {
     vo: input.vo?.trim() || null,
+    pedido_name: input.pedidoName?.trim() || null,
+    order_type: input.orderType ?? null,
     sku: input.sku.trim(),
     sku_name: input.skuName?.trim() || null,
     qty_ordered: input.qtyOrdered,
@@ -79,6 +83,8 @@ export interface NewPedidoLine {
 export async function createPedido(input: {
   modal: TransportModal;
   orderDate: string;
+  pedidoName?: string | null;
+  orderType?: OrderType | null;
   lines: NewPedidoLine[];
 }): Promise<{ ok: boolean; vo?: string; error?: string }> {
   try {
@@ -93,6 +99,8 @@ export async function createPedido(input: {
     const rows: Row[] = lines.map((l) => ({
       id: randomUUID(),
       vo,
+      pedido_name: input.pedidoName?.trim() || null,
+      order_type: input.orderType ?? null,
       sku: l.skuBase.trim(),
       sku_name: l.skuName?.trim() || null,
       qty_ordered: Math.round(l.qty),
@@ -140,6 +148,8 @@ export interface PedidoHeaderPatch {
   status?: PurchaseOrderStatus;
   eta?: string | null;
   orderDate?: string;
+  pedidoName?: string | null;
+  orderType?: OrderType | null;
 }
 
 export async function updatePedidoHeader(
@@ -158,6 +168,8 @@ export async function updatePedidoHeader(
       if (patch.status !== undefined) next.status = patch.status;
       if (patch.eta !== undefined) next.eta = patch.eta || null;
       if (patch.orderDate !== undefined) next.order_date = patch.orderDate;
+      if (patch.pedidoName !== undefined) next.pedido_name = patch.pedidoName?.trim() || null;
+      if (patch.orderType !== undefined) next.order_type = patch.orderType ?? null;
       await upsertFleetRow({
         table: FLEET_TABLES.purchaseOrder,
         entityType: 'purchase_order',

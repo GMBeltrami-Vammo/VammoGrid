@@ -11,6 +11,7 @@ import { PrepStatusControl } from '@/components/orders/PrepStatusControl';
 import { DeletePedidoButton } from '@/components/orders/DeletePedidoButton';
 import {
   MODAL_LABELS,
+  ORDER_TYPE_LABELS,
   PREP_STATUS_LABELS,
   SOURCE_LABELS,
   STATUS_LABELS,
@@ -72,17 +73,18 @@ export default async function PedidoDetailPage({
       </div>
       <PageHeader
         eyebrow={group[0].vo ? `Pedido · VO ${group[0].vo}` : 'Pedido manual'}
-        title={group[0].vo ?? group[0].skuName ?? key}
+        title={group[0].pedidoName ?? group[0].vo ?? group[0].skuName ?? key}
         subtitle={`${group.length} ${group.length === 1 ? 'item' : 'itens'} · ${fmtInt(totalQty)} un.${modals.length ? ` · ${modals.map((m) => MODAL_LABELS[m] ?? m).join(' / ')}` : ''}`}
       />
 
       {/* Summary */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Summary label="Estágio">
           <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_STYLES[status])}>
             {lifecycleLabel(prep, status)}
           </span>
         </Summary>
+        <Summary label="Tipo">{group[0].orderType ? ORDER_TYPE_LABELS[group[0].orderType] : '—'}</Summary>
         <Summary label="Data do pedido">{orderDate ? fmtDate(orderDate) : '—'}</Summary>
         <Summary label="ETA">{eta ? fmtDate(eta) : '—'}</Summary>
         <Summary label="Origem">{sourceLabel(group[0].source)}</Summary>
@@ -198,6 +200,8 @@ const FIELD_LABELS: Record<string, string> = {
   lead_time_days: 'Lead time (dias)',
   source: 'Origem',
   updated_by: 'Atualizado por',
+  pedido_name: 'Nome',
+  order_type: 'Tipo',
 };
 function fieldLabel(field: string): string {
   return FIELD_LABELS[field] ?? field;
@@ -218,6 +222,7 @@ function fmtVal(v: unknown): string {
       STATUS_LABELS[parsed as keyof typeof STATUS_LABELS] ??
       MODAL_LABELS[asStr] ??
       SOURCE_LABELS[asStr] ??
+      ORDER_TYPE_LABELS[asStr] ??
       asStr
     );
   } catch {

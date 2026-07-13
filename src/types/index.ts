@@ -19,11 +19,18 @@ export type PurchaseOrderStatus =
 /** Order-preparation lifecycle preceding the shipping status (B6/D1). */
 export type PrepStatus = 'elaborado' | 'enviado' | 'feito';
 
+/** Pedido classification (review 7a/3b): national vs international purchase. */
+export type OrderType = 'nacional' | 'internacional';
+
 export interface PurchaseOrder {
   /** App-generated UUID (ClickHouse has no sequences). */
   id: string;
   /** VO reference label, e.g. "266" */
   vo: string | null;
+  /** Human-friendly pedido name (review 7a); null for synced/legacy orders. */
+  pedidoName: string | null;
+  /** nacional | internacional; null when untyped (synced/legacy). */
+  orderType: OrderType | null;
   /** SKU code */
   sku: string;
   skuName: string | null;

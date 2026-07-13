@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Check, Download, Ship, Plane, CheckSquare, Square } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
 import type { TransportModal } from '@/types/planning';
+import type { OrderType } from '@/types';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
@@ -25,6 +26,8 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
   const [dohLt, setDohLt] = useState('');
   const [modal, setModal] = useState<TransportModal>('sea');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
+  const [pedidoName, setPedidoName] = useState('');
+  const [orderType, setOrderType] = useState<OrderType>('internacional');
   // Per-SKU inclusion + qty. Default: all included at the suggested qty for the default
   // modal (sea). Flipping the modal resets quantities to that modal's suggestion.
   const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
@@ -93,6 +96,8 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
       const res = await createPedido({
         modal,
         orderDate,
+        pedidoName: pedidoName || null,
+        orderType,
         lines: selectedRows.map((r) => ({
           skuBase: r.suggestion.skuBase,
           skuName: r.suggestion.skuName,
@@ -158,6 +163,32 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
         <div>
           <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Data do pedido</span>
           <DateField value={orderDate} onChange={setOrderDate} className="mt-1 h-8 w-36" aria-label="Data do pedido" />
+        </div>
+        <div>
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Nome do pedido</span>
+          <input
+            value={pedidoName}
+            onChange={(e) => setPedidoName(e.target.value)}
+            placeholder="Ex.: Reposição agosto"
+            className="mt-1 h-8 w-48 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
+          />
+        </div>
+        <div>
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tipo</span>
+          <div className="mt-1 inline-flex overflow-hidden rounded-md border border-border">
+            {(['internacional', 'nacional'] as OrderType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setOrderType(t)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium transition-colors',
+                  orderType === t ? 'bg-brand-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50',
+                )}
+              >
+                {t === 'internacional' ? 'Internacional' : 'Nacional'}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">

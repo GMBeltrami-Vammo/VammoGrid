@@ -14,7 +14,7 @@ import { HUB_LIST, HUBS } from '@/constants/hubs';
 import { fmtDate } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { DateField } from '@/components/ui/DateField';
-import type { HubId, PurchaseOrder, PurchaseOrderStatus } from '@/types';
+import type { HubId, OrderType, PurchaseOrder, PurchaseOrderStatus } from '@/types';
 import {
   createPurchaseOrder,
   deletePedido,
@@ -22,7 +22,7 @@ import {
   updateOrderLine,
   updatePedidoHeader,
 } from '@/app/dashboard/pedidos/actions';
-import { MODAL_LABELS, STATUS_LABELS, STATUS_ORDER, STATUS_STYLES, lifecycleLabel, sourceLabel } from './orderMeta';
+import { MODAL_LABELS, ORDER_TYPE_LABELS, STATUS_LABELS, STATUS_ORDER, STATUS_STYLES, lifecycleLabel, sourceLabel } from './orderMeta';
 
 // Pedidos are edited at the PEDIDO level (request #1): each group (one VO) has its own
 // status / ETA / order-date (VO read-only) applied to all lines at once, plus an
@@ -31,6 +31,8 @@ import { MODAL_LABELS, STATUS_LABELS, STATUS_ORDER, STATUS_STYLES, lifecycleLabe
 interface PedidoGroup {
   key: string;
   vo: string | null;
+  pedidoName: string | null;
+  orderType: OrderType | null;
   lines: PurchaseOrder[];
   status: PurchaseOrderStatus;
   orderDate: string;
@@ -53,6 +55,8 @@ function groupByVo(orders: PurchaseOrder[]): PedidoGroup[] {
     groups.push({
       key,
       vo: h.vo,
+      pedidoName: h.pedidoName,
+      orderType: h.orderType,
       lines,
       status: h.status,
       orderDate: h.orderDate,
@@ -74,16 +78,57 @@ export function PurchaseOrdersPanel() {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Review 3b: separar Nacional/Internacional + buscar em quais pedidos um SKU está.
+  const [typeFilter, setTypeFilter] = useState<'todos' | OrderType>('todos');
+  const [skuQuery, setSkuQuery] = useState('');
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
-  const groups = useMemo(() => (orders ? groupByVo(orders) : []), [orders]);
+  const allGroups = useMemo(() => (orders ? groupByVo(orders) : []), [orders]);
+  const groups = useMemo(() => {
+    const q = skuQuery.trim().toLowerCase();
+    return allGroups.filter((g) => {
+      if (typeFilter !== 'todos' && g.orderType !== typeFilter) return false;
+      if (
+        q &&
+        !g.lines.some(
+          (l) => l.sku.toLowerCase().includes(q) || (l.skuName ?? '').toLowerCase().includes(q),
+        ) &&
+        !(g.vo ?? '').toLowerCase().includes(q) &&
+        !(g.pedidoName ?? '').toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [allGroups, typeFilter, skuQuery]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{orders ? `${groups.length} pedidos` : '—'}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={skuQuery}
+          onChange={(e) => setSkuQuery(e.target.value)}
+          placeholder="Buscar por SKU, VO ou nome…"
+          className="h-8 w-56 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
+        />
+        {(['todos', 'nacional', 'internacional'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTypeFilter(t)}
+            className={cn(
+              'rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+              typeFilter === t ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+            )}
+          >
+            {t === 'todos' ? 'Todos' : ORDER_TYPE_LABELS[t]}
+          </button>
+        ))}
+        <p className="text-sm text-muted-foreground">
+          {orders ? `${groups.length}${groups.length !== allGroups.length ? ` / ${allGroups.length}` : ''} pedidos` : '—'}
+        </p>
         {isHead && !creating && (
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
             <Plus /> Novo pedido
           </Button>
         )}
@@ -117,6 +162,8 @@ export function PurchaseOrdersPanel() {
             <PedidoGroupCard key={g.key} group={g} isHead={isHead} onChanged={refresh} onError={setError} />
           ))}
         </div>
+      ) : allGroups.length > 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum pedido no filtro/busca atual.</p>
       ) : (
         <p className="text-sm text-muted-foreground">
           Nenhum pedido ainda. Sincronizados do ClickHouse{isHead ? ' ou adicione acima.' : '.'}
@@ -141,17 +188,30 @@ function PedidoGroupCard({
   const [status, setStatus] = useState<PurchaseOrderStatus>(group.status);
   const [orderDate, setOrderDate] = useState(group.orderDate);
   const [eta, setEta] = useState(group.eta ?? '');
+  const [name, setName] = useState(group.pedidoName ?? '');
+  const [orderType, setOrderType] = useState<'' | OrderType>(group.orderType ?? '');
   const [pending, startTransition] = useTransition();
   const [addingLine, setAddingLine] = useState(false);
 
   const ids = group.lines.map((l) => l.id);
   const totalQty = group.lines.reduce((s, l) => s + l.qtyOrdered, 0);
-  const headerDirty = status !== group.status || orderDate !== group.orderDate || (eta || '') !== (group.eta ?? '');
+  const headerDirty =
+    status !== group.status ||
+    orderDate !== group.orderDate ||
+    (eta || '') !== (group.eta ?? '') ||
+    (name || '') !== (group.pedidoName ?? '') ||
+    (orderType || '') !== (group.orderType ?? '');
 
   const saveHeader = () => {
     onError(null);
     startTransition(async () => {
-      const res = await updatePedidoHeader(ids, { status, orderDate, eta: eta || null });
+      const res = await updatePedidoHeader(ids, {
+        status,
+        orderDate,
+        eta: eta || null,
+        pedidoName: name || null,
+        orderType: orderType || null,
+      });
       if (res.ok) onChanged();
       else onError(res.error ?? 'Erro ao salvar pedido.');
     });
@@ -184,7 +244,30 @@ function PedidoGroupCard({
           >
             {group.vo ?? 'manual'}
           </Link>
+          {group.pedidoName && !isHead && (
+            <span className="block max-w-[10rem] truncate text-[11px] text-muted-foreground" title={group.pedidoName}>
+              {group.pedidoName}
+            </span>
+          )}
         </div>
+
+        {isHead && (
+          <HeaderField label="Nome">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="—" className="h-8 w-40" />
+          </HeaderField>
+        )}
+
+        <HeaderField label="Tipo">
+          {isHead ? (
+            <NativeSelect value={orderType} onChange={(e) => setOrderType(e.target.value as '' | OrderType)}>
+              <option value="">—</option>
+              <option value="nacional">Nacional</option>
+              <option value="internacional">Internacional</option>
+            </NativeSelect>
+          ) : (
+            <span className="text-sm">{group.orderType ? ORDER_TYPE_LABELS[group.orderType] : '—'}</span>
+          )}
+        </HeaderField>
 
         <HeaderField label="Data do pedido">
           {isHead ? (
@@ -393,9 +476,11 @@ function AddLineForm({
     if (!sku.trim()) return onError('SKU é obrigatório.');
     startTransition(async () => {
       try {
-        // New line inherits the pedido's header (vo/status/eta/date/modal/hub).
+        // New line inherits the pedido's header (vo/name/type/status/eta/date/modal/hub).
         await createPurchaseOrder({
           vo: group.vo,
+          pedidoName: group.pedidoName,
+          orderType: group.orderType,
           sku,
           skuName,
           qtyOrdered: qty,
@@ -433,6 +518,8 @@ function NewPedidoForm({
   onError: (m: string | null) => void;
 }) {
   const [vo, setVo] = useState('');
+  const [name, setName] = useState('');
+  const [orderType, setOrderType] = useState<'' | OrderType>('');
   const [sku, setSku] = useState('');
   const [skuName, setSkuName] = useState('');
   const [qty, setQty] = useState(0);
@@ -449,6 +536,8 @@ function NewPedidoForm({
       try {
         await createPurchaseOrder({
           vo: vo || null,
+          pedidoName: name || null,
+          orderType: orderType || null,
           sku,
           skuName,
           qtyOrdered: qty,
@@ -470,6 +559,14 @@ function NewPedidoForm({
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand-500">Novo pedido</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <Field label="VO"><Input value={vo} onChange={(e) => setVo(e.target.value)} placeholder="266" /></Field>
+        <Field label="Nome do pedido"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Reposição agosto" /></Field>
+        <Field label="Tipo">
+          <NativeSelect value={orderType} onChange={(e) => setOrderType(e.target.value as '' | OrderType)}>
+            <option value="">—</option>
+            <option value="nacional">Nacional</option>
+            <option value="internacional">Internacional</option>
+          </NativeSelect>
+        </Field>
         <Field label="Data do pedido"><DateField value={orderDate} onChange={setOrderDate} /></Field>
         <Field label="ETA"><DateField value={eta} onChange={setEta} /></Field>
         <Field label="Modal">

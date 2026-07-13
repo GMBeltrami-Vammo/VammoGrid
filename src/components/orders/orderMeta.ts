@@ -41,6 +41,12 @@ export const SOURCE_LABELS: Record<string, string> = {
   elaboracao: 'Novo Pedido',
 };
 
+/** Pedido classification (review 7a/3b). */
+export const ORDER_TYPE_LABELS: Record<string, string> = {
+  nacional: 'Nacional',
+  internacional: 'Internacional',
+};
+
 export function sourceLabel(source: string | null | undefined): string {
   if (!source) return '—';
   return SOURCE_LABELS[source] ?? source;

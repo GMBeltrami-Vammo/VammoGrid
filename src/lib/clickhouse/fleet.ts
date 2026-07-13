@@ -28,6 +28,7 @@ export const FLEET_TABLES = {
   skuScope: 'dev.fleet_sku_scope',
   globalSettings: 'dev.fleet_global_settings',
   hubMaxStock: 'dev.fleet_sku_hub_max_stock',
+  fleetSizeWeekly: 'dev.fleet_size_weekly',
 } as const;
 
 const DDL: string[] = [
@@ -156,6 +157,18 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (sku_base, hub_id)`,
+
+  // Weekly REAL fleet size per model segment (stakeholder review item 2): the chart's
+  // past becomes actuals and the projection anchors on the latest record. Fed weekly
+  // by hand or via the end-of-month shortcut (homogeneous interpolation).
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.fleetSizeWeekly} (
+    segment String,
+    week_start Date,
+    size Int32,
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (segment, week_start)`,
 ];
 
 // Idempotent column adds for tables that already exist in prod (CREATE TABLE IF NOT

@@ -26,43 +26,68 @@ export interface FleetSegment {
   asOfDate: string | null;
 }
 
+/** A REAL weekly fleet-size record (dev.fleet_size_weekly — review item 2). */
+export interface FleetWeeklyActual {
+  segment: string;
+  weekStart: string;
+  size: number;
+}
+
 const PAST_WEEKS = 12;
 const FUTURE_WEEKS = 26;
 
 export function FleetGrowthChart({
   segments,
+  actuals = [],
   today,
   isHead,
 }: {
   segments: FleetSegment[];
+  /** Weekly REAL records; when present, the past is actuals and the projection anchors
+   *  on the latest record per segment (else falls back to the retro-projection). */
+  actuals?: FleetWeeklyActual[];
   today: string;
   isHead: boolean;
 }) {
   const router = useRouter();
 
-  // Shared weekly grid (today-anchored): each week is a row; each segment a column.
+  // Per segment: real weekly points (when any) + linear projection anchored on the
+  // latest real record (else on today's fleet_info size, with retro-projected past).
   const { data, keys } = useMemo(() => {
     const keys = segments.map((s) => s.segment);
-    const perSeg = new Map(
-      segments.map((s) => [
-        s.segment,
-        projectFleetGrowth({
-          base: s.currentSize,
-          monthlyGrowthRate: s.monthlyGrowthRate,
-          anchor: today,
-          pastWeeks: PAST_WEEKS,
-          futureWeeks: FUTURE_WEEKS,
-        }),
-      ]),
-    );
-    const weeks = perSeg.get(keys[0])?.map((p) => p.week) ?? [];
-    const data = weeks.map((w, i) => {
-      const row: Record<string, number | string> = { date: perSeg.get(keys[0])![i].date, week: w };
-      for (const k of keys) row[k] = perSeg.get(k)![i].size;
+    const bySegDate = new Map<string, Map<string, number>>(keys.map((k) => [k, new Map()]));
+    const lastActual = new Map<string, { date: string; size: number }>();
+    for (const a of actuals) {
+      const m = bySegDate.get(a.segment);
+      if (!m) continue; // record for a segment not configured in Admin → not charted
+      const date = a.weekStart.slice(0, 10);
+      m.set(date, a.size);
+      const last = lastActual.get(a.segment);
+      if (!last || date > last.date) lastActual.set(a.segment, { date, size: a.size });
+    }
+    for (const s of segments) {
+      const anchor = lastActual.get(s.segment);
+      const proj = projectFleetGrowth({
+        base: anchor?.size ?? s.currentSize,
+        monthlyGrowthRate: s.monthlyGrowthRate,
+        anchor: anchor?.date ?? today,
+        pastWeeks: anchor ? 0 : PAST_WEEKS,
+        futureWeeks: FUTURE_WEEKS,
+      });
+      const m = bySegDate.get(s.segment)!;
+      for (const p of proj) if (!m.has(p.date)) m.set(p.date, p.size);
+    }
+    const dates = [...new Set([...bySegDate.values()].flatMap((m) => [...m.keys()]))].sort();
+    const data = dates.map((date) => {
+      const row: Record<string, number | string> = { date };
+      for (const k of keys) {
+        const v = bySegDate.get(k)!.get(date);
+        if (v != null) row[k] = v;
+      }
       return row;
     });
     return { data, keys };
-  }, [segments, today]);
+  }, [segments, actuals, today]);
 
   if (segments.length === 0) {
     return (
@@ -76,8 +101,8 @@ export function FleetGrowthChart({
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <FleetGrowthChartInner data={data} keys={keys} today={today} />
       <p className="mt-1 text-center text-[11px] text-muted-foreground">
-        À esquerda de <b>hoje</b>: realizado (retroprojetado) · à direita: estimado — crescimento linear
-        (futuro = taxa × frota atual × dt).
+        À esquerda de <b>hoje</b>: realizado ({actuals.length > 0 ? 'registros semanais reais' : 'retroprojetado — registre semanas abaixo'}) ·
+        à direita: estimado — crescimento linear ancorado no último registro (futuro = taxa × frota × dt).
       </p>
 
       {/* Editable growth rate per model */}

@@ -80,6 +80,7 @@ export default function FleetGrowthChartInner({
               stroke={COLORS[i % COLORS.length]}
               strokeWidth={2}
               dot={false}
+              connectNulls
               isAnimationActive={false}
             />
           ))}

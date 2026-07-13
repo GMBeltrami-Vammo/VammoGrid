@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Plus, X } from 'lucide-react';
+import { Check, Download, Plus, X } from 'lucide-react';
 import type { PurchaseStatus, TransportModal } from '@/types/planning';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie, writeSkusCookies } from '@/lib/planning/applyFilter';
@@ -18,10 +18,34 @@ export interface SkuRow {
   category: string | null;
   abcClass: string;
   onHand: number;
+  /** On-hand per hub (review item 6: visão global E por hub na mesma tabela). */
+  byHub: { osasco: number; mooca: number; sbc: number };
+  /** Average daily consumption (un/dia) — the engine's lead-time mean. */
+  dailyDemand: number;
   dohDays: number | null;
   status: PurchaseStatus;
   stockoutDate: string | null;
   isLate: boolean;
+}
+
+// Sortable columns (review item 6). 'status' sorts by severity (CRITICAL first).
+type SortKey = 'skuName' | 'onHand' | 'osasco' | 'mooca' | 'sbc' | 'dailyDemand' | 'dohDays' | 'status';
+type SortDir = 'asc' | 'desc';
+
+const STATUS_RANK: Record<PurchaseStatus, number> = { CRITICAL: 0, REORDER: 1, OK: 2 };
+
+function sortValue(r: SkuRow, key: SortKey): number | string {
+  switch (key) {
+    case 'skuName': return r.skuName;
+    case 'onHand': return r.onHand;
+    case 'osasco': return r.byHub.osasco;
+    case 'mooca': return r.byHub.mooca;
+    case 'sbc': return r.byHub.sbc;
+    case 'dailyDemand': return r.dailyDemand;
+    // null coverage (sem demanda) sorts last regardless of direction intent → +∞.
+    case 'dohDays': return r.dohDays ?? Number.POSITIVE_INFINITY;
+    case 'status': return STATUS_RANK[r.status];
+  }
 }
 
 const STATUS_LABEL: Record<PurchaseStatus, string> = {
@@ -79,6 +103,10 @@ export function SkuTable({
   const [abcFilter, setAbcFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
   const [addingSku, setAddingSku] = useState(false);
+  // Column sorting: asc → desc → cleared (back to the default CRITICAL-first order).
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
+  const toggleSort = (key: SortKey) =>
+    setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
 
   // Local mirror of the active-scope set so toggles feel instant; the Server Action
   // persists to dev.fleet_sku_scope + busts the 'sku-scope' cache tag underneath.
@@ -155,7 +183,7 @@ export function SkuTable({
   // ABC / status / search / scope are local refinements within the already-narrowed set.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    const out = rows.filter((r) => {
       if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q))
         return false;
       if (abcFilter && r.abcClass !== abcFilter) return false;
@@ -164,7 +192,19 @@ export function SkuTable({
       if (scopeFilter === 'out' && scope.has(r.skuBase)) return false;
       return true;
     });
-  }, [rows, search, abcFilter, statusFilter, scopeFilter, scope]);
+    if (sort) {
+      const mul = sort.dir === 'asc' ? 1 : -1;
+      out.sort((a, b) => {
+        const va = sortValue(a, sort.key);
+        const vb = sortValue(b, sort.key);
+        if (typeof va === 'string' || typeof vb === 'string') {
+          return mul * String(va).localeCompare(String(vb), 'pt-BR');
+        }
+        return mul * (va - vb);
+      });
+    }
+    return out;
+  }, [rows, search, abcFilter, statusFilter, scopeFilter, scope, sort]);
 
   // DOM relief: render at most `visibleCount` rows (the full catalog can exceed 1000
   // <tr>s) with a "Mostrar mais" escape hatch. IMPORTANT: selection/bulk actions and
@@ -204,6 +244,42 @@ export function SkuTable({
     setStatusFilter(null);
     setSearch('');
     if (filter.category != null) setCategory(null);
+  };
+
+  // "Relatório semanal de estoque" (review item 1/6): the FULL filtered set (not the
+  // rendered slice), with every column, as CSV.
+  const exportCsv = () => {
+    const header = [
+      'sku', 'nome', 'categoria', 'classe', 'status', 'estoque_total',
+      'osasco', 'mooca', 'sbc', 'consumo_dia', 'cobertura_dias', 'ruptura', 'em_escopo', 'selecionado',
+    ];
+    const lines = filtered.map((r) =>
+      [
+        r.skuBase,
+        `"${r.skuName.replace(/"/g, '""')}"`,
+        r.category ?? '',
+        r.abcClass,
+        r.status,
+        r.onHand,
+        r.byHub.osasco,
+        r.byHub.mooca,
+        r.byHub.sbc,
+        r.dailyDemand.toFixed(2),
+        r.dohDays ?? '',
+        r.stockoutDate ?? '',
+        scope.has(r.skuBase) ? 'sim' : 'nao',
+        selected.has(r.skuBase) ? 'sim' : 'nao',
+      ].join(','),
+    );
+    const blob = new Blob([`﻿${[header.join(','), ...lines].join('\n')}`], {
+      type: 'text/csv;charset=utf-8;',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `estoque-skus-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -328,6 +404,14 @@ export function SkuTable({
           </>
         )}
 
+        <button
+          onClick={exportCsv}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+          title="Exportar o conjunto filtrado completo (relatório de estoque)"
+        >
+          <Download size={13} /> Exportar CSV
+        </button>
+
         <span className="ml-auto text-[11px] text-muted-foreground">
           {hasScope && <span className="mr-2">{scope.size} em escopo</span>}
           {filtered.length} / {rows.length} SKUs
@@ -380,19 +464,33 @@ export function SkuTable({
               </th>
               <th className="px-3 py-2.5 font-medium">SKU</th>
               {hasScope && <th className="px-3 py-2.5 font-medium">Escopo</th>}
-              <th className="px-3 py-2.5 font-medium">Nome</th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortHeader label="Nome" k="skuName" sort={sort} onSort={toggleSort} />
+              </th>
               <th className="px-3 py-2.5 font-medium">Categ.</th>
               <th className="px-3 py-2.5 font-medium">
                 <span className="inline-flex items-center gap-1">Classe <InfoHint id="abc-class" /></span>
               </th>
               <th className="px-3 py-2.5 text-right font-medium">
-                <span className="inline-flex items-center justify-end gap-1">Estoque <InfoHint id="onhand" /></span>
+                <SortHeader label="Estoque" k="onHand" sort={sort} onSort={toggleSort} hint={<InfoHint id="onhand" />} />
+              </th>
+              <th className="px-2 py-2.5 text-right font-medium">
+                <SortHeader label="OSA" k="osasco" sort={sort} onSort={toggleSort} />
+              </th>
+              <th className="px-2 py-2.5 text-right font-medium">
+                <SortHeader label="MOO" k="mooca" sort={sort} onSort={toggleSort} />
+              </th>
+              <th className="px-2 py-2.5 text-right font-medium">
+                <SortHeader label="SBC" k="sbc" sort={sort} onSort={toggleSort} />
               </th>
               <th className="px-3 py-2.5 text-right font-medium">
-                <span className="inline-flex items-center justify-end gap-1">Cobertura <InfoHint id="sku-doh" /></span>
+                <SortHeader label="Consumo/dia" k="dailyDemand" sort={sort} onSort={toggleSort} hint={<InfoHint id="daily-demand" />} />
+              </th>
+              <th className="px-3 py-2.5 text-right font-medium">
+                <SortHeader label="Cobertura" k="dohDays" sort={sort} onSort={toggleSort} hint={<InfoHint id="sku-doh" />} />
               </th>
               <th className="px-3 py-2.5 font-medium">
-                <span className="inline-flex items-center gap-1">Status <InfoHint id="purchase-status" /></span>
+                <SortHeader label="Status" k="status" sort={sort} onSort={toggleSort} hint={<InfoHint id="purchase-status" />} />
               </th>
               <th className="px-3 py-2.5 font-medium">
                 <span className="inline-flex items-center gap-1">Ruptura <InfoHint id="stockout-date" /></span>
@@ -402,7 +500,7 @@ export function SkuTable({
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={hasScope ? 10 : 9} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={hasScope ? 14 : 13} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -484,6 +582,12 @@ export function SkuTable({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.onHand)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-xs text-muted-foreground">{fmtInt(r.byHub.osasco)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-xs text-muted-foreground">{fmtInt(r.byHub.mooca)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-xs text-muted-foreground">{fmtInt(r.byHub.sbc)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-xs text-muted-foreground">
+                      {r.dailyDemand > 0 ? r.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {r.dohDays != null ? `${fmtInt(r.dohDays)}d` : '—'}
                     </td>
@@ -628,5 +732,36 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** Clickable column header: asc → desc → cleared. */
+function SortHeader({
+  label,
+  k,
+  sort,
+  onSort,
+  hint,
+}: {
+  label: string;
+  k: SortKey;
+  sort: { key: SortKey; dir: SortDir } | null;
+  onSort: (k: SortKey) => void;
+  hint?: React.ReactNode;
+}) {
+  const active = sort?.key === k;
+  return (
+    <button
+      onClick={() => onSort(k)}
+      className={cn(
+        'inline-flex items-center gap-1 font-medium uppercase tracking-wide transition-colors hover:text-foreground',
+        active ? 'text-brand-600' : undefined,
+      )}
+      title="Ordenar"
+    >
+      {label}
+      {hint}
+      <span className="w-2 text-[9px]">{active ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
+    </button>
   );
 }

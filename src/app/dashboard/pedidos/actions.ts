@@ -78,6 +78,19 @@ export interface NewPedidoLine {
   qty: number;
   /** Lead time (days) for the chosen modal — drives this line's ETA. */
   leadDays: number;
+  /** Frozen elaboration basis for this line (review item 8). */
+  suggestedQty?: number;
+  suggestedModal?: string | null;
+}
+
+/** Order-wide elaboration context frozen into every line at "Criar pedido" (item 8). */
+export interface PedidoAudit {
+  /** asOfDate of the demand forecast the suggestions were computed from. */
+  forecastAsOf: string;
+  /** The criteria in effect (global Admin, already merged with per-pedido rules). */
+  criteria: unknown;
+  /** Per-pedido rule overrides applied, if any. */
+  rules?: unknown;
 }
 
 export async function createPedido(input: {
@@ -86,6 +99,8 @@ export async function createPedido(input: {
   pedidoName?: string | null;
   orderType?: OrderType | null;
   lines: NewPedidoLine[];
+  /** When present, freezes the elaboration basis into each line (item 8). */
+  audit?: PedidoAudit;
 }): Promise<{ ok: boolean; vo?: string; error?: string }> {
   try {
     const changedBy = await requireHead();
@@ -101,6 +116,14 @@ export async function createPedido(input: {
       vo,
       pedido_name: input.pedidoName?.trim() || null,
       order_type: input.orderType ?? null,
+      elaboration_snapshot: input.audit
+        ? JSON.stringify({
+            ...input.audit,
+            suggestedQty: l.suggestedQty ?? null,
+            suggestedModal: l.suggestedModal ?? null,
+            chosenQty: Math.round(l.qty),
+          })
+        : null,
       sku: l.skuBase.trim(),
       sku_name: l.skuName?.trim() || null,
       qty_ordered: Math.round(l.qty),

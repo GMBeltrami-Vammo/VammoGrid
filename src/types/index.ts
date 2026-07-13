@@ -50,6 +50,9 @@ export interface PurchaseOrder {
   notes: string | null;
   /** 'clickhouse' (synced) | 'manual' | 'elaboracao' */
   source: string;
+  /** JSON frozen at "Criar pedido" (review item 8): forecast asOf, criteria/rules in
+   *  effect, suggested vs chosen qty — the basis for previsão×realizado later. */
+  elaborationSnapshot: string | null;
   createdAt: string;
   updatedAt: string;
 }

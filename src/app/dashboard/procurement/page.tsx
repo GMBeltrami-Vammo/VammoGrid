@@ -57,6 +57,7 @@ export default async function ProcurementPage({
             criteria={result.criteria}
             rules={result.rules ?? null}
             today={result.today}
+            forecastAsOf={result.asOfDate}
           />
         </>
       )}

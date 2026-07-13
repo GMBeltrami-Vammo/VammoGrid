@@ -59,6 +59,18 @@ export default async function PedidoDetailPage({
   const eta = group.map((o) => o.eta).filter(Boolean).sort()[0] ?? null;
   const orderDate = group.map((o) => o.orderDate).filter(Boolean).sort()[0] ?? null;
 
+  // Frozen elaboration basis (item 8) — present on pedidos created via the builder.
+  const snapshots = new Map<string, LineSnapshot>();
+  for (const o of group) {
+    if (!o.elaborationSnapshot) continue;
+    try {
+      snapshots.set(o.id, JSON.parse(o.elaborationSnapshot) as LineSnapshot);
+    } catch {
+      /* malformed snapshot → just skip the block for this line */
+    }
+  }
+  const snapHeader = snapshots.size > 0 ? [...snapshots.values()][0] : null;
+
   // History: merge the audit log of every line row, newest first.
   const auditPerRow = await Promise.all(group.map((o) => readAuditLog('purchase_order', o.id)));
   const history = auditPerRow
@@ -97,6 +109,54 @@ export default async function PedidoDetailPage({
             Fluxo de elaboração
           </p>
           <PrepStatusControl ids={group.map((o) => o.id)} current={prep} isHead={isHead} />
+        </div>
+      )}
+
+      {/* Frozen elaboration basis (item 8) — auditoria previsão × pedido */}
+      {snapHeader && (
+        <div className="mb-6 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Base da elaboração (congelada na criação)
+          </p>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Previsão de {snapHeader.forecastAsOf ? fmtDate(snapHeader.forecastAsOf) : '—'} · critério{' '}
+            {snapHeader.criteria?.mode === 'rop'
+              ? 'estoque mín + segurança'
+              : `DOH ≥ ${snapHeader.criteria?.dohThreshold ?? '—'}d`}
+            {snapHeader.rules ? ' · com regras específicas deste pedido' : ''}
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                <th className="py-1 font-medium">SKU</th>
+                <th className="py-1 text-right font-medium">Sugerido</th>
+                <th className="py-1 font-medium">Modal sugerido</th>
+                <th className="py-1 text-right font-medium">Pedido</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-foreground/5">
+              {group
+                .filter((o) => snapshots.has(o.id))
+                .map((o) => {
+                  const s = snapshots.get(o.id)!;
+                  const differs = s.suggestedQty != null && s.chosenQty != null && s.suggestedQty !== s.chosenQty;
+                  return (
+                    <tr key={o.id}>
+                      <td className="py-1.5 font-mono text-xs">{o.sku}</td>
+                      <td className="py-1.5 text-right tabular-nums text-muted-foreground">
+                        {s.suggestedQty != null ? fmtInt(s.suggestedQty) : '—'}
+                      </td>
+                      <td className="py-1.5 text-xs text-muted-foreground">
+                        {s.suggestedModal ? MODAL_LABELS[s.suggestedModal] ?? s.suggestedModal : '—'}
+                      </td>
+                      <td className={cn('py-1.5 text-right tabular-nums', differs && 'font-medium text-[color:var(--color-alert-warning)]')}>
+                        {s.chosenQty != null ? fmtInt(s.chosenQty) : fmtInt(o.qtyOrdered)}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -180,6 +240,16 @@ function Summary({ label, children }: { label: string; children: React.ReactNode
       <div className="mt-1 text-sm font-medium">{children}</div>
     </div>
   );
+}
+
+/** Shape of the per-line elaboration_snapshot JSON (written by createPedido, item 8). */
+interface LineSnapshot {
+  forecastAsOf?: string;
+  criteria?: { mode?: string; dohThreshold?: number };
+  rules?: unknown;
+  suggestedQty?: number | null;
+  suggestedModal?: string | null;
+  chosenQty?: number;
 }
 
 const FIELD_LABELS: Record<string, string> = {

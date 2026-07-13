@@ -27,6 +27,7 @@ export function ProcurementView({
   criteria,
   rules,
   today,
+  forecastAsOf,
 }: {
   rows: ElaborationRow[];
   isHead: boolean;
@@ -35,6 +36,8 @@ export function ProcurementView({
   /** Per-pedido overrides currently applied (from the URL), if any. */
   rules: OrderRules | null;
   today: string;
+  /** asOfDate of the forecast — frozen into the pedido at creation (item 8). */
+  forecastAsOf: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -166,7 +169,15 @@ export function ProcurementView({
           skuName: r.suggestion.skuName,
           qty: qtys[r.suggestion.skuBase] ?? 0,
           leadDays: modal === 'sea' ? r.suggestion.leadTimeSeaDays : r.suggestion.leadTimeAirDays,
+          suggestedQty: suggestedFor(r, modal),
+          suggestedModal: r.suggestion.suggestedModal,
         })),
+        // Freeze the elaboration basis (item 8) — enables previsão×realizado later.
+        audit: {
+          forecastAsOf,
+          criteria: rules?.seaFloorDoh ? { ...criteria, dohThreshold: rules.seaFloorDoh } : criteria,
+          rules: rules ?? undefined,
+        },
       });
       if (res.ok) {
         setCreatedVo(res.vo ?? null);

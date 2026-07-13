@@ -32,6 +32,7 @@ export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
     hubId: (row.hub_id ?? 'osasco') as HubId,
     notes: row.notes ?? null,
     source: row.source ?? 'manual',
+    elaborationSnapshot: row.elaboration_snapshot ?? null,
     createdAt: String(row.created_at ?? ''),
     updatedAt: String(row.updated_at ?? ''),
   };

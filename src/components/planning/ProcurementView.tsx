@@ -2,11 +2,13 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Check, Download, Ship, Plane, CheckSquare, Square } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Check, Download, Ship, Plane, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
 import type { TransportModal } from '@/types/planning';
 import type { OrderType } from '@/types';
+import type { OrderRules } from '@/lib/planning/elaboration';
+import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
@@ -19,8 +21,23 @@ type ModalFilter = 'all' | 'air' | 'sea';
 // with a checkbox + editable qty; the MODAL is one global choice for the whole order;
 // "Criar pedido" writes a single pedido (one VO, all checked SKUs as lines).
 
-export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHead: boolean }) {
+export function ProcurementView({
+  rows,
+  isHead,
+  criteria,
+  rules,
+  today,
+}: {
+  rows: ElaborationRow[];
+  isHead: boolean;
+  /** Global Admin criteria — the defaults the per-pedido rules panel starts from. */
+  criteria: PurchaseCriteria;
+  /** Per-pedido overrides currently applied (from the URL), if any. */
+  rules: OrderRules | null;
+  today: string;
+}) {
   const router = useRouter();
+  const pathname = usePathname();
   const [search, setSearch] = useState('');
   const [modalFilter, setModalFilter] = useState<ModalFilter>('all');
   const [dohLt, setDohLt] = useState('');
@@ -38,6 +55,52 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
   const chooseModal = (m: TransportModal) => {
     setModal(m);
     setQtys(Object.fromEntries(rows.map((r) => [r.suggestion.skuBase, suggestedFor(r, m)])));
+  };
+
+  // "Regras deste pedido" (7b): overrides vivem na URL — Aplicar recomputa no server
+  // com elas; o critério global do Admin segue sendo o default (e o heatmap não muda).
+  const [rulesOpen, setRulesOpen] = useState(rules != null);
+  const [rFloor, setRFloor] = useState(String(rules?.seaFloorDoh ?? criteria.dohThreshold));
+  const [rCadence, setRCadence] = useState(String(rules?.seaCadenceDays ?? 30));
+  const offsetToDate = (off: number) => {
+    const d = new Date(`${today}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + off);
+    return d.toISOString().slice(0, 10);
+  };
+  const dateToOffset = (iso: string) =>
+    Math.max(
+      0,
+      Math.round(
+        (new Date(`${iso}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / 86_400_000,
+      ),
+    );
+  const [rPeriods, setRPeriods] = useState<{ date: string; minDoh: string }[]>(() =>
+    (rules?.airPeriods ?? []).map((p) => ({ date: offsetToDate(p.fromOffset), minDoh: String(p.minDoh) })),
+  );
+
+  const applyRules = () => {
+    const floor = Number(rFloor);
+    const cadence = Number(rCadence);
+    const next: OrderRules = {};
+    if (Number.isFinite(floor) && floor > 0 && Math.round(floor) !== criteria.dohThreshold)
+      next.seaFloorDoh = Math.round(floor);
+    if (Number.isFinite(cadence) && cadence > 0 && Math.round(cadence) !== 30)
+      next.seaCadenceDays = Math.round(cadence);
+    const periods = rPeriods
+      .map((p) => ({ fromOffset: dateToOffset(p.date), minDoh: Math.round(Number(p.minDoh)) }))
+      .filter((p) => Number.isFinite(p.minDoh) && p.minDoh > 0);
+    if (periods.length > 0) next.airPeriods = periods;
+    router.push(
+      Object.keys(next).length === 0
+        ? pathname
+        : `${pathname}?rules=${encodeURIComponent(JSON.stringify(next))}`,
+    );
+  };
+  const clearRules = () => {
+    setRFloor(String(criteria.dohThreshold));
+    setRCadence('30');
+    setRPeriods([]);
+    router.push(pathname);
   };
   const [error, setError] = useState<string | null>(null);
   const [createdVo, setCreatedVo] = useState<string | null>(null);
@@ -205,6 +268,113 @@ export function ProcurementView({ rows, isHead }: { rows: ElaborationRow[]; isHe
             </button>
           )}
         </div>
+      </div>
+
+      {/* Regras deste pedido (7b) — override do critério global só para este cálculo */}
+      <div className="mb-4 rounded-xl bg-card ring-1 ring-foreground/10">
+        <button
+          onClick={() => setRulesOpen((o) => !o)}
+          className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium hover:bg-muted/30"
+        >
+          <SlidersHorizontal size={14} className="text-muted-foreground" />
+          Regras deste pedido
+          {rules != null && (
+            <span className="rounded-full bg-alert-warning/15 px-2 py-0.5 text-[10px] font-semibold text-[color:var(--color-alert-warning)]">
+              ativas — diferem do critério global ({criteria.dohThreshold}d)
+            </span>
+          )}
+          <span className="ml-auto text-xs text-muted-foreground">{rulesOpen ? 'ocultar' : 'configurar'}</span>
+        </button>
+        {rulesOpen && (
+          <div className="border-t border-border/60 px-4 py-3">
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="block">
+                <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Piso DOH (marítimo)
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={rFloor}
+                  onChange={(e) => setRFloor(e.target.value)}
+                  className="mt-1 h-8 w-24 rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums outline-none focus:border-brand-500"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Periodicidade (dias)
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={rCadence}
+                  onChange={(e) => setRCadence(e.target.value)}
+                  className="mt-1 h-8 w-24 rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums outline-none focus:border-brand-500"
+                />
+              </label>
+              <div className="block">
+                <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Períodos aéreos (DOH mínimo a partir de…)
+                </span>
+                <div className="mt-1 space-y-1.5">
+                  {rPeriods.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <DateField
+                        value={p.date}
+                        onChange={(v) => setRPeriods((ps) => ps.map((x, j) => (j === i ? { ...x, date: v } : x)))}
+                        className="h-8 w-32"
+                        aria-label="Início do período"
+                      />
+                      <span className="text-xs text-muted-foreground">→ DOH ≥</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={p.minDoh}
+                        onChange={(e) =>
+                          setRPeriods((ps) => ps.map((x, j) => (j === i ? { ...x, minDoh: e.target.value } : x)))
+                        }
+                        className="h-8 w-20 rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums outline-none focus:border-brand-500"
+                      />
+                      <button
+                        onClick={() => setRPeriods((ps) => ps.filter((_, j) => j !== i))}
+                        aria-label="Remover período"
+                        className="text-muted-foreground hover:text-alert-error"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                  {rPeriods.length < 4 && (
+                    <button
+                      onClick={() => setRPeriods((ps) => [...ps, { date: today, minDoh: rFloor }])}
+                      className="text-xs font-medium text-brand-600 hover:underline"
+                    >
+                      + Adicionar período
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="ml-auto flex gap-2">
+                <button
+                  onClick={applyRules}
+                  className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-400"
+                >
+                  Aplicar regras
+                </button>
+                <button
+                  onClick={clearRules}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
+                >
+                  Voltar ao global
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Vale só para este cálculo (fica na URL — compartilhável). Marítimo repõe até piso + periodicidade;
+              os períodos aéreos definem o DOH mínimo que a ponte aérea deve sustentar em cada trecho.
+            </p>
+          </div>
+        )}
       </div>
 
       {error && <p className="mb-3 rounded-md bg-alert-error/10 px-3 py-2 text-sm text-alert-error">{error}</p>}

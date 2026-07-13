@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { HubId, ProjectionPoint, SkuPolicy, StockProjection, StockState } from '@/types/planning';
 import { addDays, nextFirstOfMonth } from './dates';
-import { findElaborationTrigger, suggestModalQuantities } from './elaboration';
+import {
+  findElaborationTrigger,
+  floorAtFactory,
+  parseOrderRules,
+  suggestModalQuantities,
+} from './elaboration';
 
 // Deterministic fixtures: stock starts at `start`, declines by `demand`/day (no
 // inbound), so DOH(day k) = (start − demand·k)/demand = start/demand − k. With
@@ -182,5 +187,103 @@ describe('suggestModalQuantities (combined air+sea plan)', () => {
     expect(q.airQty).toBe(75);
     // Sea top-up at day 120 (stock 0): (75+30) − 0 = 105.
     expect(q.seaQty).toBe(105);
+  });
+});
+
+// ─── Per-pedido rules (7b): períodos aéreos, cadência marítima, parse ─────────
+
+describe('per-pedido rules (7b)', () => {
+  it('floorAtFactory: base until the first period, then each period wins', () => {
+    const f = floorAtFactory(75, [
+      { fromOffset: 60, minDoh: 30 },
+      { fromOffset: 20, minDoh: 50 },
+    ]);
+    expect(f(0)).toBe(75);
+    expect(f(19)).toBe(75);
+    expect(f(20)).toBe(50);
+    expect(f(59)).toBe(50);
+    expect(f(60)).toBe(30);
+    expect(f(150)).toBe(30);
+  });
+
+  it('airFloorAt lowers the air bridge quantity per period', () => {
+    // Same setup as "air bridges the gap": floor 75 everywhere → airQty 75.
+    // With floor 75 before day 60 and 30 after: deepest need in [10,59] is
+    // 75 − stock(59) = 75 − 41 = 34; in [60,120] it's 30 − 0 = 30 → max = 34.
+    const q = suggestModalQuantities({
+      projection: projection(TODAY),
+      policy: policy(120, 10),
+      today: TODAY,
+      dohThreshold: 75,
+      airFloorAt: floorAtFactory(75, [{ fromOffset: 60, minDoh: 30 }]),
+    });
+    expect(q.airQty).toBe(34);
+  });
+
+  it('seaCadenceDays changes the sea top-up (periodicidade de compra)', () => {
+    // "no air" setup: sea arrives day 10 (stock 90). Default cadence 30 → 15;
+    // cadence 60 → (75+60) − 90 = 45.
+    const q = suggestModalQuantities({
+      projection: projection(TODAY),
+      policy: policy(10, 5),
+      today: TODAY,
+      dohThreshold: 75,
+      seaCadenceDays: 60,
+    });
+    expect(q.seaQty).toBe(45);
+  });
+
+  it('floorAt shifts the trigger breach day (piso variável no tempo)', () => {
+    // stock 100, demand 1 → DOH(d) = 100 − d. Constant floor 75 breaches day 26.
+    // floorAt: 30 until day 40, then 90 → no breach before 40 (DOH ≥ 60 > 30);
+    // at day 40, DOH 60 < 90 → breach exactly at day 40.
+    const r = findElaborationTrigger({
+      stock: stock(),
+      projection: projection(TODAY),
+      policy: policy(10, 5),
+      today: TODAY,
+      criteria: { mode: 'doh', dohThreshold: 30 },
+      floorAt: floorAtFactory(30, [{ fromOffset: 40, minDoh: 90 }]),
+    });
+    expect(r.needsOrder).toBe(true);
+    expect(r.firstBreachDate).toBe(addDays(TODAY, 40));
+  });
+
+  it('parseOrderRules: clamps junk and returns undefined when nothing valid', () => {
+    expect(parseOrderRules(undefined)).toBeUndefined();
+    expect(parseOrderRules('not json')).toBeUndefined();
+    expect(parseOrderRules('{}')).toBeUndefined();
+    expect(parseOrderRules(JSON.stringify({ seaFloorDoh: -5, seaCadenceDays: 'x' }))).toBeUndefined();
+    expect(
+      parseOrderRules(
+        JSON.stringify({
+          seaFloorDoh: 80.4,
+          seaCadenceDays: 45,
+          airPeriods: [
+            { fromOffset: -3, minDoh: 50 },
+            { fromOffset: 10, minDoh: 0 },
+            { fromOffset: 'x', minDoh: 40 },
+          ],
+        }),
+      ),
+    ).toEqual({ seaFloorDoh: 80, seaCadenceDays: 45, airPeriods: [{ fromOffset: 0, minDoh: 50 }] });
+  });
+
+  it('no rules ≡ current behaviour (regression)', () => {
+    const base = suggestModalQuantities({
+      projection: projection(TODAY),
+      policy: policy(120, 10),
+      today: TODAY,
+      dohThreshold: 75,
+    });
+    const explicit = suggestModalQuantities({
+      projection: projection(TODAY),
+      policy: policy(120, 10),
+      today: TODAY,
+      dohThreshold: 75,
+      seaCadenceDays: 30,
+      airFloorAt: floorAtFactory(75),
+    });
+    expect(explicit).toEqual(base);
   });
 });

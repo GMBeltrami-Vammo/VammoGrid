@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import { computeElaborations } from '@/lib/planning/load';
+import { parseOrderRules } from '@/lib/planning/elaboration';
 import { fmtInt } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { ProcurementView } from '@/components/planning/ProcurementView';
@@ -11,8 +12,15 @@ export const dynamic = 'force-dynamic';
 // Novo Pedido: the SKUs whose projected coverage drops below the floor (computed fresh
 // on load — pure, no writes). The user checks the SKUs to include, picks ONE modal for
 // the whole order, and "Criar pedido" writes a single pedido (one VO, N lines).
-export default async function ProcurementPage() {
-  const [result, session] = await Promise.all([computeElaborations(), auth()]);
+// Per-pedido rule overrides (7b) live in ?rules= — they shape THIS computation only.
+export default async function ProcurementPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ rules?: string }>;
+}) {
+  const sp = await searchParams;
+  const rules = parseOrderRules(sp.rules);
+  const [result, session] = await Promise.all([computeElaborations(false, rules), auth()]);
   const isHead = session?.user?.isHead ?? false;
   const { rows } = result;
 
@@ -43,7 +51,13 @@ export default async function ProcurementPage() {
             <KpiCard label="No horizonte" value={fmtInt(total)} hint="cobertura abaixo do piso" tone="default" />
           </div>
 
-          <ProcurementView rows={rows} isHead={isHead} />
+          <ProcurementView
+            rows={rows}
+            isHead={isHead}
+            criteria={result.criteria}
+            rules={result.rules ?? null}
+            today={result.today}
+          />
         </>
       )}
     </div>

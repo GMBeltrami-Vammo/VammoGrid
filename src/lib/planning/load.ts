@@ -13,7 +13,8 @@ import type {
   StockState,
   TransferSuggestion,
 } from '@/types/planning';
-import { findElaborationTrigger, suggestModalQuantities } from './elaboration';
+import { findElaborationTrigger, floorAtFactory, suggestModalQuantities, type OrderRules } from './elaboration';
+import { DEFAULT_PURCHASE_CRITERIA, type PurchaseCriteria } from './constants';
 import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
 import { todayUtc } from './dates';
@@ -312,6 +313,10 @@ export interface ElaborationResult {
   /** In-scope SKU universe analysed, and the full catalog size — for the scope notice. */
   skuCount: number;
   catalogSize: number;
+  /** The global Admin criteria in effect (defaults for the per-pedido rules panel). */
+  criteria: PurchaseCriteria;
+  /** Per-pedido rule overrides applied to THIS computation (7b), when any. */
+  rules?: OrderRules;
   error?: string;
 }
 
@@ -321,7 +326,12 @@ export interface ElaborationResult {
  * and pairs each with a default quantity. Writes NOTHING; the user selects SKUs and
  * clicks "Criar pedido" (createPedido). Never throws (returns empty + error note).
  */
-export async function computeElaborations(ignoreSkuSelection = false): Promise<ElaborationResult> {
+export async function computeElaborations(
+  ignoreSkuSelection = false,
+  /** Per-pedido rule overrides (7b) — merged over the global Admin criteria for THIS
+   *  computation only; the heatmap keeps the global. */
+  rules?: OrderRules,
+): Promise<ElaborationResult> {
   try {
     const [inp, criteria] = await Promise.all([
       // Both args explicit — cache() keys on the argument list (see computeSnapshot).
@@ -329,6 +339,13 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
       fetchPurchaseCriteria(),
     ]);
     const purchaseBySku = new Map(inp.purchases.map((p) => [p.skuBase, p]));
+
+    // Effective floor + time-varying air floor from the per-pedido rules.
+    const effectiveFloor = rules?.seaFloorDoh ?? criteria.dohThreshold;
+    const effectiveCriteria: PurchaseCriteria = { ...criteria, dohThreshold: effectiveFloor };
+    const floorAt = rules?.airPeriods?.length
+      ? floorAtFactory(effectiveFloor, rules.airPeriods)
+      : undefined;
 
     const rows: ElaborationRow[] = [];
     for (const stock of inp.stocks) {
@@ -351,8 +368,9 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
         projection: proj,
         policy,
         today: inp.today,
-        criteria,
+        criteria: effectiveCriteria,
         rop: purchase?.rop ?? 0,
+        floorAt,
       });
       if (!suggestion.needsOrder) continue;
 
@@ -361,7 +379,9 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
         projection: proj,
         policy,
         today: inp.today,
-        dohThreshold: criteria.dohThreshold,
+        dohThreshold: effectiveFloor,
+        seaCadenceDays: rules?.seaCadenceDays,
+        airFloorAt: floorAt,
       });
       const fallbackQty = Math.max(0, Math.ceil(proj.dailyDemand * Math.max(policy.targetDoi, 30)));
       const suggestedQtyAir = mq.airQty; // 0 = air not needed for this SKU
@@ -399,6 +419,8 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
       backend: inp.backend,
       skuCount: inp.stocks.length,
       catalogSize: inp.catalogSize,
+      criteria,
+      rules,
     };
   } catch (e) {
     console.error('[computeElaborations]', e instanceof Error ? e.message : e);
@@ -409,6 +431,7 @@ export async function computeElaborations(ignoreSkuSelection = false): Promise<E
       backend: activeBackendKind(),
       skuCount: 0,
       catalogSize: 0,
+      criteria: DEFAULT_PURCHASE_CRITERIA,
       error: e instanceof Error ? e.message : 'erro',
     };
   }

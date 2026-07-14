@@ -30,13 +30,20 @@ interface Draft {
   segment: string;
   currentSize: number;
   growthPct: number; // shown as %/month, stored as fraction
+  metaPct: string; // meta comercial %/mês; '' = não informado
+  churnPct: string; // churn %/mês; '' = não informado
   asOfDate: string;
 }
+
+const pctStr = (frac: number | null) => (frac != null ? String(Math.round(frac * 1000) / 10) : '');
+const parsePct = (s: string) => (s.trim() === '' ? null : Number(s) / 100);
 
 const emptyDraft = (): Draft => ({
   segment: 'total',
   currentSize: 0,
   growthPct: 0,
+  metaPct: '',
+  churnPct: '',
   asOfDate: new Date().toISOString().slice(0, 10),
 });
 
@@ -44,6 +51,8 @@ const fromRow = (f: FleetInfo): Draft => ({
   segment: f.segment,
   currentSize: f.currentSize,
   growthPct: Math.round(f.monthlyGrowthRate * 1000) / 10,
+  metaPct: pctStr(f.commercialTargetPct),
+  churnPct: pctStr(f.churnPct),
   asOfDate: f.asOfDate ?? '',
 });
 
@@ -73,6 +82,8 @@ export function FleetInfoPanel() {
       segment: draft.segment,
       currentSize: draft.currentSize,
       monthlyGrowthRate: draft.growthPct / 100,
+      commercialTargetPct: parsePct(draft.metaPct),
+      churnPct: parsePct(draft.churnPct),
       asOfDate: draft.asOfDate || null,
     };
     startTransition(async () => {
@@ -102,8 +113,9 @@ export function FleetInfoPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Tamanho atual da frota e taxa de crescimento mensal. Segmento{' '}
-          <span className="font-mono">total</span> = frota inteira.
+          Tamanho atual da frota e crescimento mensal. Segmento{' '}
+          <span className="font-mono">total</span> = frota inteira. Meta comercial e churn
+          (%/mês) — quando preenchidos, o crescimento líquido = meta − churn substitui a taxa manual.
         </p>
         {isHead && !creating && editingSegment == null && (
           <Button
@@ -145,7 +157,9 @@ export function FleetInfoPanel() {
             <TableRow>
               <TableHead>Segmento</TableHead>
               <TableHead className="text-right">Frota atual</TableHead>
-              <TableHead className="text-right">Crescimento/mês</TableHead>
+              <TableHead className="text-right">Cresc./mês</TableHead>
+              <TableHead className="text-right">Meta/mês</TableHead>
+              <TableHead className="text-right">Churn/mês</TableHead>
               <TableHead>Atualizado</TableHead>
               {isHead && <TableHead className="text-right">Ações</TableHead>}
             </TableRow>
@@ -159,6 +173,12 @@ export function FleetInfoPanel() {
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {(f.monthlyGrowthRate * 100).toFixed(1)}%
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {f.commercialTargetPct != null ? `${(f.commercialTargetPct * 100).toFixed(1)}%` : '—'}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">
+                  {f.churnPct != null ? `${(f.churnPct * 100).toFixed(1)}%` : '—'}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {fmtDate(f.asOfDate ?? f.updatedAt ?? null)}
@@ -224,7 +244,7 @@ function FleetEditor({
 
   return (
     <div className="rounded-lg border border-brand-500/30 bg-brand-500/[0.03] p-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Labeled label="Segmento">
           <Input
             value={draft.segment}
@@ -249,10 +269,32 @@ function FleetEditor({
             onChange={(e) => set('growthPct', Number(e.target.value))}
           />
         </Labeled>
+        <Labeled label="Meta comercial (%/mês)">
+          <Input
+            type="number"
+            step="0.1"
+            value={draft.metaPct}
+            placeholder="—"
+            onChange={(e) => set('metaPct', e.target.value)}
+          />
+        </Labeled>
+        <Labeled label="Churn (%/mês)">
+          <Input
+            type="number"
+            step="0.1"
+            value={draft.churnPct}
+            placeholder="—"
+            onChange={(e) => set('churnPct', e.target.value)}
+          />
+        </Labeled>
         <Labeled label="Data de referência">
           <DateField value={draft.asOfDate} onChange={(v) => set('asOfDate', v)} aria-label="Data de referência" />
         </Labeled>
       </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Deixe Meta/Churn em branco para usar a taxa de crescimento manual. Preenchidos, o
+        líquido = meta − churn dirige a projeção.
+      </p>
       <div className="mt-4 flex gap-2">
         <Button size="sm" onClick={onSave} disabled={pending}>
           <Check /> {pending ? 'Salvando…' : 'Salvar'}

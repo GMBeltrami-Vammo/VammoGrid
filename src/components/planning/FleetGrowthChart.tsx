@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { Check, Pencil } from 'lucide-react';
-import { projectFleetGrowth } from '@/lib/planning/fleetGrowth';
+import { netMonthlyGrowthRate, projectFleetGrowth } from '@/lib/planning/fleetGrowth';
 import { upsertFleetInfo } from '@/app/dashboard/admin/actions';
 import { fmtInt } from '@/lib/planning/format';
 
@@ -23,6 +23,10 @@ export interface FleetSegment {
   segment: string;
   currentSize: number;
   monthlyGrowthRate: number;
+  /** Meta comercial (fração da frota/mês); quando presente com churn, substitui a taxa. */
+  commercialTargetPct: number | null;
+  /** Churn (fração da frota/mês). */
+  churnPct: number | null;
   asOfDate: string | null;
 }
 
@@ -69,7 +73,8 @@ export function FleetGrowthChart({
       const anchor = lastActual.get(s.segment);
       const proj = projectFleetGrowth({
         base: anchor?.size ?? s.currentSize,
-        monthlyGrowthRate: s.monthlyGrowthRate,
+        // net = meta − churn quando informados; senão a taxa manual.
+        monthlyGrowthRate: netMonthlyGrowthRate(s),
         anchor: anchor?.date ?? today,
         pastWeeks: anchor ? 0 : PAST_WEEKS,
         futureWeeks: FUTURE_WEEKS,
@@ -139,13 +144,28 @@ function RateRow({ seg, isHead, onSaved }: { seg: FleetSegment; isHead: boolean;
     });
   };
 
+  // Meta/churn (editadas no Admin) sobrepõem a taxa manual quando presentes.
+  const usesMetaChurn = seg.commercialTargetPct != null || seg.churnPct != null;
+  const netPct = netMonthlyGrowthRate(seg) * 100;
+
   return (
     <div className="flex items-center gap-3 px-3 py-2 text-sm">
       <span className="min-w-[8rem] font-medium">{seg.segment}</span>
       <span className="tabular-nums text-muted-foreground">{fmtInt(seg.currentSize)} motos</span>
       <span className="ml-auto flex items-center gap-2">
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground/60">Cresc./mês</span>
-        {isHead && editing ? (
+        {usesMetaChurn ? (
+          // net = meta − churn; taxa manual ignorada. Editar meta/churn em Admin.
+          <span
+            className="tabular-nums font-medium"
+            title={`Meta ${((seg.commercialTargetPct ?? 0) * 100).toFixed(1)}% − churn ${((seg.churnPct ?? 0) * 100).toFixed(1)}% (editar em Admin)`}
+          >
+            {netPct.toFixed(1)}%
+            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+              (meta {((seg.commercialTargetPct ?? 0) * 100).toFixed(1)}% − churn {((seg.churnPct ?? 0) * 100).toFixed(1)}%)
+            </span>
+          </span>
+        ) : isHead && editing ? (
           <>
             <input
               type="number"

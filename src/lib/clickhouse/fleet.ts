@@ -102,6 +102,8 @@ const DDL: string[] = [
     segment String DEFAULT 'total',
     current_size Int32 DEFAULT 0,
     monthly_growth_rate Float64 DEFAULT 0,
+    commercial_target_pct Nullable(Float64),
+    churn_pct Nullable(Float64),
     as_of_date Nullable(Date),
     updated_at DateTime64(3) DEFAULT now64(3),
     updated_by Nullable(String),
@@ -194,6 +196,9 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS order_type Nullable(String)`,
   // Item 8: frozen elaboration basis (forecast asOf, criteria, suggested vs chosen) per line.
   `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS elaboration_snapshot Nullable(String)`,
+  // Backlog #21 — item 2 fase 2: meta comercial + churn (%/mês) na projeção de frota.
+  `ALTER TABLE ${FLEET_TABLES.fleetInfo} ADD COLUMN IF NOT EXISTS commercial_target_pct Nullable(Float64)`,
+  `ALTER TABLE ${FLEET_TABLES.fleetInfo} ADD COLUMN IF NOT EXISTS churn_pct Nullable(Float64)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.

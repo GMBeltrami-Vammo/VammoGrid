@@ -23,6 +23,8 @@ export default async function FrotaPage() {
     segment: r.segment,
     currentSize: Number(r.current_size) || 0,
     monthlyGrowthRate: Number(r.monthly_growth_rate) || 0,
+    commercialTargetPct: r.commercial_target_pct ?? null,
+    churnPct: r.churn_pct ?? null,
     asOfDate: r.as_of_date ?? null,
   }));
   const actuals: FleetWeeklyActual[] = weeklyRows.map((r) => ({

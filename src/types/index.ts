@@ -83,6 +83,10 @@ export interface FleetInfo {
   currentSize: number;
   /** fraction per month, e.g. 0.05 = 5%/month */
   monthlyGrowthRate: number;
+  /** Meta comercial: novas motos/mês como fração da frota (null = não informado). */
+  commercialTargetPct: number | null;
+  /** Churn: motos que saem/mês como fração da frota (null = não informado). */
+  churnPct: number | null;
   asOfDate: string | null;
   updatedAt: string;
   updatedBy: string | null;

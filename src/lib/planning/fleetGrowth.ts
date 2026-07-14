@@ -25,6 +25,25 @@ export interface FleetGrowthPoint {
  * backward (realized) and `futureWeeks` forward (estimated); the boundary "today" is
  * whichever week lands on `today`. A zero rate yields a flat line.
  */
+/**
+ * Effective monthly growth rate for a segment (review item 2 fase 2). When commercial
+ * target and/or churn are informed (both as a fraction of fleet per month), the net
+ * rate = meta − churn overrides the manual `monthlyGrowthRate`; otherwise the manual
+ * rate is used. A missing side counts as 0 only when the other side is present.
+ * Pure — unit tested.
+ */
+export function netMonthlyGrowthRate(args: {
+  monthlyGrowthRate: number;
+  commercialTargetPct: number | null;
+  churnPct: number | null;
+}): number {
+  const { commercialTargetPct: meta, churnPct: churn } = args;
+  if (meta == null && churn == null) {
+    return Number.isFinite(args.monthlyGrowthRate) ? args.monthlyGrowthRate : 0;
+  }
+  return (meta ?? 0) - (churn ?? 0);
+}
+
 export function projectFleetGrowth(args: {
   base: number;
   monthlyGrowthRate: number;

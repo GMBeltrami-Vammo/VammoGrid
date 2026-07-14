@@ -12,6 +12,10 @@ export interface FleetInfoInput {
   segment: string;
   currentSize: number;
   monthlyGrowthRate: number; // fraction (0.05 = 5%/month)
+  /** Meta comercial: novas motos/mês como fração da frota (null = não informado). */
+  commercialTargetPct?: number | null;
+  /** Churn: motos que saem/mês como fração da frota (null = não informado). */
+  churnPct?: number | null;
   asOfDate?: string | null;
 }
 
@@ -23,18 +27,25 @@ export async function upsertFleetInfo(input: FleetInfoInput) {
   const email = await requireHead();
   const segment = input.segment.trim() || 'total';
   const current = await findFleetInfo(segment);
+  // Merge over current so partial callers (e.g. the inline growth-rate editor, which
+  // omits meta/churn) don't blank untouched columns. Meta/churn are only overridden
+  // when explicitly provided; passing null clears them.
+  const next: Row = {
+    ...(current ?? {}),
+    segment,
+    current_size: input.currentSize,
+    monthly_growth_rate: input.monthlyGrowthRate,
+    as_of_date: input.asOfDate || null,
+    updated_by: email,
+  };
+  if (input.commercialTargetPct !== undefined) next.commercial_target_pct = input.commercialTargetPct;
+  if (input.churnPct !== undefined) next.churn_pct = input.churnPct;
   await upsertFleetRow({
     table: FLEET_TABLES.fleetInfo,
     entityType: 'fleet_info',
     entityId: segment,
     current,
-    next: {
-      segment,
-      current_size: input.currentSize,
-      monthly_growth_rate: input.monthlyGrowthRate,
-      as_of_date: input.asOfDate || null,
-      updated_by: email,
-    },
+    next,
     changedBy: email,
   });
   updateTag('fleet-info');

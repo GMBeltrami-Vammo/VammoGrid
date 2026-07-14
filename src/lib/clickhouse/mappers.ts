@@ -56,6 +56,8 @@ export function mapFleetInfoRow(row: Record<string, any>): FleetInfo {
     segment: String(row.segment),
     currentSize: Number(row.current_size) || 0,
     monthlyGrowthRate: Number(row.monthly_growth_rate) || 0,
+    commercialTargetPct: row.commercial_target_pct != null ? Number(row.commercial_target_pct) : null,
+    churnPct: row.churn_pct != null ? Number(row.churn_pct) : null,
     asOfDate: row.as_of_date ?? null,
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,

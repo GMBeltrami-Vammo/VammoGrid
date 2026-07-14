@@ -11,6 +11,10 @@ export interface FleetInfoRow {
   segment: string;
   current_size: number;
   monthly_growth_rate: number;
+  /** Meta comercial: novas motos/mês como % da frota (null = não informado). */
+  commercial_target_pct: number | null;
+  /** Churn: motos que saem/mês como % da frota (null = não informado). */
+  churn_pct: number | null;
   as_of_date: string | null;
   updated_at: string;
   updated_by: string | null;

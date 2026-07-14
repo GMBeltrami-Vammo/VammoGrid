@@ -116,9 +116,18 @@ export default async function PedidoDetailPage({
       {/* Frozen elaboration basis (item 8) — auditoria previsão × pedido */}
       {snapHeader && (
         <div className="mb-6 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Base da elaboração (congelada na criação)
-          </p>
+          <div className="mb-1 flex items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Base da elaboração (congelada na criação)
+            </p>
+            <Link
+              prefetch={false}
+              href={`/dashboard/pedidos/${encodeURIComponent(key)}/previsao-realizado`}
+              className="ml-auto text-xs font-medium text-brand-600 hover:underline"
+            >
+              Previsão × Realizado →
+            </Link>
+          </div>
           <p className="mb-3 text-xs text-muted-foreground">
             Previsão de {snapHeader.forecastAsOf ? fmtDate(snapHeader.forecastAsOf) : '—'} · critério{' '}
             {snapHeader.criteria?.mode === 'rop'

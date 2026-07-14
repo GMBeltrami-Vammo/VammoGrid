@@ -127,6 +127,28 @@ export async function fetchOneForecast(skuBase: string): Promise<SkuForecast | n
   return rowToForecast(rows, skuBase);
 }
 
+// Historical run: the forecast for a SKU at a SPECIFIC as_of_date (review 8 fase 2 —
+// previsão × realizado). Unlike fetchOneForecast (pinned to max as_of), this reads the
+// frozen run stored on a pedido's elaboration_snapshot. Returns null if that run/SKU
+// isn't in the table. Cached per (skuBase, asOfDate).
+export async function fetchForecastAsOf(skuBase: string, asOfDate: string): Promise<SkuForecast | null> {
+  if (!skuBase || !asOfDate) return null;
+  const safeSku = skuBase.replace(/'/g, "''");
+  const safeAsOf = asOfDate.slice(0, 10).replace(/'/g, "''");
+  const rows = await unstable_cache(
+    () =>
+      chQuery<ForecastRow>(
+        `SELECT sku_base, abc_class, model_version, as_of_date, target_date, horizon_day,
+                toFloat64(yhat) AS yhat, toFloat64(yhat_lo) AS lo, toFloat64(yhat_hi) AS hi
+         FROM dev.sop_predictions_daily
+         WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`,
+      ),
+    ['forecast-asof', skuBase, safeAsOf],
+    { revalidate: 21600, tags: ['forecast'] },
+  )();
+  return rowToForecast(rows, skuBase);
+}
+
 // Lightweight forecast metadata (the set of sku_base that have a forecast + the latest
 // as_of_date) for the SKU selector's "com previsão" filter + the freshness banner —
 // without building the full forecast Map. One cheap DISTINCT query, cached.

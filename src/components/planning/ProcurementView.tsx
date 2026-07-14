@@ -10,6 +10,7 @@ import type { OrderType } from '@/types';
 import type { OrderRules } from '@/lib/planning/elaboration';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
+import { groupBySupplier } from '@/lib/planning/supplierGroups';
 import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -28,6 +29,8 @@ export function ProcurementView({
   rules,
   today,
   forecastAsOf,
+  suppliers = [],
+  prefBySku = {},
 }: {
   rows: ElaborationRow[];
   isHead: boolean;
@@ -38,6 +41,10 @@ export function ProcurementView({
   today: string;
   /** asOfDate of the forecast — frozen into the pedido at creation (item 8). */
   forecastAsOf: string;
+  /** Active suppliers (review 4b) — for the header selector + "pedido por fornecedor". */
+  suppliers?: { supplierId: string; name: string }[];
+  /** skuBase → preferred supplier_id (review 4b) — drives the per-supplier split. */
+  prefBySku?: Record<string, string>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -48,6 +55,8 @@ export function ProcurementView({
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [pedidoName, setPedidoName] = useState('');
   const [orderType, setOrderType] = useState<OrderType>('internacional');
+  const [supplierId, setSupplierId] = useState(''); // header selector; '' = sem fornecedor
+  const supplierNameById = useMemo(() => new Map(suppliers.map((s) => [s.supplierId, s.name])), [suppliers]);
   // Per-SKU inclusion + qty. Default: all included at the suggested qty for the default
   // modal (sea). Flipping the modal resets quantities to that modal's suggestion.
   const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
@@ -155,6 +164,22 @@ export function ProcurementView({
     });
   const clearSelection = () => setIncluded(new Set());
 
+  // Shared payload builder — the audit basis (item 8) is identical across the single-
+  // order and per-supplier flows.
+  const auditObj = {
+    forecastAsOf,
+    criteria: rules?.seaFloorDoh ? { ...criteria, dohThreshold: rules.seaFloorDoh } : criteria,
+    rules: rules ?? undefined,
+  };
+  const lineFor = (r: ElaborationRow) => ({
+    skuBase: r.suggestion.skuBase,
+    skuName: r.suggestion.skuName,
+    qty: qtys[r.suggestion.skuBase] ?? 0,
+    leadDays: modal === 'sea' ? r.suggestion.leadTimeSeaDays : r.suggestion.leadTimeAirDays,
+    suggestedQty: suggestedFor(r, modal),
+    suggestedModal: r.suggestion.suggestedModal,
+  });
+
   const criarPedido = () => {
     setError(null);
     setCreatedVo(null);
@@ -164,20 +189,10 @@ export function ProcurementView({
         orderDate,
         pedidoName: pedidoName || null,
         orderType,
-        lines: selectedRows.map((r) => ({
-          skuBase: r.suggestion.skuBase,
-          skuName: r.suggestion.skuName,
-          qty: qtys[r.suggestion.skuBase] ?? 0,
-          leadDays: modal === 'sea' ? r.suggestion.leadTimeSeaDays : r.suggestion.leadTimeAirDays,
-          suggestedQty: suggestedFor(r, modal),
-          suggestedModal: r.suggestion.suggestedModal,
-        })),
-        // Freeze the elaboration basis (item 8) — enables previsão×realizado later.
-        audit: {
-          forecastAsOf,
-          criteria: rules?.seaFloorDoh ? { ...criteria, dohThreshold: rules.seaFloorDoh } : criteria,
-          rules: rules ?? undefined,
-        },
+        supplierId: supplierId || null,
+        supplierName: supplierId ? supplierNameById.get(supplierId) ?? null : null,
+        lines: selectedRows.map(lineFor),
+        audit: auditObj,
       });
       if (res.ok) {
         setCreatedVo(res.vo ?? null);
@@ -187,6 +202,46 @@ export function ProcurementView({
       }
     });
   };
+
+  // "Pedido por fornecedor" (review 4b): split the selection by each SKU's preferred
+  // supplier and create ONE pedido per supplier (SKUs with no supplier → one untagged
+  // pedido). Runs sequentially so a failure stops with a clear message.
+  const criarPorFornecedor = () => {
+    setError(null);
+    setCreatedVo(null);
+    const groups = groupBySupplier(
+      selectedRows.map((r) => ({ skuBase: r.suggestion.skuBase, row: r })),
+      new Map(Object.entries(prefBySku)),
+    );
+    startTransition(async () => {
+      let created = 0;
+      for (const g of groups) {
+        const supName = g.supplierId ? supplierNameById.get(g.supplierId) ?? null : null;
+        const res = await createPedido({
+          modal,
+          orderDate,
+          pedidoName: pedidoName ? `${pedidoName}${supName ? ` · ${supName}` : ''}` : supName,
+          orderType,
+          supplierId: g.supplierId,
+          supplierName: supName,
+          lines: g.items.map((it) => lineFor(it.row)),
+          audit: auditObj,
+        });
+        if (!res.ok) {
+          setError(`Erro no fornecedor ${supName ?? '—'}: ${res.error ?? 'falha'} (${created} pedido(s) criado(s) antes).`);
+          router.refresh();
+          return;
+        }
+        created++;
+      }
+      setCreatedVo(null);
+      setError(null);
+      router.refresh();
+    });
+  };
+  const distinctSuppliersInSelection = new Set(
+    selectedRows.map((r) => prefBySku[r.suggestion.skuBase] ?? '∅'),
+  ).size;
 
   const exportCsv = () => {
     const header = ['sku', 'nome', 'doh_hoje', 'consumo_dia', 'ruptura', 'chegada', 'qtd', 'incluido'];
@@ -264,19 +319,48 @@ export function ProcurementView({
             ))}
           </div>
         </div>
+        {suppliers.length > 0 && (
+          <div>
+            <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Fornecedor</span>
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              className="mt-1 h-8 w-48 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500"
+            >
+              <option value="">— sem fornecedor —</option>
+              {suppliers.map((s) => (
+                <option key={s.supplierId} value={s.supplierId}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{selectedCount}</span> SKUs · {fmtInt(selectedUnits)} un.
             {selectedCost > 0 && <> · <span className="font-medium text-foreground">{fmtBRL(selectedCost)}</span></>}
           </span>
           {isHead && (
-            <button
-              onClick={criarPedido}
-              disabled={pending || selectedCount === 0}
-              className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
-            >
-              <Check size={15} /> {pending ? 'Criando…' : 'Criar pedido'}
-            </button>
+            <>
+              {suppliers.length > 0 && distinctSuppliersInSelection > 1 && (
+                <button
+                  onClick={criarPorFornecedor}
+                  disabled={pending || selectedCount === 0}
+                  title="Cria um pedido separado para cada fornecedor preferencial dos SKUs selecionados"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-brand-500/40 px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-500/10 disabled:opacity-50"
+                >
+                  <Check size={15} /> Por fornecedor ({distinctSuppliersInSelection})
+                </button>
+              )}
+              <button
+                onClick={criarPedido}
+                disabled={pending || selectedCount === 0}
+                className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
+              >
+                <Check size={15} /> {pending ? 'Criando…' : 'Criar pedido'}
+              </button>
+            </>
           )}
         </div>
       </div>

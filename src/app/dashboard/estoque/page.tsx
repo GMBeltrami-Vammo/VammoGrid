@@ -6,6 +6,7 @@ import { suggestModalQuantities } from '@/lib/planning/elaboration';
 import { purchaseForSku } from '@/lib/planning/purchase';
 import { fetchStockHistory } from '@/lib/planning/source/history';
 import { fetchHubMaxStock } from '@/lib/planning/source/hubMaxStock';
+import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
 import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
 import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { addDays } from '@/lib/planning/dates';
@@ -28,6 +29,7 @@ import { InfoHint } from '@/components/planning/InfoHint';
 import { EstoqueView } from '@/components/planning/EstoqueView';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 import { LeadTimePanel } from '@/components/planning/LeadTimePanel';
+import { SupplierLinksPanel } from '@/components/suppliers/SupplierLinksPanel';
 import { SafetyStockPanel } from '@/components/planning/SafetyStockPanel';
 import { SkuSimulator } from '@/components/planning/SkuSimulator';
 import { SkuFilterToggle } from '@/components/planning/SkuFilterToggle';
@@ -71,14 +73,17 @@ export default async function EstoquePage({
     defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
-  const [compare, history, recoveryRefreshedAt, hubMaxStock, criteria, session] = await Promise.all([
+  const [compare, history, recoveryRefreshedAt, hubMaxStock, criteria, suppliers, skuSuppliers, session] = await Promise.all([
     projectOneCompare(selected, inputs), // reuse inputs — avoids a 2nd full load
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
     fetchRecoveryRefreshedAt(),
     fetchHubMaxStock(),
     fetchPurchaseCriteria(),
+    fetchSuppliers(),
+    fetchSkuSuppliers(),
     auth(),
   ]);
+  const skuLinks = skuSuppliers.filter((l) => l.skuBase === selected);
   const isHead = session?.user?.isHead ?? false;
   const projections = compare?.projections ?? null;
   const baseline = compare?.baseline ?? null;
@@ -233,6 +238,12 @@ export default async function EstoquePage({
               isNational={policy.leadTimeSource === 'national-file'}
               isHead={isHead}
             />
+          </div>
+
+          {/* Fornecedores do SKU (review 4b) — vínculo + preferido */}
+          <SectionTitle>Fornecedores</SectionTitle>
+          <div className="mb-6">
+            <SupplierLinksPanel skuBase={selected} allSuppliers={suppliers} links={skuLinks} isHead={isHead} />
           </div>
 
           {/* Safety stock (global) — editable, feeds the purchase suggestion */}

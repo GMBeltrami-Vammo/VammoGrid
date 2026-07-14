@@ -1,6 +1,8 @@
 import { auth } from '@/auth';
 import { computeElaborations } from '@/lib/planning/load';
 import { parseOrderRules } from '@/lib/planning/elaboration';
+import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
+import { preferredSupplierBySku } from '@/lib/planning/supplierGroups';
 import { fmtInt } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { ProcurementView } from '@/components/planning/ProcurementView';
@@ -20,9 +22,16 @@ export default async function ProcurementPage({
 }) {
   const sp = await searchParams;
   const rules = parseOrderRules(sp.rules);
-  const [result, session] = await Promise.all([computeElaborations(false, rules), auth()]);
+  const [result, suppliers, skuSuppliers, session] = await Promise.all([
+    computeElaborations(false, rules),
+    fetchSuppliers(),
+    fetchSkuSuppliers(),
+    auth(),
+  ]);
   const isHead = session?.user?.isHead ?? false;
   const { rows } = result;
+  const activeSuppliers = suppliers.filter((s) => s.active).map((s) => ({ supplierId: s.supplierId, name: s.name }));
+  const prefBySku = Object.fromEntries(preferredSupplierBySku(skuSuppliers));
 
   const total = rows.length;
   const late = rows.filter((r) => r.suggestion.isLate).length;
@@ -58,6 +67,8 @@ export default async function ProcurementPage({
             rules={result.rules ?? null}
             today={result.today}
             forecastAsOf={result.asOfDate}
+            suppliers={activeSuppliers}
+            prefBySku={prefBySku}
           />
         </>
       )}

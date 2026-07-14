@@ -90,13 +90,14 @@ export default async function PedidoDetailPage({
       />
 
       {/* Summary */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Summary label="Estágio">
           <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium', STATUS_STYLES[status])}>
             {lifecycleLabel(prep, status)}
           </span>
         </Summary>
         <Summary label="Tipo">{group[0].orderType ? ORDER_TYPE_LABELS[group[0].orderType] : '—'}</Summary>
+        <Summary label="Fornecedor">{group[0].supplierName ?? '—'}</Summary>
         <Summary label="Data do pedido">{orderDate ? fmtDate(orderDate) : '—'}</Summary>
         <Summary label="ETA">{eta ? fmtDate(eta) : '—'}</Summary>
         <Summary label="Origem">{sourceLabel(group[0].source)}</Summary>

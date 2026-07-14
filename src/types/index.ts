@@ -48,13 +48,41 @@ export interface PurchaseOrder {
   modal: string | null;
   hubId: HubId;
   notes: string | null;
-  /** 'clickhouse' (synced) | 'manual' | 'elaboracao' */
+  /** 'clickhouse' (synced) | 'manual' | 'elaboracao' | 'import' */
   source: string;
   /** JSON frozen at "Criar pedido" (review item 8): forecast asOf, criteria/rules in
    *  effect, suggested vs chosen qty — the basis for previsão×realizado later. */
   elaborationSnapshot: string | null;
+  /** Fornecedor vinculado ao pedido (review 4b); null quando não atribuído. */
+  supplierId: string | null;
+  supplierName: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Fornecedores (review 4b) ─────────────────────────────────────────────────
+
+export type SupplierKind = 'nacional' | 'internacional';
+
+export interface Supplier {
+  supplierId: string;
+  name: string;
+  kind: SupplierKind;
+  contact: string | null;
+  notes: string | null;
+  active: boolean;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+/** SKU ↔ supplier link. is_preferred = the default supplier for "pedido por fornecedor". */
+export interface SkuSupplier {
+  skuBase: string;
+  supplierId: string;
+  isPreferred: boolean;
+  priority: number;
+  updatedAt: string;
+  updatedBy: string | null;
 }
 
 // Bike-model families for the compatibility matrix. Consolidated to the two families

@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   ArrowLeftRight,
   ClipboardList,
+  Truck,
   Bike,
   Bell,
   LogOut,
@@ -92,6 +93,12 @@ export function Sidebar() {
             label="Pedidos"
             icon={ClipboardList}
             active={isActive('/dashboard/pedidos')}
+          />
+          <NavLink
+            href="/dashboard/fornecedores"
+            label="Fornecedores"
+            icon={Truck}
+            active={isActive('/dashboard/fornecedores')}
           />
           <NavLink
             href="/dashboard/frota"

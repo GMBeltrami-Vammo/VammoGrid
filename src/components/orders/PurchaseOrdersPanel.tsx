@@ -34,6 +34,7 @@ interface PedidoGroup {
   vo: string | null;
   pedidoName: string | null;
   orderType: OrderType | null;
+  supplierName: string | null;
   lines: PurchaseOrder[];
   status: PurchaseOrderStatus;
   orderDate: string;
@@ -58,6 +59,7 @@ function groupByVo(orders: PurchaseOrder[]): PedidoGroup[] {
       vo: h.vo,
       pedidoName: h.pedidoName,
       orderType: h.orderType,
+      supplierName: h.supplierName,
       lines,
       status: h.status,
       orderDate: h.orderDate,
@@ -96,7 +98,8 @@ export function PurchaseOrdersPanel() {
           (l) => l.sku.toLowerCase().includes(q) || (l.skuName ?? '').toLowerCase().includes(q),
         ) &&
         !(g.vo ?? '').toLowerCase().includes(q) &&
-        !(g.pedidoName ?? '').toLowerCase().includes(q)
+        !(g.pedidoName ?? '').toLowerCase().includes(q) &&
+        !(g.supplierName ?? '').toLowerCase().includes(q)
       ) {
         return false;
       }
@@ -318,6 +321,11 @@ function PedidoGroupCard({
         </HeaderField>
 
         <div className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
+          {group.supplierName && (
+            <span className="rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-medium text-foreground/80">
+              {group.supplierName}
+            </span>
+          )}
           <span className="tabular-nums">{group.lines.length} SKUs · {totalQty} un.</span>
           <span>{sourceLabel(group.source)}</span>
           {isHead && (

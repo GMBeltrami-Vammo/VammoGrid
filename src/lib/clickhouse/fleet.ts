@@ -29,6 +29,8 @@ export const FLEET_TABLES = {
   globalSettings: 'dev.fleet_global_settings',
   hubMaxStock: 'dev.fleet_sku_hub_max_stock',
   fleetSizeWeekly: 'dev.fleet_size_weekly',
+  supplier: 'dev.fleet_supplier',
+  skuSupplier: 'dev.fleet_sku_supplier',
 } as const;
 
 const DDL: string[] = [
@@ -171,6 +173,32 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (segment, week_start)`,
+
+  // Supplier registry (backlog #21 — review 4b). Cadastro only — no engine change
+  // (air is the emergency lane). kind = nacional | internacional.
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.supplier} (
+    supplier_id String,
+    name String,
+    kind String DEFAULT 'internacional',
+    contact Nullable(String),
+    notes Nullable(String),
+    active Bool DEFAULT true,
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY supplier_id`,
+
+  // SKU ↔ supplier link (composite key). is_preferred marks the default supplier used
+  // to group "pedido por fornecedor"; priority orders the alternatives.
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.skuSupplier} (
+    sku_base String,
+    supplier_id String,
+    is_preferred Bool DEFAULT false,
+    priority Int32 DEFAULT 0,
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (sku_base, supplier_id)`,
 ];
 
 // Idempotent column adds for tables that already exist in prod (CREATE TABLE IF NOT
@@ -199,6 +227,9 @@ const MIGRATIONS: string[] = [
   // Backlog #21 — item 2 fase 2: meta comercial + churn (%/mês) na projeção de frota.
   `ALTER TABLE ${FLEET_TABLES.fleetInfo} ADD COLUMN IF NOT EXISTS commercial_target_pct Nullable(Float64)`,
   `ALTER TABLE ${FLEET_TABLES.fleetInfo} ADD COLUMN IF NOT EXISTS churn_pct Nullable(Float64)`,
+  // Backlog #21 — item 4b: fornecedor vinculado ao pedido (para filtro/visão por fornecedor).
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS supplier_id Nullable(String)`,
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS supplier_name Nullable(String)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.

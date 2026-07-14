@@ -6,6 +6,9 @@ import type {
   PrepStatus,
   PurchaseOrder,
   PurchaseOrderStatus,
+  SkuSupplier,
+  Supplier,
+  SupplierKind,
 } from '@/types';
 
 // Row → domain mappers for the dev.fleet_* tables. ClickHouse (like the Supabase
@@ -33,8 +36,34 @@ export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
     notes: row.notes ?? null,
     source: row.source ?? 'manual',
     elaborationSnapshot: row.elaboration_snapshot ?? null,
+    supplierId: row.supplier_id ?? null,
+    supplierName: row.supplier_name ?? null,
     createdAt: String(row.created_at ?? ''),
     updatedAt: String(row.updated_at ?? ''),
+  };
+}
+
+export function mapSupplierRow(row: Record<string, any>): Supplier {
+  return {
+    supplierId: String(row.supplier_id),
+    name: String(row.name ?? ''),
+    kind: (row.kind === 'nacional' ? 'nacional' : 'internacional') as SupplierKind,
+    contact: row.contact ?? null,
+    notes: row.notes ?? null,
+    active: row.active == null ? true : Boolean(row.active),
+    updatedAt: String(row.updated_at ?? ''),
+    updatedBy: row.updated_by ?? null,
+  };
+}
+
+export function mapSkuSupplierRow(row: Record<string, any>): SkuSupplier {
+  return {
+    skuBase: String(row.sku_base),
+    supplierId: String(row.supplier_id),
+    isPreferred: Boolean(row.is_preferred),
+    priority: Number(row.priority) || 0,
+    updatedAt: String(row.updated_at ?? ''),
+    updatedBy: row.updated_by ?? null,
   };
 }
 

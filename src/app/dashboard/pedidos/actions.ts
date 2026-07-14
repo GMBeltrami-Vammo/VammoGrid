@@ -104,6 +104,9 @@ export async function createPedido(input: {
   /** Row provenance: 'elaboracao' (builder, default), 'import' (.xlsx upload). Distinct
    *  from 'clickhouse' so the daily sync's replace-by-source never touches these. */
   source?: string;
+  /** Fornecedor vinculado ao pedido (review 4b). */
+  supplierId?: string | null;
+  supplierName?: string | null;
 }): Promise<{ ok: boolean; vo?: string; error?: string }> {
   try {
     const changedBy = await requireHead();
@@ -119,6 +122,8 @@ export async function createPedido(input: {
       vo,
       pedido_name: input.pedidoName?.trim() || null,
       order_type: input.orderType ?? null,
+      supplier_id: input.supplierId ?? null,
+      supplier_name: input.supplierName?.trim() || null,
       elaboration_snapshot: input.audit
         ? JSON.stringify({
             ...input.audit,

@@ -15,7 +15,6 @@ import {
   Settings,
   Package,
   CalendarRange,
-  Clock,
   Workflow,
   BookOpen,
 } from 'lucide-react';
@@ -80,12 +79,8 @@ export function Sidebar() {
             icon={ShoppingCart}
             active={isActive('/dashboard/procurement')}
           />
-          <NavLink
-            href="/dashboard/lead-times"
-            label="Lead times"
-            icon={Clock}
-            active={isActive('/dashboard/lead-times')}
-          />
+          {/* Lead time foi movido para o cadastro do SKU (Estoque); a tela em massa
+              segue acessível por URL /dashboard/lead-times, fora do menu. */}
           <NavLink
             href="/dashboard/transfers"
             label="Transferências"

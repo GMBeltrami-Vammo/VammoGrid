@@ -27,6 +27,7 @@ import {
 import { InfoHint } from '@/components/planning/InfoHint';
 import { EstoqueView } from '@/components/planning/EstoqueView';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
+import { LeadTimePanel } from '@/components/planning/LeadTimePanel';
 import { SafetyStockPanel } from '@/components/planning/SafetyStockPanel';
 import { SkuSimulator } from '@/components/planning/SkuSimulator';
 import { SkuFilterToggle } from '@/components/planning/SkuFilterToggle';
@@ -218,6 +219,20 @@ export default async function EstoquePage({
                 value={purchase.estCost != null && purchase.orderQty > 0 ? fmtBRL(purchase.estCost) : '—'}
               />
             </div>
+          </div>
+
+          {/* Lead time — editable per-SKU (folded in from the standalone screen, item 4a) */}
+          <SectionTitle>Lead time</SectionTitle>
+          <div className="mb-6">
+            <LeadTimePanel
+              skuBase={selected}
+              seaDays={Math.round(policy.leadTimeSeaDays ?? policy.leadTimeDays)}
+              airDays={Math.round(policy.leadTimeAirDays ?? policy.leadTimeDays)}
+              defaultModal={policy.defaultModal}
+              stdDays={policy.leadTimeStdDays}
+              isNational={policy.leadTimeSource === 'national-file'}
+              isHead={isHead}
+            />
           </div>
 
           {/* Safety stock (global) — editable, feeds the purchase suggestion */}

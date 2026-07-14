@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
-import { ChevronDown, ChevronRight, Plus, Trash2, Check, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Trash2, Check, Upload, X } from 'lucide-react';
 import { toSkuBase } from '@/lib/planning/sku';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ import {
   updatePedidoHeader,
 } from '@/app/dashboard/pedidos/actions';
 import { MODAL_LABELS, ORDER_TYPE_LABELS, STATUS_LABELS, STATUS_ORDER, STATUS_STYLES, lifecycleLabel, sourceLabel } from './orderMeta';
+import { ImportPedidoDialog } from './ImportPedidoDialog';
 
 // Pedidos are edited at the PEDIDO level (request #1): each group (one VO) has its own
 // status / ETA / order-date (VO read-only) applied to all lines at once, plus an
@@ -77,6 +78,7 @@ export function PurchaseOrdersPanel() {
   const { data: orders, isLoading, isError } = usePurchaseOrders();
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Review 3b: separar Nacional/Internacional + buscar em quais pedidos um SKU está.
   const [typeFilter, setTypeFilter] = useState<'todos' | OrderType>('todos');
@@ -127,10 +129,15 @@ export function PurchaseOrdersPanel() {
         <p className="text-sm text-muted-foreground">
           {orders ? `${groups.length}${groups.length !== allGroups.length ? ` / ${allGroups.length}` : ''} pedidos` : '—'}
         </p>
-        {isHead && !creating && (
-          <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
-            <Plus /> Novo pedido
-          </Button>
+        {isHead && !creating && !importing && (
+          <div className="ml-auto flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => { setError(null); setImporting(true); }}>
+              <Upload /> Importar
+            </Button>
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus /> Novo pedido
+            </Button>
+          </div>
         )}
       </div>
 
@@ -145,6 +152,17 @@ export function PurchaseOrdersPanel() {
             refresh();
           }}
           onCancel={() => setCreating(false)}
+          onError={setError}
+        />
+      )}
+
+      {importing && (
+        <ImportPedidoDialog
+          onDone={() => {
+            setImporting(false);
+            refresh();
+          }}
+          onCancel={() => setImporting(false)}
           onError={setError}
         />
       )}

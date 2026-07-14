@@ -39,6 +39,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   clickhouse: 'Sincronizado',
   manual: 'Manual',
   elaboracao: 'Novo Pedido',
+  import: 'Importado',
 };
 
 /** Pedido classification (review 7a/3b). */

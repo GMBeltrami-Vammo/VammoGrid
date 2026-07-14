@@ -101,6 +101,9 @@ export async function createPedido(input: {
   lines: NewPedidoLine[];
   /** When present, freezes the elaboration basis into each line (item 8). */
   audit?: PedidoAudit;
+  /** Row provenance: 'elaboracao' (builder, default), 'import' (.xlsx upload). Distinct
+   *  from 'clickhouse' so the daily sync's replace-by-source never touches these. */
+  source?: string;
 }): Promise<{ ok: boolean; vo?: string; error?: string }> {
   try {
     const changedBy = await requireHead();
@@ -134,7 +137,7 @@ export async function createPedido(input: {
       modal: input.modal,
       hub_id: 'osasco',
       notes: null,
-      source: 'elaboracao',
+      source: input.source ?? 'elaboracao',
       prep_status: 'elaborado',
       created_at: now,
       updated_at: now,

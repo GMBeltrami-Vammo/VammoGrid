@@ -88,6 +88,17 @@ export interface FilterPreset {
   updatedBy: string | null;
 }
 
+/** One shipping modal of a supplier (Courier/Aéreo/Marítimo…), with its own lead. */
+export interface SupplierModal {
+  supplierId: string;
+  modalId: string;
+  name: string;
+  leadDays: number;
+  sortOrder: number;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
 /** SKU ↔ supplier link. is_preferred = the default supplier for "pedido por fornecedor". */
 export interface SkuSupplier {
   skuBase: string;

@@ -7,8 +7,15 @@ import { Check, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from 'lucid
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import type { Supplier, SupplierKind } from '@/types';
-import { createSupplier, deleteSupplier, updateSupplier, type SupplierInput } from '@/app/dashboard/fornecedores/actions';
+import type { Supplier, SupplierKind, SupplierModal } from '@/types';
+import {
+  createSupplier,
+  deleteSupplier,
+  deleteSupplierModal,
+  updateSupplier,
+  upsertSupplierModal,
+  type SupplierInput,
+} from '@/app/dashboard/fornecedores/actions';
 
 // Supplier registry CRUD (review 4b). Server-rendered list + client edits; after each
 // mutation router.refresh() re-runs the server component. SKU links are managed from
@@ -56,6 +63,7 @@ export function SuppliersManager({
   suppliers,
   skusBySupplier,
   skuNames = {},
+  modalsBySupplier = {},
   isHead,
 }: {
   suppliers: Supplier[];
@@ -63,6 +71,8 @@ export function SuppliersManager({
   skusBySupplier: Record<string, string[]>;
   /** sku_base → display name, so the expanded list shows ID + nome. */
   skuNames?: Record<string, string>;
+  /** supplier_id → its transport modals (Courier/Aéreo/Marítimo…). */
+  modalsBySupplier?: Record<string, SupplierModal[]>;
   isHead: boolean;
 }) {
   const router = useRouter();
@@ -184,6 +194,15 @@ export function SuppliersManager({
                 {open && (
                   <div className="border-t border-border/60 px-4 py-2">
                     {s.notes && <p className="mb-2 text-xs text-muted-foreground">{s.notes}</p>}
+                    <ModalsEditor
+                      supplierId={s.supplierId}
+                      modals={modalsBySupplier[s.supplierId] ?? []}
+                      isHead={isHead}
+                      onChanged={() => router.refresh()}
+                    />
+                    <p className="mb-1 mt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      SKUs abastecidos
+                    </p>
                     {skus.length === 0 ? (
                       <p className="text-xs text-muted-foreground">Nenhum SKU vinculado. Vincule no cadastro do SKU.</p>
                     ) : (
@@ -300,6 +319,105 @@ function SupplierEditor({
           <X /> Cancelar
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Transport modals per supplier (N modais: Courier/Aéreo/Marítimo…) — each with its
+// own lead time. Feeds the SKU lead (fastest/slowest) + the Novo Pedido builder.
+function ModalsEditor({
+  supplierId,
+  modals,
+  isHead,
+  onChanged,
+}: {
+  supplierId: string;
+  modals: SupplierModal[];
+  isHead: boolean;
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [lead, setLead] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const sorted = [...modals].sort((a, b) => b.leadDays - a.leadDays);
+
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void) => {
+    setError(null);
+    startTransition(async () => {
+      const res = await fn();
+      if (res.ok) {
+        after?.();
+        onChanged();
+      } else setError(res.error ?? 'Erro.');
+    });
+  };
+
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Modais</p>
+      {error && <p className="mb-1 text-[11px] text-alert-error">{error}</p>}
+      {sorted.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Nenhum modal cadastrado — usando o lead marítimo/aéreo legado como fallback.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5">
+          {sorted.map((m) => (
+            <li
+              key={m.modalId}
+              className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-0.5 text-[11px]"
+            >
+              <span className="font-medium">{m.name}</span>
+              <span className="tabular-nums text-muted-foreground">{m.leadDays}d</span>
+              {isHead && (
+                <button
+                  onClick={() => run(() => deleteSupplierModal(supplierId, m.modalId))}
+                  disabled={pending}
+                  aria-label={`Remover ${m.name}`}
+                  className="text-muted-foreground hover:text-alert-error"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {isHead && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Modal (ex.: Courier)"
+            className="h-7 w-36 text-xs"
+          />
+          <Input
+            type="number"
+            min={1}
+            value={lead}
+            onChange={(e) => setLead(e.target.value)}
+            placeholder="lead (d)"
+            className="h-7 w-24 text-xs"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending || !name.trim() || !(Number(lead) > 0)}
+            onClick={() =>
+              run(
+                () => upsertSupplierModal(supplierId, { name: name.trim(), leadDays: Number(lead) }),
+                () => {
+                  setName('');
+                  setLead('');
+                },
+              )
+            }
+          >
+            <Plus /> Add modal
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { FLEET_TABLES, readFleetTable } from '@/lib/clickhouse/fleet';
-import { mapSkuSupplierRow, mapSupplierRow } from '@/lib/clickhouse/mappers';
-import type { SkuSupplier, Supplier } from '@/types';
+import { mapSkuSupplierRow, mapSupplierModalRow, mapSupplierRow } from '@/lib/clickhouse/mappers';
+import type { SkuSupplier, Supplier, SupplierModal } from '@/types';
+import type { Row } from '@/lib/clickhouse/reader';
 
 // Fornecedores + vínculos SKU↔fornecedor (review 4b). Cadastro only — read path for the
 // Fornecedores page, the SKU cadastro links panel, and the Novo Pedido supplier grouping.
@@ -61,6 +62,29 @@ export async function fetchSkuSuppliers(): Promise<SkuSupplier[]> {
     return (await fetchSkuSupplierRows()).map(mapSkuSupplierRow);
   } catch (e) {
     console.error('[fetchSkuSuppliers]', e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+const fetchSupplierModalRows = unstable_cache(
+  async (): Promise<Row[]> => readFleetTable<Row>(FLEET_TABLES.supplierModal),
+  ['supplier-modal-rows'],
+  { revalidate: 300, tags: ['suppliers'] },
+);
+
+/** All supplier modals, sorted by (supplier, sortOrder, lead desc). Empty on error. */
+export async function fetchSupplierModals(): Promise<SupplierModal[]> {
+  try {
+    return (await fetchSupplierModalRows())
+      .map(mapSupplierModalRow)
+      .sort(
+        (a, b) =>
+          a.supplierId.localeCompare(b.supplierId) ||
+          a.sortOrder - b.sortOrder ||
+          b.leadDays - a.leadDays,
+      );
+  } catch (e) {
+    console.error('[fetchSupplierModals]', e instanceof Error ? e.message : e);
     return [];
   }
 }

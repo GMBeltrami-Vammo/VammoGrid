@@ -31,6 +31,7 @@ export const FLEET_TABLES = {
   fleetSizeWeekly: 'dev.fleet_size_weekly',
   supplier: 'dev.fleet_supplier',
   skuSupplier: 'dev.fleet_sku_supplier',
+  supplierModal: 'dev.fleet_supplier_modal',
   filterPreset: 'dev.fleet_filter_preset',
 } as const;
 
@@ -162,6 +163,20 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (sku_base, hub_id)`,
+
+  // N shipping modals per supplier (VMoto: Courier 15d / Aéreo 45d / Marítimo 105d).
+  // The SKU's effective lead comes from its preferred supplier's modals; the engine
+  // plans across ALL of a supplier's modals (generalized air-bridge/sea-bulk).
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.supplierModal} (
+    supplier_id String,
+    modal_id String,
+    name String,
+    lead_days Int32,
+    sort_order Int32 DEFAULT 0,
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (supplier_id, modal_id)`,
 
   // Named selection presets (custom filters): a saved list of sku_bases the team can
   // re-apply as the app-wide recorte with one click. Shared team-wide (Head writes).

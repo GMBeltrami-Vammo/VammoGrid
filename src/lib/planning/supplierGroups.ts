@@ -1,7 +1,42 @@
-import type { SkuSupplier } from '@/types';
+import type { SkuSupplier, Supplier, SupplierModal } from '@/types';
 
 // Pure helpers behind "pedido por fornecedor" (review 4b) — no server/UI deps, so the
 // grouping is unit-testable.
+
+/** One usable shipping option: a supplier modal with its lead. Ordered slow→fast by
+ *  the helpers so callers can treat [0] as the bulk lane and [last] as the express. */
+export interface ModalOption {
+  id: string;
+  name: string;
+  leadDays: number;
+}
+
+/**
+ * The modals a supplier offers, ordered by lead DESC (slowest/bulk first). Fallbacks
+ * keep everything working during the transition:
+ *  1. registered modals (dev.fleet_supplier_modal) — the real thing (VMoto: 105/45/15);
+ *  2. the supplier's legacy lead_time_sea/air_days pair (Marítimo/Aéreo);
+ *  3. [] — caller falls back to the SKU's own policy leads.
+ */
+export function modalsForSupplier(
+  supplier: Pick<Supplier, 'supplierId' | 'leadTimeSeaDays' | 'leadTimeAirDays'> | null | undefined,
+  modals: SupplierModal[],
+): ModalOption[] {
+  if (!supplier) return [];
+  const own = modals
+    .filter((m) => m.supplierId === supplier.supplierId && m.leadDays > 0)
+    .map((m) => ({ id: m.modalId, name: m.name, leadDays: m.leadDays }));
+  if (own.length > 0) return own.sort((a, b) => b.leadDays - a.leadDays);
+
+  const legacy: ModalOption[] = [];
+  if (supplier.leadTimeSeaDays != null && supplier.leadTimeSeaDays > 0) {
+    legacy.push({ id: 'sea', name: 'Marítimo', leadDays: supplier.leadTimeSeaDays });
+  }
+  if (supplier.leadTimeAirDays != null && supplier.leadTimeAirDays > 0) {
+    legacy.push({ id: 'air', name: 'Aéreo', leadDays: supplier.leadTimeAirDays });
+  }
+  return legacy.sort((a, b) => b.leadDays - a.leadDays);
+}
 
 /**
  * Preferred supplier per SKU: the is_preferred link, else the lowest-priority link,

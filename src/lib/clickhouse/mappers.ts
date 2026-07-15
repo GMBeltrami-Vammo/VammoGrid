@@ -7,6 +7,7 @@ import type {
   PrepStatus,
   PurchaseOrder,
   PurchaseOrderStatus,
+  SupplierModal,
   SkuSupplier,
   Supplier,
   SupplierKind,
@@ -72,6 +73,18 @@ export function mapFilterPresetRow(row: Record<string, any>): FilterPreset {
     name: String(row.name ?? ''),
     skus,
     note: row.note ?? null,
+    updatedAt: String(row.updated_at ?? ''),
+    updatedBy: row.updated_by ?? null,
+  };
+}
+
+export function mapSupplierModalRow(row: Record<string, any>): SupplierModal {
+  return {
+    supplierId: String(row.supplier_id),
+    modalId: String(row.modal_id),
+    name: String(row.name ?? ''),
+    leadDays: Math.max(0, Number(row.lead_days) || 0),
+    sortOrder: Number(row.sort_order) || 0,
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,
   };

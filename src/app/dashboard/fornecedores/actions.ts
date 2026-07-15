@@ -109,6 +109,67 @@ export async function deleteSupplier(supplierId: string): Promise<{ ok: boolean;
   }
 }
 
+// ─── Supplier modals (N per supplier: Courier/Aéreo/Marítimo…) ─────────────────
+
+export async function upsertSupplierModal(
+  supplierId: string,
+  input: { modalId?: string; name: string; leadDays: number },
+): Promise<{ ok: boolean; modalId?: string; error?: string }> {
+  try {
+    const email = await requireHead();
+    const name = input.name.trim();
+    const lead = Math.round(input.leadDays);
+    if (!name) return { ok: false, error: 'Nome do modal é obrigatório.' };
+    if (!Number.isFinite(lead) || lead <= 0) return { ok: false, error: 'Lead (dias) deve ser > 0.' };
+    const modalId = input.modalId ?? randomUUID();
+    const current = input.modalId
+      ? await readFleetRow<Row>(FLEET_TABLES.supplierModal, { supplier_id: supplierId, modal_id: modalId })
+      : null;
+    await upsertFleetRow({
+      table: FLEET_TABLES.supplierModal,
+      entityType: 'supplier_modal',
+      entityId: `${supplierId}|${modalId}`,
+      current,
+      next: {
+        ...current,
+        supplier_id: supplierId,
+        modal_id: modalId,
+        name,
+        lead_days: lead,
+        sort_order: Number(current?.sort_order ?? 0),
+        updated_by: email,
+      },
+      changedBy: email,
+    });
+    updateTag('suppliers');
+    return { ok: true, modalId };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}
+
+export async function deleteSupplierModal(
+  supplierId: string,
+  modalId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const email = await requireHead();
+    const current = await readFleetRow<Row>(FLEET_TABLES.supplierModal, { supplier_id: supplierId, modal_id: modalId });
+    if (!current) return { ok: true };
+    await softDeleteFleetRow({
+      table: FLEET_TABLES.supplierModal,
+      entityType: 'supplier_modal',
+      entityId: `${supplierId}|${modalId}`,
+      current,
+      changedBy: email,
+    });
+    updateTag('suppliers');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}
+
 // ─── SKU ↔ supplier links ─────────────────────────────────────────────────────
 
 export async function linkSkuSupplier(

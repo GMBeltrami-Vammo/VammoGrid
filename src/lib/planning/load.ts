@@ -19,7 +19,7 @@ import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
 import { todayUtc } from './dates';
 import { applySupplierLeadTimes, buildPolicies, defaultPolicyFor, type SupplierLead } from './policy';
-import { preferredSupplierBySku } from './supplierGroups';
+import { modalsForSupplier, preferredSupplierBySku } from './supplierGroups';
 import { projectGlobal, projectSku, type SkuProjections } from './projection';
 import { purchaseForAll } from './purchase';
 import { transferForAll } from './transfer';
@@ -32,9 +32,9 @@ import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
 import { fetchActiveScope } from './source/scope';
-import { fetchSuppliers, fetchSkuSuppliers } from './source/suppliers';
+import { fetchSuppliers, fetchSkuSuppliers, fetchSupplierModals } from './source/suppliers';
 import { fetchServiceLevelZ, fetchPurchaseCriteria } from './source/globalSettings';
-import type { Supplier, SkuSupplier } from '@/types';
+import type { Supplier, SkuSupplier, SupplierModal } from '@/types';
 import { SERVICE_LEVEL_Z, DEFAULT_SERVICE_LEVEL_TIER } from './constants';
 import {
   EMPTY_FILTER,
@@ -98,15 +98,31 @@ function readSkuChunkCookies(cookieStore: Awaited<ReturnType<typeof cookies>>): 
   );
 }
 
-/** sku_base → the preferred supplier's lead + kind, for applySupplierLeadTimes. */
-function supplierLeadBySku(suppliers: Supplier[], links: SkuSupplier[]): Map<string, SupplierLead> {
+/** sku_base → the preferred supplier's lead + kind, for applySupplierLeadTimes.
+ *  With N modals per supplier: sea (bulk) = the SLOWEST modal, air (express) = the
+ *  FASTEST — the binary engine's two lanes map onto the supplier's extremes until the
+ *  N-modal engine lands. Falls back to the supplier's legacy sea/air pair. */
+function supplierLeadBySku(
+  suppliers: Supplier[],
+  links: SkuSupplier[],
+  modals: SupplierModal[],
+): Map<string, SupplierLead> {
   const byId = new Map(suppliers.map((s) => [s.supplierId, s]));
   const prefBySku = preferredSupplierBySku(links);
   const out = new Map<string, SupplierLead>();
   for (const [sku, supplierId] of prefBySku) {
     const s = byId.get(supplierId);
     if (!s) continue;
-    out.set(sku, { kind: s.kind, sea: s.leadTimeSeaDays, air: s.leadTimeAirDays });
+    const options = modalsForSupplier(s, modals); // ordered lead DESC; legacy fallback inside
+    if (options.length > 0) {
+      out.set(sku, {
+        kind: s.kind,
+        sea: options[0].leadDays,
+        air: options[options.length - 1].leadDays,
+      });
+    } else {
+      out.set(sku, { kind: s.kind, sea: s.leadTimeSeaDays, air: s.leadTimeAirDays });
+    }
   }
   return out;
 }
@@ -121,7 +137,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
   // instead of throwing (keeps the app building + usable before secrets are set).
   if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter };
 
-  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ, suppliers, skuSuppliers] =
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ, suppliers, skuSuppliers, supplierModals] =
     await Promise.all([
       fetchStockStates(nowIso),
       fetchForecasts(),
@@ -135,6 +151,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
       fetchServiceLevelZ(),
       fetchSuppliers(),
       fetchSkuSuppliers(),
+      fetchSupplierModals(),
     ]);
 
   // Default SKU-universe scope (sub-project A): narrow to the active-scope set
@@ -177,7 +194,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
   // supplier (fallback = the SKU's own policy lead when it has no supplier).
   const policies = applySupplierLeadTimes(
     buildPolicies({ stocks, forecasts, overrides: policyOverrides, nowIso }),
-    supplierLeadBySku(suppliers, skuSuppliers),
+    supplierLeadBySku(suppliers, skuSuppliers, supplierModals),
   );
 
   return {
@@ -505,7 +522,7 @@ export const loadSkuView = cache(
     }
 
     // Cheap, cross-request-cached sources only (no per-SKU heavy materialization).
-    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet, serviceLevelZ, suppliers, skuSuppliers] =
+    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet, serviceLevelZ, suppliers, skuSuppliers, supplierModals] =
       await Promise.all([
         fetchStockStates(nowIso),
         fetchHubShares(),
@@ -518,6 +535,7 @@ export const loadSkuView = cache(
         fetchServiceLevelZ(),
         fetchSuppliers(),
         fetchSkuSuppliers(),
+        fetchSupplierModals(),
       ]);
 
     // Default SKU-universe scope (sub-project A): the selector lists only in-scope
@@ -561,7 +579,7 @@ export const loadSkuView = cache(
     if (forecast) forecasts.set(selected, forecast);
     const policies = applySupplierLeadTimes(
       buildPolicies({ stocks: [selStock], forecasts, overrides: policyOverrides, nowIso }),
-      supplierLeadBySku(suppliers, skuSuppliers),
+      supplierLeadBySku(suppliers, skuSuppliers, supplierModals),
     );
 
     const inputs: PlanningInputs = {

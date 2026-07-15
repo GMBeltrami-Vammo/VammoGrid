@@ -8,7 +8,6 @@ import type {
   StockState,
 } from '@/types/planning';
 import { addDays } from './dates';
-import { scaleForecast, delayOrder } from './scenario';
 import { computeHubRisk, delayedShipments, supplyMix } from './selectors';
 
 const TODAY = '2026-06-24';
@@ -43,21 +42,6 @@ function stock(byHub: Partial<Record<HubId, number>>, skuBase = 'X'): StockState
     lastUpdated: TODAY,
   };
 }
-
-describe('scenario levers', () => {
-  it('scales forecast demand by a percentage', () => {
-    expect(scaleForecast(fc(10), 20).points[0].yhat).toBeCloseTo(12);
-    expect(scaleForecast(fc(10), 0).points[0].yhat).toBe(10);
-  });
-  it('delays an order ETA by N days', () => {
-    const o: OpenPurchaseOrder = {
-      id: '1', vo: null, skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 10,
-      orderDate: TODAY, eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea',
-      status: 'ordered', prepStatus: null, hubId: 'osasco', source: 't',
-    };
-    expect(delayOrder(o, 5).eta).toBe(addDays(TODAY, 15));
-  });
-});
 
 describe('computeHubRisk', () => {
   it('flags low-cover hubs and ranks most-at-risk first', () => {

@@ -55,11 +55,14 @@ const toInput = (d: Draft): SupplierInput => ({
 export function SuppliersManager({
   suppliers,
   skusBySupplier,
+  skuNames = {},
   isHead,
 }: {
   suppliers: Supplier[];
   /** supplier_id → linked sku_bases (for the count + expandable list). */
   skusBySupplier: Record<string, string[]>;
+  /** sku_base → display name, so the expanded list shows ID + nome. */
+  skuNames?: Record<string, string>;
   isHead: boolean;
 }) {
   const router = useRouter();
@@ -184,18 +187,22 @@ export function SuppliersManager({
                     {skus.length === 0 ? (
                       <p className="text-xs text-muted-foreground">Nenhum SKU vinculado. Vincule no cadastro do SKU.</p>
                     ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {skus.map((sku) => (
-                          <Link
-                            key={sku}
-                            prefetch={false}
-                            href={`/dashboard/estoque?sku=${encodeURIComponent(sku)}`}
-                            className="rounded bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-brand-600 hover:bg-muted"
-                          >
-                            {sku}
-                          </Link>
+                      <ul className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
+                        {[...skus].sort().map((sku) => (
+                          <li key={sku}>
+                            <Link
+                              prefetch={false}
+                              href={`/dashboard/estoque?sku=${encodeURIComponent(sku)}`}
+                              className="group inline-flex max-w-full items-baseline gap-1.5 py-0.5 text-[11px]"
+                            >
+                              <span className="shrink-0 font-mono text-brand-600 group-hover:underline">{sku}</span>
+                              <span className="truncate text-muted-foreground" title={skuNames[sku]}>
+                                {skuNames[sku] ?? '—'}
+                              </span>
+                            </Link>
+                          </li>
                         ))}
-                      </div>
+                      </ul>
                     )}
                   </div>
                 )}

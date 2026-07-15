@@ -38,7 +38,7 @@ import { forwardAvgDemand, projectGlobal, projectSku, type SkuProjections } from
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HUBS: HubId[] = ['osasco', 'mooca', 'sbc'];
-const DEFAULT_WEEKS = 8;
+const DEFAULT_WEEKS = 16;
 const MODEL_HORIZON_DAYS = 90; // forecast beyond this is extrapolated (greyed in the UI)
 
 export interface WeekGrid {

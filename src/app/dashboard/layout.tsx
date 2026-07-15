@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { FilterBar } from '@/components/planning/FilterBar';
-import { ScenarioBar } from '@/components/planning/ScenarioBar';
 import {
   FILTER_COOKIE,
   MAX_SKU_CHUNKS,
@@ -9,7 +8,6 @@ import {
   decodeSkuChunks,
   parseFilterCookie,
 } from '@/lib/planning/filter';
-import { SCENARIO_COOKIE, parseScenarioCookie } from '@/lib/planning/scenario';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
@@ -21,7 +19,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
       Array.from({ length: MAX_SKU_CHUNKS }, (_, i) => cookieStore.get(`${SKU_CHUNK_PREFIX}${i}`)?.value),
     ),
   };
-  const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -31,10 +28,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
             shared cookie changes, so the bar reflects edits made from other controls
             (e.g. the category chips on the SKUs page). */}
         <FilterBar
-          key={`${filter.category ?? ''}|${filter.models.join(',')}|${filter.q}|${filter.withForecast}`}
+          key={`${filter.category ?? ''}|${filter.models.join(',')}|${filter.q}|${filter.withForecast}|${filter.skus.length}`}
           initial={filter}
         />
-        <ScenarioBar initial={scenario} />
         {children}
       </main>
     </div>

@@ -201,15 +201,15 @@ export default async function GuiaPage() {
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <FlowBox>Fontes<br /><span className="text-[11px] text-muted-foreground">ClickHouse (fatos + config)</span></FlowBox>
           <span className="text-muted-foreground">→</span>
-          <FlowBox>Cenário do dia<br /><span className="text-[11px] text-muted-foreground">filtros + simulações</span></FlowBox>
+          <FlowBox>Recorte do dia<br /><span className="text-[11px] text-muted-foreground">seleção de SKUs</span></FlowBox>
           <span className="text-muted-foreground">→</span>
           <FlowBox>Motores de cálculo<br /><span className="text-[11px] text-muted-foreground">projeção · compras · transferências</span></FlowBox>
           <span className="text-muted-foreground">→</span>
           <FlowBox>Telas<br /><span className="text-[11px] text-muted-foreground">Estoque · Compras · Semanas · …</span></FlowBox>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          Os filtros no topo (Moto/Bateria, modelos, “com previsão”, SKUs selecionados) e o modo cenário (demanda %, atraso
-          de pedidos) afetam <b>todas as telas ao mesmo tempo</b> — sem alterar nenhum dado de produção.
+          A seleção de SKUs (aba SKUs) afeta <b>todas as telas ao mesmo tempo</b> — sem alterar nenhum dado de produção.
+          O atraso de um pedido é controlado pela ETA editável do próprio pedido.
         </p>
       </Section>
 

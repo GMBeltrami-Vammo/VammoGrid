@@ -152,7 +152,15 @@ export default async function PedidoDetailPage({
                   const differs = s.suggestedQty != null && s.chosenQty != null && s.suggestedQty !== s.chosenQty;
                   return (
                     <tr key={o.id}>
-                      <td className="py-1.5 font-mono text-xs">{o.sku}</td>
+                      <td className="py-1.5 font-mono text-xs">
+                        <Link
+                          prefetch={false}
+                          href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(o.sku))}`}
+                          className="text-brand-500 hover:text-brand-400"
+                        >
+                          {o.sku}
+                        </Link>
+                      </td>
                       <td className="py-1.5 text-right tabular-nums text-muted-foreground">
                         {s.suggestedQty != null ? fmtInt(s.suggestedQty) : '—'}
                       </td>

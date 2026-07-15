@@ -13,7 +13,6 @@ import dynamic from 'next/dynamic';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { projectSku } from '@/lib/planning/projection';
 import { addDays } from '@/lib/planning/dates';
-import { scaleForecast, delayOrder } from '@/lib/planning/scenario';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 
 // Lazy-load the Recharts chart so it stays out of the initial JS bundle
@@ -47,21 +46,20 @@ export function SkuSimulator({
   const [qty, setQty] = useState(100);
   const [arrivalDays, setArrivalDays] = useState(policy.leadTimeDays);
   const [modal, setModal] = useState<TransportModal>('sea');
-  const [demandPct, setDemandPct] = useState(0);
-  const [delayDays, setDelayDays] = useState(0);
 
   const baseline = useMemo(
     () => projectSku({ stock, forecast, orders, policy, shares, today }).global,
     [stock, forecast, orders, policy, shares, today],
   );
 
+  // What-if = a hypothetical inbound PO only. (The demand ±% / delay-all-orders
+  // scenario sliders were removed with the global ScenarioBar — order timing is now
+  // controlled by each pedido's editable ETA.)
   const simulated = useMemo(() => {
-    const simForecast = forecast ? scaleForecast(forecast, demandPct) : null;
-    const delayedOrders = orders.map((o) => delayOrder(o, delayDays));
     const simOrders: OpenPurchaseOrder[] =
       qty > 0
         ? [
-            ...delayedOrders,
+            ...orders,
             {
               id: 'sim',
               vo: 'SIM',
@@ -79,9 +77,9 @@ export function SkuSimulator({
               source: 'sim',
             },
           ]
-        : delayedOrders;
-    return projectSku({ stock, forecast: simForecast, orders: simOrders, policy, shares, today }).global;
-  }, [qty, arrivalDays, modal, demandPct, delayDays, stock, forecast, orders, policy, shares, today]);
+        : orders;
+    return projectSku({ stock, forecast, orders: simOrders, policy, shares, today }).global;
+  }, [qty, arrivalDays, modal, stock, forecast, orders, policy, shares, today]);
 
   const averted =
     baseline.stockoutDate && !simulated.stockoutDate
@@ -130,29 +128,6 @@ export function SkuSimulator({
             <option value="air">Aéreo</option>
           </select>
         </label>
-        <label className="text-xs font-medium text-muted-foreground">
-          Demanda
-          <select
-            value={demandPct}
-            onChange={(e) => setDemandPct(Number(e.target.value))}
-            className="mt-1 block h-8 w-24 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-brand-500"
-          >
-            {[-20, -10, 0, 10, 20, 50].map((d) => (
-              <option key={d} value={d}>
-                {d > 0 ? `+${d}` : d}%
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs font-medium text-muted-foreground">
-          Atrasar pedidos (d)
-          <input
-            type="number"
-            value={delayDays}
-            onChange={(e) => setDelayDays(Number(e.target.value) || 0)}
-            className="mt-1 block h-8 w-24 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-brand-500"
-          />
-        </label>
         <div className="ml-auto text-right">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Resultado <InfoHint id="stockout-date" />
@@ -172,9 +147,7 @@ export function SkuSimulator({
       <p className="mt-2 text-[11px] text-muted-foreground">
         Linha cheia = projeção atual <InfoHint id="projection-line" /> · tracejada verde = cenário simulado{' '}
         <InfoHint id="recovery-line" />
-        {qty > 0 ? ` (pedido +${fmtInt(qty)} un em ${arrivalDays}d` : ' ('}
-        {demandPct !== 0 ? `, demanda ${demandPct > 0 ? '+' : ''}${demandPct}%` : ''}
-        {delayDays !== 0 ? `, atraso pedidos ${delayDays}d` : ''}). Simulação local — não afeta produção.
+        {qty > 0 ? ` (pedido +${fmtInt(qty)} un em ${arrivalDays}d)` : ''}. Simulação local — não afeta produção.
       </p>
     </div>
   );

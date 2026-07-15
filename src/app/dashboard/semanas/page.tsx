@@ -15,7 +15,7 @@ export default async function SemanasPage({
   searchParams: Promise<{ sem?: string }>;
 }) {
   const sp = await searchParams;
-  const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 8;
+  const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 16;
 
   const [snap, criteria] = await Promise.all([safeComputeSnapshot(), fetchPurchaseCriteria()]);
 

@@ -462,7 +462,7 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
       {
         name: 'Janela de amostragem WeekGrid',
         source: 'src/lib/planning/weekgrid.ts',
-        formula: 'DEFAULT_WEEKS=8; semanas idx=1..8, dayOffset=(i+1)×7 (7,14,…,56), endDate=addDays(today, dayOffset)',
+        formula: 'DEFAULT_WEEKS=16; coluna Hoje (idx 0) + semanas idx=1..16, dayOffset=(i+1)×7, endDate=addDays(today, dayOffset)',
         notes: '8 semanas = 56 dias, dentro do horizonte de 90d → sem extrapolação. View pura da projeção.',
         ref: 'src/lib/planning/weekgrid.ts:29-94',
       },
@@ -557,13 +557,6 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
           'narrowFilter = ignoreSkuSelection ? {...filter, skus:[]} : filter; stocks = isFilterActive ? allStocks.filter(skuPasses) : allStocks',
         notes: 'Filtra por category, models, q (busca), skus (seleção manual). ignoreSkuSelection (SKUs/detalhe) ignora a seleção; demais páginas respeitam.',
         ref: 'src/lib/planning/load.ts:113-116',
-      },
-      {
-        name: 'Cenário what-if (PlanningScenario)',
-        source: 'SCENARIO_COOKIE (vg:scenario)',
-        formula: 'se ativo: forecasts = scaleForecast(fc, demandPct); orders = delayOrder(o, poDelayDays); senão originais',
-        notes: 'Simulação read-only: escala demanda % + atrasa PO. Aplicada uma vez; toda a app reflete sem tocar dados de produção.',
-        ref: 'src/lib/planning/load.ts:120-126',
       },
       {
         name: 'computeSnapshot / safeComputeSnapshot',

@@ -47,15 +47,6 @@ import {
   skuPasses,
   type PlanningFilter,
 } from './filter';
-import {
-  EMPTY_SCENARIO,
-  SCENARIO_COOKIE,
-  delayOrder,
-  isScenarioActive,
-  parseScenarioCookie,
-  scaleForecast,
-  type PlanningScenario,
-} from './scenario';
 
 // Single per-request load of all engine inputs, then the engine runs. Wrapped in
 // React `cache()` so every Server Component in one render shares one fetch+compute.
@@ -74,7 +65,6 @@ export interface PlanningInputs {
   policies: Map<string, SkuPolicy>;
   alerts: PlanningAlert[];
   filter: PlanningFilter;
-  scenario: PlanningScenario;
   /** Observed recovery rates from the IMS ledger (last 90 days). Empty when CH unavailable. */
   recoveryRates: Map<string, HistoricalRecovery>;
   /** Global service-level z (B1) applied to every SKU's safety stock. */
@@ -99,7 +89,6 @@ function emptyInputs(today: string): PlanningInputs {
     policies: new Map(),
     alerts: [],
     filter: EMPTY_FILTER,
-    scenario: EMPTY_SCENARIO,
     recoveryRates: new Map(),
     serviceLevelZ: SERVICE_LEVEL_Z[DEFAULT_SERVICE_LEVEL_TIER],
     compatModels: new Map(),
@@ -135,11 +124,10 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
     ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
     skus: readSkuChunkCookies(cookieStore),
   };
-  const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
   // No warehouse credentials configured → render the shell with empty states
   // instead of throwing (keeps the app building + usable before secrets are set).
-  if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter, scenario };
+  if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter };
 
   const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ, suppliers, skuSuppliers] =
     await Promise.all([
@@ -196,15 +184,10 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
       : scopedStocks;
   }
 
-  // Apply the what-if scenario (read-only): scale demand, delay open POs. Done here
-  // so the entire app reflects the simulation without touching production data.
-  const active = isScenarioActive(scenario);
-  const forecasts = active
-    ? new Map(
-        [...forecastBundle.bySku].map(([k, fc]) => [k, scaleForecast(fc, scenario.demandPct)]),
-      )
-    : forecastBundle.bySku;
-  const orders = active ? rawOrders.map((o) => delayOrder(o, scenario.poDelayDays)) : rawOrders;
+  // (The global what-if scenario — demand ±% / delay-all-POs — was removed; order
+  // timing is controlled by each pedido's editable ETA.)
+  const forecasts = forecastBundle.bySku;
+  const orders = rawOrders;
 
   // Lead time now lives on the supplier: override each SKU's lead from its preferred
   // supplier (fallback = the SKU's own policy lead when it has no supplier).
@@ -226,7 +209,6 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
     policies,
     alerts,
     filter,
-    scenario,
     recoveryRates,
     serviceLevelZ,
     compatModels,
@@ -536,10 +518,9 @@ export const loadSkuView = cache(
       ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
       skus: readSkuChunkCookies(cookieStore),
     };
-    const scenario = parseScenarioCookie(cookieStore.get(SCENARIO_COOKIE)?.value);
 
     if (activeBackendKind() === 'none') {
-      return { inputs: { ...emptyInputs(today), filter, scenario }, selected: '' };
+      return { inputs: { ...emptyInputs(today), filter }, selected: '' };
     }
 
     // Cheap, cross-request-cached sources only (no per-SKU heavy materialization).
@@ -588,7 +569,7 @@ export const loadSkuView = cache(
 
     if (stocks.length === 0) {
       return {
-        inputs: { ...emptyInputs(today), backend: activeBackendKind(), filter, scenario },
+        inputs: { ...emptyInputs(today), backend: activeBackendKind(), filter },
         selected: '',
       };
     }
@@ -599,14 +580,9 @@ export const loadSkuView = cache(
         : stocks[0].skuBase;
     const selStock = stocks.find((s) => s.skuBase === selected)!;
 
-    // ONE forecast (one cached query), not the whole catalog. Apply the what-if only
-    // when active (same gate as loadPlanningInputs).
-    const rawForecast = await fetchOneForecast(selected);
-    const active = isScenarioActive(scenario);
-    const forecast = active && rawForecast ? scaleForecast(rawForecast, scenario.demandPct) : rawForecast;
-
-    const selOrders0 = rawOrders.filter((o) => o.skuBase === selected);
-    const selOrders = active ? selOrders0.map((o) => delayOrder(o, scenario.poDelayDays)) : selOrders0;
+    // ONE forecast (one cached query), not the whole catalog.
+    const forecast = await fetchOneForecast(selected);
+    const selOrders = rawOrders.filter((o) => o.skuBase === selected);
 
     // ONE policy (buildPolicies over a single-element stock list reuses the exact logic).
     // Lead time overridden from the SKU's preferred supplier (same rule as the catalog).
@@ -630,7 +606,6 @@ export const loadSkuView = cache(
       policies,
       alerts: [],
       filter,
-      scenario,
       recoveryRates,
       serviceLevelZ,
       compatModels,

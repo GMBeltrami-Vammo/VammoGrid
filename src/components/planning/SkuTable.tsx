@@ -6,8 +6,10 @@ import { useRouter } from 'next/navigation';
 import { Check, Download, Link2, Plus, X } from 'lucide-react';
 import type { PurchaseStatus, TransportModal } from '@/types/planning';
 import type { Supplier } from '@/types';
-import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
-import { writeFilterCookie, writeSkusCookies } from '@/lib/planning/applyFilter';
+import { BIKE_MODELS } from '@/types';
+import { MODEL_LABELS } from '@/constants/models';
+import { MAX_SELECTED_SKUS } from '@/lib/planning/filter';
+import { writeSkusCookies } from '@/lib/planning/applyFilter';
 import { createSku, setSkuScope } from '@/app/dashboard/skus/actions';
 import { linkSkusToSupplier } from '@/app/dashboard/fornecedores/actions';
 import { cn } from '@/lib/utils';
@@ -28,10 +30,28 @@ export interface SkuRow {
   status: PurchaseStatus;
   stockoutDate: string | null;
   isLate: boolean;
+  /** Compatible bike models (cpx/comfort) — the local Modelos filter. */
+  models: string[];
+  /** Has a demand forecast — the local "Com previsão" filter. */
+  hasForecast: boolean;
+  /** National vs international sourcing — local filter + display. */
+  isNational: boolean;
+  isRepairable: boolean;
+  /** Preferred supplier name (null = no supplier linked). */
+  supplierName: string | null;
 }
 
 // Sortable columns (review item 6). 'status' sorts by severity (CRITICAL first).
-type SortKey = 'skuName' | 'onHand' | 'osasco' | 'mooca' | 'sbc' | 'dailyDemand' | 'dohDays' | 'status';
+type SortKey =
+  | 'skuName'
+  | 'onHand'
+  | 'osasco'
+  | 'mooca'
+  | 'sbc'
+  | 'dailyDemand'
+  | 'dohDays'
+  | 'status'
+  | 'supplierName';
 type SortDir = 'asc' | 'desc';
 
 const STATUS_RANK: Record<PurchaseStatus, number> = { CRITICAL: 0, REORDER: 1, OK: 2 };
@@ -47,6 +67,7 @@ function sortValue(r: SkuRow, key: SortKey): number | string {
     // null coverage (sem demanda) sorts last regardless of direction intent → +∞.
     case 'dohDays': return r.dohDays ?? Number.POSITIVE_INFINITY;
     case 'status': return STATUS_RANK[r.status];
+    case 'supplierName': return r.supplierName ?? '￿'; // no supplier sorts last
   }
 }
 
@@ -81,24 +102,17 @@ const CATEGORIES: { v: string | null; label: string }[] = [
 
 export function SkuTable({
   rows,
-  filter,
+  initialSelection,
   scopeSkus,
-  matchingSkus,
-  filterSignature,
   suppliers = [],
   isHead = false,
 }: {
   rows: SkuRow[];
-  filter: PlanningFilter;
+  /** The current hand-picked selection (from the chunked cookies) — seeds the checkboxes. */
+  initialSelection: string[];
   /** sku_bases in the active default universe (sub-project A). Undefined = no scope defined. */
   scopeSkus?: string[];
-  /** SKUs matching the current TOP filter (Com previsão / Modelos / categoria). When set
-   *  (a top filter is active), the selection syncs to it — filtering checks/unchecks. null
-   *  = no top filter active → the selection is left alone. */
-  matchingSkus?: string[] | null;
-  /** Serialized top-filter state — the sync effect fires only when this changes. */
-  filterSignature?: string;
-  /** Suppliers for the bulk "link selected SKUs to a supplier" action. */
+  /** Suppliers for the bulk "link selected SKUs to a supplier" action + the supplier filter. */
   suppliers?: Supplier[];
   /** Only Heads may edit the scope. */
   isHead?: boolean;
@@ -107,6 +121,14 @@ export function SkuTable({
   const [search, setSearch] = useState('');
   const [abcFilter, setAbcFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
+  // All-local filter dimensions (nothing writes cookies anymore — the SELECTION is the
+  // only thing the analyses read; these just narrow the visible list).
+  const [category, setCategory] = useState<string | null>(null);
+  const [modelFilter, setModelFilter] = useState<string | null>(null);
+  const [forecastFilter, setForecastFilter] = useState(false);
+  const [natFilter, setNatFilter] = useState<'all' | 'nac' | 'int'>('all');
+  const [supplierFilter, setSupplierFilter] = useState<string>(''); // supplier name; '' = todos
+  const [repairFilter, setRepairFilter] = useState(false);
   const [addingSku, setAddingSku] = useState(false);
   // Column sorting: asc → desc → cleared (back to the default CRITICAL-first order).
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
@@ -141,27 +163,17 @@ export function SkuTable({
     });
   };
 
-  // Hand-picked focus set (single-SKU control). Lives in the shared `vg:filter`
-  // cookie so it narrows every other analysis. This page is exempt from that
-  // narrowing (it's the manager), so toggling only writes the cookie + updates
-  // local state — no server refresh needed, keeping checkboxes instant.
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(filter.skus));
+  // Hand-picked focus set — THE recorte every other analysis reads. Lives in the
+  // chunked vg:skus* cookies. This page is exempt from the narrowing (it's the
+  // manager), so toggling only writes the cookies + updates local state — no server
+  // refresh needed, keeping checkboxes instant.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelection));
   const [capHit, setCapHit] = useState(false);
 
   const persist = (next: Set<string>) => {
     setSelected(next);
-    // The selection lives in its own chunked cookies (it can be large) — not in vg:filter.
     writeSkusCookies([...next]);
   };
-
-  // The top filters (Com previsão / Modelos / categoria) drive the selection: when a top
-  // filter is active, sync the selection to exactly the SKUs it matches — filtering
-  // checks/unchecks. Fires only when the filter changes, so manual checkbox edits persist.
-  useEffect(() => {
-    if (matchingSkus == null) return; // no top filter active → leave the selection alone
-    persist(new Set(matchingSkus));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterSignature]);
 
   const toggle = (skuBase: string) => {
     const next = new Set(selected);
@@ -178,21 +190,23 @@ export function SkuTable({
     persist(next);
   };
 
-  // Category is the APP-WIDE scope filter (drives every page + syncs with the top
-  // bar): write the shared cookie and refresh so the server re-renders the set.
-  const setCategory = (v: string | null) => {
-    writeFilterCookie({ ...filter, category: v });
-    router.refresh();
-  };
-
-  // ABC / status / search / scope are local refinements within the already-narrowed set.
+  // Every filter is LOCAL — they narrow the visible list only; "selecionar visíveis"
+  // materializes the result into the selection (the app-wide recorte).
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const out = rows.filter((r) => {
       if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q))
         return false;
+      if (category && r.category !== category) return false;
       if (abcFilter && r.abcClass !== abcFilter) return false;
       if (statusFilter && r.status !== statusFilter) return false;
+      if (modelFilter && !r.models.includes(modelFilter)) return false;
+      if (forecastFilter && !r.hasForecast) return false;
+      if (natFilter === 'nac' && !r.isNational) return false;
+      if (natFilter === 'int' && r.isNational) return false;
+      if (supplierFilter === ' none' && r.supplierName != null) return false;
+      if (supplierFilter && supplierFilter !== ' none' && r.supplierName !== supplierFilter) return false;
+      if (repairFilter && !r.isRepairable) return false;
       if (scopeFilter === 'in' && !scope.has(r.skuBase)) return false;
       if (scopeFilter === 'out' && scope.has(r.skuBase)) return false;
       return true;
@@ -209,7 +223,7 @@ export function SkuTable({
       });
     }
     return out;
-  }, [rows, search, abcFilter, statusFilter, scopeFilter, scope, sort]);
+  }, [rows, search, category, abcFilter, statusFilter, modelFilter, forecastFilter, natFilter, supplierFilter, repairFilter, scopeFilter, scope, sort]);
 
   // DOM relief: render at most `visibleCount` rows (the full catalog can exceed 1000
   // <tr>s) with a "Mostrar mais" escape hatch. IMPORTANT: selection/bulk actions and
@@ -218,7 +232,7 @@ export function SkuTable({
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_ROWS);
-  }, [search, abcFilter, statusFilter, scopeFilter, filter.category]);
+  }, [search, category, abcFilter, statusFilter, modelFilter, forecastFilter, natFilter, supplierFilter, repairFilter, scopeFilter]);
   const visibleRows = filtered.length > visibleCount ? filtered.slice(0, visibleCount) : filtered;
 
   const allVisibleSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.skuBase));
@@ -266,12 +280,19 @@ export function SkuTable({
     });
   };
 
-  const localActive = abcFilter || statusFilter || search;
+  const localActive =
+    abcFilter || statusFilter || search || category || modelFilter || forecastFilter ||
+    natFilter !== 'all' || supplierFilter || repairFilter;
   const clearAll = () => {
     setAbcFilter(null);
     setStatusFilter(null);
     setSearch('');
-    if (filter.category != null) setCategory(null);
+    setCategory(null);
+    setModelFilter(null);
+    setForecastFilter(false);
+    setNatFilter('all');
+    setSupplierFilter('');
+    setRepairFilter(false);
   };
 
   // "Relatório semanal de estoque" (review item 1/6): the FULL filtered set (not the
@@ -279,7 +300,8 @@ export function SkuTable({
   const exportCsv = () => {
     const header = [
       'sku', 'nome', 'categoria', 'classe', 'status', 'estoque_total',
-      'osasco', 'mooca', 'sbc', 'consumo_dia', 'cobertura_dias', 'ruptura', 'em_escopo', 'selecionado',
+      'osasco', 'mooca', 'sbc', 'consumo_dia', 'cobertura_dias', 'ruptura',
+      'fornecedor', 'origem', 'em_escopo', 'selecionado',
     ];
     const lines = filtered.map((r) =>
       [
@@ -295,6 +317,8 @@ export function SkuTable({
         r.dailyDemand.toFixed(2),
         r.dohDays ?? '',
         r.stockoutDate ?? '',
+        r.supplierName ? `"${r.supplierName.replace(/"/g, '""')}"` : '',
+        r.isNational ? 'nacional' : 'internacional',
         scope.has(r.skuBase) ? 'sim' : 'nao',
         selected.has(r.skuBase) ? 'sim' : 'nao',
       ].join(','),
@@ -335,8 +359,9 @@ export function SkuTable({
         />
       )}
 
-      {/* Filters */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      {/* Filters — ALL local: they narrow the visible list; "selecionar visíveis"
+          materializes the result into the app-wide selection. */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <input
           type="search"
           placeholder="Buscar SKU…"
@@ -345,44 +370,29 @@ export function SkuTable({
           className="h-8 w-48 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
 
-        {/* Category chips — app-wide (Moto/Bateria), synced with the top filter bar */}
-        <span className="ml-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-          Categoria
-        </span>
+        <Chip label="Categoria" />
         {CATEGORIES.map((c) => (
-          <button
-            key={c.label}
-            onClick={() => setCategory(c.v)}
-            className={cn(
-              'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-              filter.category === c.v
-                ? 'bg-brand-500/20 text-brand-600'
-                : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-            )}
-          >
+          <FilterChip key={c.label} active={category === c.v} onClick={() => setCategory(c.v)}>
             {c.label}
-          </button>
+          </FilterChip>
         ))}
 
         <span className="mx-1 h-4 w-px bg-border" />
-
-        {/* ABC chips — local refinement */}
-        {['A', 'B', 'C'].map((cls) => (
-          <button
-            key={cls}
-            onClick={() => setAbcFilter(abcFilter === cls ? null : cls)}
-            className={cn(
-              'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-              abcFilter === cls
-                ? 'bg-brand-500/20 text-brand-600'
-                : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-            )}
-          >
-            Classe {cls}
-          </button>
+        <Chip label="Modelo" />
+        <FilterChip active={modelFilter === null} onClick={() => setModelFilter(null)}>Todos</FilterChip>
+        {BIKE_MODELS.map((m) => (
+          <FilterChip key={m} active={modelFilter === m} onClick={() => setModelFilter(modelFilter === m ? null : m)}>
+            {MODEL_LABELS[m] ?? m.toUpperCase()}
+          </FilterChip>
         ))}
 
-        {/* Status chips — local refinement */}
+        <span className="mx-1 h-4 w-px bg-border" />
+        {['A', 'B', 'C'].map((cls) => (
+          <FilterChip key={cls} active={abcFilter === cls} onClick={() => setAbcFilter(abcFilter === cls ? null : cls)}>
+            Classe {cls}
+          </FilterChip>
+        ))}
+
         {(['CRITICAL', 'REORDER', 'OK'] as PurchaseStatus[]).map((s) => (
           <button
             key={s}
@@ -395,8 +405,46 @@ export function SkuTable({
             {STATUS_LABEL[s]}
           </button>
         ))}
+      </div>
 
-        {(localActive || filter.category != null) && (
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterChip active={forecastFilter} onClick={() => setForecastFilter((v) => !v)}>
+          Com previsão
+        </FilterChip>
+
+        <span className="mx-1 h-4 w-px bg-border" />
+        <Chip label="Origem" />
+        {([
+          ['all', 'Tudo'],
+          ['nac', 'Nacional'],
+          ['int', 'Internacional'],
+        ] as const).map(([v, label]) => (
+          <FilterChip key={v} active={natFilter === v} onClick={() => setNatFilter(v)}>
+            {label}
+          </FilterChip>
+        ))}
+
+        <FilterChip active={repairFilter} onClick={() => setRepairFilter((v) => !v)}>
+          Recuperável
+        </FilterChip>
+
+        <span className="mx-1 h-4 w-px bg-border" />
+        <select
+          value={supplierFilter}
+          onChange={(e) => setSupplierFilter(e.target.value)}
+          className="h-7 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500"
+          title="Filtrar por fornecedor preferido"
+        >
+          <option value="">Fornecedor: todos</option>
+          {activeSuppliers.map((s) => (
+            <option key={s.supplierId} value={s.name}>
+              {s.name}
+            </option>
+          ))}
+          <option value=" none">— sem fornecedor —</option>
+        </select>
+
+        {localActive && (
           <button
             onClick={clearAll}
             className="text-[11px] text-muted-foreground hover:text-foreground"
@@ -408,9 +456,7 @@ export function SkuTable({
         {hasScope && (
           <>
             <span className="mx-1 h-4 w-px bg-border" />
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-              Escopo
-            </span>
+            <Chip label="Escopo" />
             {([
               ['all', 'Tudo'],
               ['in', 'Em escopo'],
@@ -570,6 +616,9 @@ export function SkuTable({
                 <SortHeader label="Cobertura" k="dohDays" sort={sort} onSort={toggleSort} hint={<InfoHint id="sku-doh" />} />
               </th>
               <th className="px-3 py-2.5 font-medium">
+                <SortHeader label="Fornecedor" k="supplierName" sort={sort} onSort={toggleSort} />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
                 <SortHeader label="Status" k="status" sort={sort} onSort={toggleSort} hint={<InfoHint id="purchase-status" />} />
               </th>
               <th className="px-3 py-2.5 font-medium">
@@ -580,7 +629,7 @@ export function SkuTable({
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={hasScope ? 14 : 13} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={hasScope ? 15 : 14} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -670,6 +719,9 @@ export function SkuTable({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {r.dohDays != null ? `${fmtInt(r.dohDays)}d` : '—'}
+                    </td>
+                    <td className="max-w-[120px] truncate px-3 py-2 text-xs text-muted-foreground" title={r.supplierName ?? undefined}>
+                      {r.supplierName ?? '—'}
                     </td>
                     <td className="px-3 py-2">
                       <span
@@ -812,6 +864,36 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** Tiny uppercase label between chip groups. */
+function Chip({ label }: { label: string }) {
+  return (
+    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{label}</span>
+  );
+}
+
+/** Toggleable filter chip (brand tint when active). */
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+        active ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

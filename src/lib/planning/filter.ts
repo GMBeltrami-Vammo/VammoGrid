@@ -1,37 +1,22 @@
-import type { StockState } from '@/types/planning';
-import { BIKE_MODELS } from '@/types';
-
-// App-wide SKU filter, persisted in the `vg:filter` cookie so Server Components can
-// read it and narrow the dataset before the engines run. Bike models come from
-// part_compat; category from the warehouse (BIKE/BATTERY/BOX); q is free text.
-
-const VALID_MODELS: ReadonlySet<string> = new Set(BIKE_MODELS);
+// App-wide SKU "recorte": the hand-picked SELECTION is the single source of what the
+// analyses see (when empty, the default scope applies). The old top-bar filter fields
+// (models/category/q/withForecast, cookie `vg:filter`) were removed — filtering now
+// lives ONLY on the SKUs page, locally, and the user materializes it into the
+// selection ("selecionar visíveis"). The selection persists in chunked cookies.
 
 export interface PlanningFilter {
-  models: string[];
-  category: string | null;
-  q: string;
-  /** Hand-picked sku_bases (single-SKU focus set). Empty = no selection. When
-   *  non-empty, only these SKUs pass — narrows every aggregate analysis. */
+  /** Hand-picked sku_bases (the recorte). Empty = no selection → default scope. */
   skus: string[];
-  /** Show only SKUs that have a demand forecast (dev.sop_predictions_daily).
-   *  Applied in loadPlanningInputs (needs the forecast map), not in skuPasses. */
-  withForecast: boolean;
 }
 
+/** Legacy cookie name — no longer read (kept only so old cookies can be cleared). */
 export const FILTER_COOKIE = 'vg:filter';
-export const EMPTY_FILTER: PlanningFilter = {
-  models: [],
-  category: null,
-  q: '',
-  skus: [],
-  withForecast: false,
-};
+export const EMPTY_FILTER: PlanningFilter = { skus: [] };
 
 // The hand-picked selection can be large (hundreds of SKUs), which overflows a single
-// ~4KB cookie. So it lives OUTSIDE the JSON `vg:filter` cookie, in its own compact,
-// CHUNKED cookie set: base codes (URL-safe [A-Z0-9-]) joined by `~`, split across
-// `vg:skus0..vg:skusN`. No JSON/percent-encoding overhead → ~140 codes per ~3.5KB chunk.
+// ~4KB cookie. So it lives in its own compact, CHUNKED cookie set: base codes
+// (URL-safe [A-Z0-9-]) joined by `~`, split across `vg:skus0..vg:skusN`.
+// No JSON/percent-encoding overhead → ~140 codes per ~3.5KB chunk.
 export const SKU_CHUNK_PREFIX = 'vg:skus';
 export const MAX_SKU_CHUNKS = 8;
 const SKU_DELIM = '~';
@@ -65,63 +50,7 @@ export function encodeSkuChunks(skus: string[]): string[] {
   return chunks;
 }
 
-export function parseFilterCookie(raw: string | undefined): PlanningFilter {
-  if (!raw) return EMPTY_FILTER;
-  let txt = raw;
-  try {
-    txt = decodeURIComponent(raw);
-  } catch {
-    /* value wasn't percent-encoded */
-  }
-  try {
-    const o = JSON.parse(txt) as Partial<PlanningFilter>;
-    return {
-      // Drop stale model keys (e.g. the pre-consolidation `cpx_preta` after models
-      // collapsed to cpx/comfort) — otherwise a stale cookie matches NO SKU and
-      // silently empties every scoped page.
-      models: Array.isArray(o.models) ? o.models.map(String).filter((m) => VALID_MODELS.has(m)) : [],
-      category: o.category ? String(o.category) : null,
-      q: typeof o.q === 'string' ? o.q : '',
-      // `skus` no longer lives in this cookie — it's read from the chunk cookies and
-      // merged in by the loader. Ignore any legacy value here.
-      skus: [],
-      withForecast: o.withForecast === true,
-    };
-  } catch {
-    return EMPTY_FILTER;
-  }
-}
-
+/** A recorte is active when the user hand-picked SKUs. */
 export function isFilterActive(f: PlanningFilter): boolean {
-  return (
-    f.models.length > 0 ||
-    f.category != null ||
-    f.q.trim().length > 0 ||
-    f.skus.length > 0 ||
-    f.withForecast
-  );
-}
-
-export function skuPasses(
-  f: PlanningFilter,
-  stock: StockState,
-  compatModels: Map<string, Set<string>>,
-): boolean {
-  // Hand-picked focus set: only the selected sku_bases pass (composes AND with the
-  // scope filters below).
-  if (f.skus.length > 0 && !f.skus.includes(stock.skuBase)) return false;
-  if (f.category && stock.category !== f.category) return false;
-  if (f.q.trim()) {
-    const n = f.q.trim().toLowerCase();
-    if (!stock.skuName.toLowerCase().includes(n) && !stock.skuBase.toLowerCase().includes(n)) {
-      return false;
-    }
-  }
-  // Fail-open when no compat data is loaded (empty map = table not yet seeded):
-  // hiding ALL SKUs when the user selects a model is confusing and unhelpful.
-  if (f.models.length > 0 && compatModels.size > 0) {
-    const set = compatModels.get(stock.skuBase);
-    if (!set || !f.models.some((m) => set.has(m))) return false;
-  }
-  return true;
+  return f.skus.length > 0;
 }

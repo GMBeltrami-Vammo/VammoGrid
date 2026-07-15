@@ -12,7 +12,7 @@ export function ScopeNotice({ shown, total }: { shown: number; total: number }) 
     <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-brand-500/5 px-3 py-2 text-xs text-muted-foreground ring-1 ring-brand-500/15">
       <Layers size={13} className="text-brand-600" />
       <span>
-        Análise sobre <b className="text-foreground">{fmtInt(shown)}</b> de {fmtInt(total)} SKUs (escopo padrão + filtros).
+        Análise sobre <b className="text-foreground">{fmtInt(shown)}</b> de {fmtInt(total)} SKUs (seleção ou escopo padrão).
       </span>
       <Link href="/dashboard/skus" className="ml-auto font-medium text-brand-600 hover:underline">
         Ver catálogo / ajustar escopo →

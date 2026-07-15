@@ -1,27 +1,13 @@
-import {
-  FILTER_COOKIE,
-  MAX_SKU_CHUNKS,
-  SKU_CHUNK_PREFIX,
-  encodeSkuChunks,
-  type PlanningFilter,
-} from './filter';
+import { FILTER_COOKIE, MAX_SKU_CHUNKS, SKU_CHUNK_PREFIX, encodeSkuChunks } from './filter';
 
-// Client-only helpers: persist the app-wide SKU filter so the next Server Component
-// render (after router.refresh) narrows the dataset. Shared by every control that
-// drives the filter (FilterBar, SkuTable, SkuFilterToggle…) so they all write the same
-// shape and stay in sync.
-
-// The small, fixed-shape part (models / category / q / withForecast) lives in the JSON
-// `vg:filter` cookie. The hand-picked SKU selection is written separately by
-// writeSkusCookies (it can be large → chunked compact cookies).
-export function writeFilterCookie(next: PlanningFilter): void {
-  const { models, category, q, withForecast } = next;
-  const payload = JSON.stringify({ models, category, q, withForecast });
-  document.cookie = `${FILTER_COOKIE}=${encodeURIComponent(payload)}; path=/; max-age=31536000`;
-}
+// Client-only helpers: persist the hand-picked SKU selection (the app-wide recorte)
+// so the next Server Component render (after router.refresh) narrows the dataset.
+// Shared by every control that drives the selection (SkuTable, SkuFilterToggle,
+// FilterBar chip, presets…).
 
 // Persist the hand-picked selection across the chunk cookies, clearing any leftover
-// chunks from a previously larger selection.
+// chunks from a previously larger selection. Also clears the LEGACY `vg:filter`
+// cookie (the old top-bar filter) so stale values never linger.
 export function writeSkusCookies(skus: string[]): void {
   const chunks = encodeSkuChunks(skus);
   for (let i = 0; i < MAX_SKU_CHUNKS; i++) {
@@ -32,4 +18,5 @@ export function writeSkusCookies(skus: string[]): void {
       document.cookie = `${name}=; path=/; max-age=0`;
     }
   }
+  document.cookie = `${FILTER_COOKIE}=; path=/; max-age=0`;
 }

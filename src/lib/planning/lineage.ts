@@ -546,17 +546,17 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         name: 'loadPlanningInputs (orquestração)',
         source: 'src/lib/planning/load.ts — cookies + fetch paralelo de 8 fontes',
         formula:
-          "cache(async (ignoreSkuSelection=false)): se backend==='none' → inputs vazios; senão Promise.all([stock, forecasts, shares, orders, alerts, compat, policies, recoveryRates]); aplica narrowFilter + cenário; buildPolicies",
-        notes: 'React cache() → avaliação única por request. Filtro e cenário aplicados aqui. asOfDate = forecastBundle.asOfDate || today.',
-        ref: 'src/lib/planning/load.ts:86-145',
+          "cache(async (ignoreSkuSelection=false, ignoreFilter=false)): se backend==='none' → inputs vazios; senão Promise.all(fontes); recorte por seleção; buildPolicies + lead do fornecedor",
+        notes: 'React cache() → avaliação única por request. asOfDate = forecastBundle.asOfDate || today.',
+        ref: 'src/lib/planning/load.ts',
       },
       {
-        name: 'Filtro app-wide (PlanningFilter)',
-        source: 'FILTER_COOKIE (vg:filter)',
+        name: 'Recorte app-wide (seleção de SKUs)',
+        source: 'cookies vg:skus0..7 (chunked)',
         formula:
-          'narrowFilter = ignoreSkuSelection ? {...filter, skus:[]} : filter; stocks = isFilterActive ? allStocks.filter(skuPasses) : allStocks',
-        notes: 'Filtra por category, models, q (busca), skus (seleção manual). ignoreSkuSelection (SKUs/detalhe) ignora a seleção; demais páginas respeitam.',
-        ref: 'src/lib/planning/load.ts:113-116',
+          'ignoreFilter → catálogo inteiro; seleção presente → exatamente ela; senão → escopo padrão (dev.fleet_sku_scope, fail-open)',
+        notes: 'A seleção (aba SKUs) é a ÚNICA fonte do recorte — os filtros da aba SKUs são locais e viram seleção via "selecionar visíveis". O antigo vg:filter (models/categoria/q/previsão) foi removido.',
+        ref: 'src/lib/planning/load.ts',
       },
       {
         name: 'computeSnapshot / safeComputeSnapshot',

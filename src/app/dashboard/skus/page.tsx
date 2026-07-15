@@ -1,59 +1,40 @@
 import { auth } from '@/auth';
 import { safeComputeSnapshot } from '@/lib/planning/load';
-import { skuPasses } from '@/lib/planning/filter';
 import { fetchActiveScope } from '@/lib/planning/source/scope';
 import { fetchSkuPolicies } from '@/lib/planning/source/policies';
-import { fetchSuppliers } from '@/lib/planning/source/suppliers';
+import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
+import { preferredSupplierBySku } from '@/lib/planning/supplierGroups';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { SkuTable, type SkuRow } from '@/components/planning/SkuTable';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SkusPage() {
-  // The SKUs page lists EVERY SKU always (ignoreSkuSelection + ignoreFilter) — neither
-  // the default scope nor the top filter hides rows here. The checkbox = the hand-picked
-  // selection, which IS "visible to the other pages". The top filters drive that
-  // selection: `matchingSkus` = the SKUs passing the current top filter, which the table
-  // syncs into the selection so filtering checks/unchecks SKUs.
-  const [snap, scopeSet, policies, suppliers, session] = await Promise.all([
+  // The SKUs page lists EVERY SKU always (ignoreSkuSelection + ignoreFilter) — this is
+  // the app's single control center: the local filters below narrow the visible list,
+  // and the checkbox selection ("selecionar visíveis") is THE recorte every other page
+  // sees. No top-bar filter exists anymore.
+  const [snap, scopeSet, policies, suppliers, skuSuppliers, session] = await Promise.all([
     safeComputeSnapshot(true, true),
     fetchActiveScope(),
     fetchSkuPolicies(),
     fetchSuppliers(),
+    fetchSkuSuppliers(),
     auth(),
   ]);
   const isHead = session?.user?.isHead ?? false;
 
-  // Which SKUs the current top filter (models / category / q / com previsão) matches.
-  // null when no top filter is active (→ the table leaves the selection alone).
-  // Computed IN-MEMORY against the full-catalog snapshot with the same predicate the
-  // loader uses (skuPasses + forecast presence) — replaces a second full engine run.
-  // Semantics match the old safeComputeSnapshot(true, false): ignoreSkuSelection skips
-  // the default-scope narrowing, so this is full catalog ∩ top-filter (no selection).
-  const tf = snap.filter;
-  const topFilterActive =
-    tf.models.length > 0 || tf.category != null || tf.q.trim().length > 0 || tf.withForecast;
-  const narrowFilter = { ...tf, skus: [] };
-  const matchingSkus = topFilterActive
-    ? snap.stocks
-        .filter(
-          (s) =>
-            skuPasses(narrowFilter, s, snap.compatModels) &&
-            (!tf.withForecast || snap.forecasts.has(s.skuBase)),
-        )
-        .map((s) => s.skuBase)
-    : null;
-  const filterSignature = JSON.stringify({
-    models: tf.models,
-    category: tf.category,
-    q: tf.q,
-    withForecast: tf.withForecast,
-  });
-
   const stockByBase = new Map(snap.stocks.map((s) => [s.skuBase, s]));
+  const prefBySku = preferredSupplierBySku(skuSuppliers);
+  const supplierNameById = new Map(suppliers.map((s) => [s.supplierId, s.name]));
+  const supplierNameFor = (skuBase: string): string | null => {
+    const sid = prefBySku.get(skuBase);
+    return sid ? (supplierNameById.get(sid) ?? null) : null;
+  };
 
   const rows: SkuRow[] = snap.purchases.map((p) => {
     const stock = stockByBase.get(p.skuBase);
+    const policy = snap.policies.get(p.skuBase);
     const dailyDemand =
       p.leadTimeDays > 0 ? p.expectedLeadTimeDemand / p.leadTimeDays : 0;
     const dohDays =
@@ -75,6 +56,11 @@ export default async function SkusPage() {
       status: p.status,
       stockoutDate: p.stockoutDate,
       isLate: p.isLate,
+      models: [...(snap.compatModels.get(p.skuBase) ?? [])],
+      hasForecast: snap.forecasts.has(p.skuBase),
+      isNational: policy?.leadTimeSource === 'national-file',
+      isRepairable: stock?.isRepairable ?? false,
+      supplierName: supplierNameFor(p.skuBase),
     };
   });
 
@@ -96,6 +82,11 @@ export default async function SkusPage() {
       status: 'OK',
       stockoutDate: null,
       isLate: false,
+      models: [...(snap.compatModels.get(base) ?? [])],
+      hasForecast: snap.forecasts.has(base),
+      isNational: pol.leadTimeSource === 'national-file',
+      isRepairable: false,
+      supplierName: supplierNameFor(base),
     });
   }
 
@@ -110,9 +101,9 @@ export default async function SkusPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Catálogo · Lista completa"
+        eyebrow="Catálogo · Centro de controle"
         title="SKUs"
-        subtitle="Todos os SKUs. A caixa de seleção marca os SKUs visíveis nas demais páginas (análises) — quando há seleção, ela define exatamente o que as análises mostram. Use os filtros do topo (Com previsão, Modelos, categoria) para marcar/desmarcar em lote, ou marque manualmente."
+        subtitle="Todos os SKUs, sempre. Os filtros abaixo recortam a lista visível; a caixa de seleção define exatamente o que as demais páginas (análises) mostram — filtre e use “selecionar visíveis” para materializar o recorte."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
 
@@ -121,10 +112,8 @@ export default async function SkusPage() {
       ) : (
         <SkuTable
           rows={rows}
-          filter={snap.filter}
+          initialSelection={snap.filter.skus}
           scopeSkus={[...scopeSet]}
-          matchingSkus={matchingSkus}
-          filterSignature={filterSignature}
           suppliers={suppliers}
           isHead={isHead}
         />

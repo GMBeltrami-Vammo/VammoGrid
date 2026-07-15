@@ -44,7 +44,7 @@ export default async function TransfersPage() {
             isFilterActive(snap.filter) ? (
               <EmptyState
                 title="Nenhuma transferência no recorte atual"
-                hint="Há um filtro/seleção ativo limitando os SKUs. Use “Limpar filtro” no topo para avaliar a rede inteira."
+                hint="Há uma seleção de SKUs ativa limitando a análise. Limpe a seleção (chip no topo ou na aba SKUs) para avaliar a rede inteira."
               />
             ) : (
               <EmptyState title="Nenhuma transferência necessária" hint="Todos os hubs cobrem o próximo ciclo." />

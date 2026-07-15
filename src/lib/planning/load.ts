@@ -38,13 +38,9 @@ import type { Supplier, SkuSupplier } from '@/types';
 import { SERVICE_LEVEL_Z, DEFAULT_SERVICE_LEVEL_TIER } from './constants';
 import {
   EMPTY_FILTER,
-  FILTER_COOKIE,
   MAX_SKU_CHUNKS,
   SKU_CHUNK_PREFIX,
   decodeSkuChunks,
-  isFilterActive,
-  parseFilterCookie,
-  skuPasses,
   type PlanningFilter,
 } from './filter';
 
@@ -69,9 +65,8 @@ export interface PlanningInputs {
   recoveryRates: Map<string, HistoricalRecovery>;
   /** Global service-level z (B1) applied to every SKU's safety stock. */
   serviceLevelZ: number;
-  /** Bike-model compatibility (sku_base → set of model keys) — already fetched for the
-   *  filter; exposed so pages can re-apply skuPasses in-memory (e.g. the SKUs page's
-   *  matchingSkus) without a second engine run. */
+  /** Bike-model compatibility (sku_base → set of model keys) — exposed so the SKUs
+   *  page can build its local Modelos filter without a second fetch. */
   compatModels: Map<string, Set<string>>;
 }
 
@@ -120,10 +115,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
   const today = todayUtc();
   const nowIso = new Date().toISOString();
   const cookieStore = await cookies();
-  const filter = {
-    ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
-    skus: readSkuChunkCookies(cookieStore),
-  };
+  const filter: PlanningFilter = { skus: readSkuChunkCookies(cookieStore) };
 
   // No warehouse credentials configured → render the shell with empty states
   // instead of throwing (keeps the app building + usable before secrets are set).
@@ -159,13 +151,13 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
     if (narrowed.length > 0) scopedStocks = narrowed;
   }
 
-  // Which SKUs the analyses see. Three modes:
+  // Which SKUs the analyses see. Two modes (the old top-bar filter narrowing was
+  // removed — filtering lives on the SKUs page and materializes into the selection):
   //   • ignoreFilter → the full catalog (SKUs page: every SKU always listed).
   //   • a hand-picked selection is present → EXACTLY that selection, from the full
-  //     catalog, OVERRIDING the default scope + top filter. The SKUs-page checkbox is
-  //     then the single "visible to the analyses" control: checked ⟺ visible.
-  //   • otherwise → the default scope narrowed by the top filter (models/category/q/
-  //     withForecast).
+  //     catalog, OVERRIDING the default scope. The SKUs-page checkbox is the single
+  //     "visible to the analyses" control: checked ⟺ visible.
+  //   • otherwise → the default scope.
   let stocks: StockState[];
   if (ignoreFilter) {
     stocks = allStocks;
@@ -173,15 +165,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
     const sel = new Set(filter.skus);
     stocks = allStocks.filter((s) => sel.has(s.skuBase));
   } else {
-    const narrowFilter = ignoreSkuSelection ? { ...filter, skus: [] } : filter;
-    stocks = isFilterActive(narrowFilter)
-      ? scopedStocks.filter(
-          (s) =>
-            skuPasses(narrowFilter, s, compatModels) &&
-            // "Com previsão": only SKUs with a demand forecast (needs the forecast map).
-            (!narrowFilter.withForecast || forecastBundle.bySku.has(s.skuBase)),
-        )
-      : scopedStocks;
+    stocks = scopedStocks;
   }
 
   // (The global what-if scenario — demand ±% / delay-all-POs — was removed; order
@@ -514,10 +498,7 @@ export const loadSkuView = cache(
     const today = todayUtc();
     const nowIso = new Date().toISOString();
     const cookieStore = await cookies();
-    const filter = {
-      ...parseFilterCookie(cookieStore.get(FILTER_COOKIE)?.value),
-      skus: readSkuChunkCookies(cookieStore),
-    };
+    const filter: PlanningFilter = { skus: readSkuChunkCookies(cookieStore) };
 
     if (activeBackendKind() === 'none') {
       return { inputs: { ...emptyInputs(today), filter }, selected: '' };
@@ -545,19 +526,9 @@ export const loadSkuView = cache(
     // the default selector list.
     const inScope = scopeSet.size > 0 ? allStocks.filter((s) => scopeSet.has(s.skuBase)) : allStocks;
 
-    // Selector scope honors category/models/q + "com previsão", but NOT the hand-picked
-    // skus[] (a single-SKU view resolves any SKU — same as ignoreSkuSelection).
-    const scopeFilter: PlanningFilter = { ...filter, skus: [] };
-    const scoped = isFilterActive(scopeFilter)
-      ? inScope.filter(
-          (s) =>
-            skuPasses(scopeFilter, s, compatModels) &&
-            (!scopeFilter.withForecast || fcMeta.skuBases.has(s.skuBase)),
-        )
-      : inScope;
-    let stocks = (scoped.length > 0 ? scoped : inScope)
-      .slice()
-      .sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
+    // Selector = the default scope (the hand-picked selection is NOT applied here —
+    // a single-SKU view resolves any SKU, same as ignoreSkuSelection).
+    let stocks = inScope.slice().sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
 
     // Honor a deep link to an out-of-scope SKU: if the requested SKU exists in the
     // full catalog but isn't in the scoped selector list, add it so it resolves +

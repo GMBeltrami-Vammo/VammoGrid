@@ -15,7 +15,7 @@ import { HubMaxStockPanel } from '@/components/planning/HubMaxStockPanel';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
 import { HUB_LIST } from '@/constants/planningHubs';
-import { fmtBRL, fmtDate, fmtInt, fmtNum } from '@/lib/planning/format';
+import { fmtDate, fmtInt, fmtNum } from '@/lib/planning/format';
 import {
   EmptyState,
   FreshnessBanner,
@@ -202,7 +202,7 @@ export default async function EstoquePage({
               {purchase.isLate && <LatePill />}
               <span className="text-sm text-muted-foreground">{purchase.reasoning}</span>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <Metric
                 label={<span className="inline-flex items-center gap-1">Ponto recompra <InfoHint id="rop" /></span>}
                 value={fmtInt(purchase.rop)}
@@ -223,10 +223,6 @@ export default async function EstoquePage({
               <Metric
                 label={<span className="inline-flex items-center gap-1">Comprar até <InfoHint id="buy-by" /></span>}
                 value={fmtDate(purchase.buyByDate)}
-              />
-              <Metric
-                label={<span className="inline-flex items-center gap-1">Custo estimado <InfoHint id="est-cost" /></span>}
-                value={purchase.estCost != null && purchase.orderQty > 0 ? fmtBRL(purchase.estCost) : '—'}
               />
             </div>
           </div>

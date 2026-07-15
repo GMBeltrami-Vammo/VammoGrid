@@ -8,12 +8,11 @@ import {
   healthScore,
   networkOnHand,
   supplyMix,
-  totalOrderCost,
   transfersByHub,
   upcomingStockouts,
 } from '@/lib/planning/selectors';
 import { resolveShares } from '@/lib/planning/allocation';
-import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
+import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { HUBS } from '@/constants/planningHubs';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { ScopeNotice } from '@/components/planning/ScopeNotice';
@@ -37,7 +36,8 @@ export default async function ExecutiveDashboard() {
   const score = healthScore(snap.purchases);
   const actionable = actionablePurchases(snap.purchases);
   const stockouts = upcomingStockouts(snap.purchases, snap.today, 30);
-  const cost = totalOrderCost(actionable.filter((p) => p.orderQty > 0));
+  const toBuy = actionable.filter((p) => p.orderQty > 0);
+  const buyUnits = toBuy.reduce((s, p) => s + p.orderQty, 0);
   const tByHub = transfersByHub(transfers);
   const net = networkOnHand(snap.stocks);
   const purchasesBySku = new Map(snap.purchases.map((p) => [p.skuBase, p]));
@@ -98,8 +98,8 @@ export default async function ExecutiveDashboard() {
             />
             <KpiCard
               label="Compras sugeridas"
-              value={fmtBRL(cost)}
-              hint={`${actionable.filter((p) => p.orderQty > 0).length} SKUs`}
+              value={fmtInt(toBuy.length)}
+              hint={`${fmtInt(buyUnits)} un a comprar`}
               tone="brand"
             />
             <KpiCard

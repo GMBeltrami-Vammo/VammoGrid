@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { DateField } from '@/components/ui/DateField';
 import { cn } from '@/lib/utils';
 import { fmtInt } from '@/lib/planning/format';
-import { parseImportRows, type ParsedImportLine } from '@/lib/planning/importOrders';
+import { parseWorkbook, type CellGrid, type ParsedImportLine } from '@/lib/planning/importOrders';
 import { DEFAULT_LEAD_TIME_DAYS, INTERNATIONAL_AIR_LEAD_DAYS } from '@/lib/planning/constants';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
 import type { OrderType } from '@/types';
@@ -31,6 +31,7 @@ export function ImportPedidoDialog({
   const [fileName, setFileName] = useState<string | null>(null);
   const [lines, setLines] = useState<ParsedImportLine[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [detectedPo, setDetectedPo] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
 
   // Pedido header.
@@ -47,26 +48,37 @@ export function ImportPedidoDialog({
     setParsing(true);
     setFileName(file.name);
     try {
-      // Dynamic import → SheetJS off the initial bundle.
+      // Dynamic import → SheetJS off the initial bundle. Read EVERY sheet as a raw cell
+      // grid (header:1) so the Vammo-PO-template parser can find the data tab + header
+      // row by label — the tab name and header position drift between workbooks.
       const XLSX = await import('xlsx');
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        raw: false,
-        dateNF: 'yyyy-mm-dd',
-        defval: null,
-      });
-      const parsed = parseImportRows(rows, { orderDate, defaultLeadDays: defaultLead });
+      const grids: CellGrid[] = wb.SheetNames.map((n) =>
+        XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], {
+          header: 1,
+          raw: true,
+          blankrows: true,
+          defval: null,
+        }),
+      );
+      const parsed = parseWorkbook(grids, { defaultLeadDays: defaultLead });
       setLines(parsed.lines);
       setWarnings(parsed.warnings);
-      if (parsed.lines.length === 0) {
-        onError('Nenhuma linha válida encontrada. A planilha precisa de colunas SKU e Quantidade.');
+      setDetectedPo(parsed.poNumber);
+      // Prefill the header from the workbook when detected (user can still override).
+      if (parsed.orderDate) setOrderDate(parsed.orderDate);
+      if (parsed.poNumber && !pedidoName.trim()) setPedidoName(`PO ${parsed.poNumber}`);
+      if (!parsed.parsed) {
+        onError(parsed.note ?? 'Não parece um pedido — nenhuma tabela de itens reconhecida.');
+      } else if (parsed.lines.length === 0) {
+        onError(parsed.note ?? 'Cabeçalho encontrado, mas nenhuma linha de item válida.');
       }
     } catch (e) {
       onError(e instanceof Error ? `Falha ao ler o arquivo: ${e.message}` : 'Falha ao ler o arquivo.');
       setLines([]);
       setWarnings([]);
+      setDetectedPo(null);
     } finally {
       setParsing(false);
     }
@@ -87,11 +99,12 @@ export function ImportPedidoDialog({
         pedidoName: pedidoName || null,
         orderType,
         source: 'import',
+        // Lead comes from the pedido's modal (the PO template has no per-line lead).
         lines: lines.map((l) => ({
           skuBase: l.skuBase,
           skuName: l.skuName,
           qty: l.qty,
-          leadDays: l.leadDays,
+          leadDays: defaultLead,
         })),
       });
       if (res.ok) onDone();
@@ -128,8 +141,12 @@ export function ImportPedidoDialog({
       </div>
 
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Colunas: <b>SKU</b> e <b>Quantidade</b> (obrigatórias); opcionais: Nome, ETA ou Lead (dias).
-        Datas por linha e VO são ignoradas — o pedido usa o cabeçalho abaixo.
+        Lê o <b>template de PO da Vammo</b> (mesma leitura do Dagster): acha a aba e o cabeçalho pelos
+        rótulos <b>SKU VAMMO</b> / <b>QTY</b> / <b>DESCRIPTION</b> automaticamente, e lê <b>DATE</b> e{' '}
+        <b>PURCHASE ORDER NO.</b> do topo. Uma Google Sheet exportada como .xlsx funciona igual.
+        {detectedPo && (
+          <span className="ml-1 font-medium text-brand-600">Detectado PO {detectedPo}.</span>
+        )}
       </p>
 
       {/* Pedido header */}

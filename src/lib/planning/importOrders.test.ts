@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseImportRows, toIsoDate } from './importOrders';
+import { parseImportRows, parseWorkbook, toIsoDate, type CellGrid } from './importOrders';
 
 const OPTS = { orderDate: '2026-07-14', defaultLeadDays: 40 };
 
@@ -72,5 +72,88 @@ describe('parseImportRows', () => {
   it('rounds fractional quantities', () => {
     const r = parseImportRows([{ sku: 'X', quantidade: 12.6 }], OPTS);
     expect(r.lines[0].qty).toBe(13);
+  });
+});
+
+// The real Vammo PO template: a header block on top (DATE, PURCHASE ORDER NO.) then an
+// item table whose header row + columns are found by label (Dagster po_extract parity).
+const VAMMO_PO: CellGrid = [
+  ['VAMMO — PURCHASE ORDER', null, null, null],
+  ['DATE', 'PURCHASE ORDER NO.', null, null], // header-block labels…
+  ['01/08/2026', '276.1', null, null], // …values on the row below (real template layout)
+  [null, null, null, null],
+  ['ITEM NO.', 'SKU VAMMO', 'DESCRIPTION', 'QTY'],
+  [1, 'vm-01-car0-3501', 'Paralama traseiro', 120],
+  [2, 'VM-01-FRE0-1010', 'Pastilha', 15.4],
+  [null, null, null, null], // blank row terminates
+  ['Total', null, null, 135],
+];
+
+describe('parseWorkbook (Vammo PO template — Dagster parity)', () => {
+  it('finds the item table by label + reads the header block (date, PO)', () => {
+    const r = parseWorkbook([VAMMO_PO], { defaultLeadDays: 45 });
+    expect(r.parsed).toBe(true);
+    expect(r.orderDate).toBe('2026-08-01');
+    expect(r.poNumber).toBe('276.1');
+    expect(r.lines).toEqual([
+      { skuBase: 'VM-01-CAR0-3501', skuName: 'Paralama traseiro', qty: 120, leadDays: 45 },
+      { skuBase: 'VM-01-FRE0-1010', skuName: 'Pastilha', qty: 15, leadDays: 45 }, // rounded, uppercased
+    ]);
+  });
+
+  it('stops at the first fully blank row (ignores totals/notes below)', () => {
+    const r = parseWorkbook([VAMMO_PO], { defaultLeadDays: 45 });
+    expect(r.lines).toHaveLength(2); // the "Total 135" row after the blank is not a line
+  });
+
+  it('reads a Date cell (SheetJS cellDates) in the header block', () => {
+    const grid: CellGrid = [
+      ['DATE', null],
+      [new Date(Date.UTC(2026, 7, 1)), null], // value below the label
+      ['SKU VAMMO', 'QTY'],
+      ['VM-01-X', 3],
+    ];
+    expect(parseWorkbook([grid], { defaultLeadDays: 45 }).orderDate).toBe('2026-08-01');
+  });
+
+  it('picks the data tab among several sheets', () => {
+    const cover: CellGrid = [['Instruções'], ['nada aqui']];
+    const r = parseWorkbook([cover, VAMMO_PO], { defaultLeadDays: 60 });
+    expect(r.parsed).toBe(true);
+    expect(r.lines).toHaveLength(2);
+  });
+
+  it('also handles a plain flat sheet (SKU/QTY on the first row)', () => {
+    const flat: CellGrid = [
+      ['SKU', 'Quantidade'],
+      ['VM-01-A', 10],
+      ['VM-01-B', 20],
+    ];
+    const r = parseWorkbook([flat], { defaultLeadDays: 45 });
+    expect(r.parsed).toBe(true);
+    expect(r.lines.map((l) => l.skuBase)).toEqual(['VM-01-A', 'VM-01-B']);
+    expect(r.orderDate).toBeNull(); // no header block
+  });
+
+  it('marks non-PO workbooks as not parsed', () => {
+    const junk: CellGrid = [['Relatório'], ['coluna a', 'coluna b'], [1, 2]];
+    const r = parseWorkbook([junk], { defaultLeadDays: 45 });
+    expect(r.parsed).toBe(false);
+    expect(r.lines).toHaveLength(0);
+    expect(r.note).toBeTruthy();
+  });
+
+  it('skips invalid rows inside the table with warnings (does not stop)', () => {
+    const grid: CellGrid = [
+      ['SKU VAMMO', 'DESCRIPTION', 'QTY'],
+      ['VM-01-A', 'ok', 5],
+      [null, 'linha sem sku mas com desc', 3], // no SKU → skipped, not terminated
+      ['VM-01-B', 'zero qty', 0], // invalid qty → skipped
+      ['VM-01-C', 'ok', 7],
+    ];
+    const r = parseWorkbook([grid], { defaultLeadDays: 45 });
+    expect(r.lines.map((l) => l.skuBase)).toEqual(['VM-01-A', 'VM-01-C']);
+    expect(r.skipped).toBe(2);
+    expect(r.warnings).toHaveLength(2);
   });
 });

@@ -84,6 +84,11 @@ export default async function EstoquePage({
     auth(),
   ]);
   const skuLinks = skuSuppliers.filter((l) => l.skuBase === selected);
+  // Preferred supplier drives the SKU's (read-only) lead time — see applySupplierLeadTimes.
+  const preferredLink = skuLinks.find((l) => l.isPreferred) ?? [...skuLinks].sort((a, b) => a.priority - b.priority)[0];
+  const leadSupplierName = preferredLink
+    ? suppliers.find((s) => s.supplierId === preferredLink.supplierId)?.name ?? null
+    : null;
   const isHead = session?.user?.isHead ?? false;
   const projections = compare?.projections ?? null;
   const baseline = compare?.baseline ?? null;
@@ -226,17 +231,14 @@ export default async function EstoquePage({
             </div>
           </div>
 
-          {/* Lead time — editable per-SKU (folded in from the standalone screen, item 4a) */}
+          {/* Lead time — read-only; comes from the preferred supplier (edited em Fornecedores) */}
           <SectionTitle>Lead time</SectionTitle>
           <div className="mb-6">
             <LeadTimePanel
-              skuBase={selected}
               seaDays={Math.round(policy.leadTimeSeaDays ?? policy.leadTimeDays)}
               airDays={Math.round(policy.leadTimeAirDays ?? policy.leadTimeDays)}
               defaultModal={policy.defaultModal}
-              stdDays={policy.leadTimeStdDays}
-              isNational={policy.leadTimeSource === 'national-file'}
-              isHead={isHead}
+              supplierName={leadSupplierName}
             />
           </div>
 

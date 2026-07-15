@@ -1,4 +1,5 @@
 import type { AbcClass, SkuForecast, SkuPolicy, StockState } from '@/types/planning';
+import type { SupplierKind } from '@/types';
 import { ABC_TARGET_DOI, DEFAULT_LEAD_TIME_DAYS, INTERNATIONAL_AIR_LEAD_DAYS } from './constants';
 import { NATIONAL_LEAD_TIMES } from './seed/nationalLeadTimes';
 
@@ -55,6 +56,42 @@ export function defaultPolicyFor(
     updatedBy: null,
     updatedAt: nowIso,
   };
+}
+
+/** Lead time (+ origin) a preferred supplier contributes to its SKUs. */
+export interface SupplierLead {
+  kind: SupplierKind;
+  sea: number | null;
+  air: number | null;
+}
+
+/**
+ * Override each SKU's lead times from its preferred supplier — lead time is now a
+ * supplier attribute (VMoto 105 mar / 45 aéreo). Precedence: the preferred supplier's
+ * sea/air (when set) → the SKU's existing policy lead (fallback for SKUs with no
+ * supplier, or a supplier with no lead). Also aligns leadTimeSource with the supplier
+ * kind so the nacional/internacional label follows the supplier. Pure; returns a new map.
+ */
+export function applySupplierLeadTimes(
+  policies: Map<string, SkuPolicy>,
+  leadBySku: Map<string, SupplierLead>,
+): Map<string, SkuPolicy> {
+  const out = new Map(policies);
+  for (const [sku, pol] of out) {
+    const sup = leadBySku.get(sku);
+    if (!sup || (sup.sea == null && sup.air == null)) continue; // no supplier lead → keep the SKU's
+    const sea = sup.sea ?? pol.leadTimeSeaDays;
+    const air = sup.air ?? pol.leadTimeAirDays;
+    const eff = (pol.defaultModal === 'air' ? air : sea) ?? pol.leadTimeDays;
+    out.set(sku, {
+      ...pol,
+      leadTimeSeaDays: sea,
+      leadTimeAirDays: air,
+      leadTimeDays: Math.max(0, Math.round(eff)),
+      leadTimeSource: sup.kind === 'nacional' ? 'national-file' : 'international-default',
+    });
+  }
+  return out;
 }
 
 export function buildPolicies(args: {

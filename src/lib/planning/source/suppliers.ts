@@ -14,6 +14,8 @@ interface SupplierRow {
   kind: string;
   contact: string | null;
   notes: string | null;
+  lead_time_sea_days: number | null;
+  lead_time_air_days: number | null;
   active: boolean | number;
   updated_at: string;
   updated_by: string | null;

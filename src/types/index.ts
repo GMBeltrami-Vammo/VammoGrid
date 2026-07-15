@@ -70,6 +70,9 @@ export interface Supplier {
   kind: SupplierKind;
   contact: string | null;
   notes: string | null;
+  /** Lead times (days) — the SKU's effective lead comes from its preferred supplier. */
+  leadTimeSeaDays: number | null;
+  leadTimeAirDays: number | null;
   active: boolean;
   updatedAt: string;
   updatedBy: string | null;

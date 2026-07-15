@@ -18,7 +18,8 @@ import { DEFAULT_PURCHASE_CRITERIA, type PurchaseCriteria } from './constants';
 import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
 import { todayUtc } from './dates';
-import { buildPolicies, defaultPolicyFor } from './policy';
+import { applySupplierLeadTimes, buildPolicies, defaultPolicyFor, type SupplierLead } from './policy';
+import { preferredSupplierBySku } from './supplierGroups';
 import { projectGlobal, projectSku, type SkuProjections } from './projection';
 import { purchaseForAll } from './purchase';
 import { transferForAll } from './transfer';
@@ -31,7 +32,9 @@ import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
 import { fetchActiveScope } from './source/scope';
+import { fetchSuppliers, fetchSkuSuppliers } from './source/suppliers';
 import { fetchServiceLevelZ, fetchPurchaseCriteria } from './source/globalSettings';
+import type { Supplier, SkuSupplier } from '@/types';
 import { SERVICE_LEVEL_Z, DEFAULT_SERVICE_LEVEL_TIER } from './constants';
 import {
   EMPTY_FILTER,
@@ -111,6 +114,19 @@ function readSkuChunkCookies(cookieStore: Awaited<ReturnType<typeof cookies>>): 
   );
 }
 
+/** sku_base → the preferred supplier's lead + kind, for applySupplierLeadTimes. */
+function supplierLeadBySku(suppliers: Supplier[], links: SkuSupplier[]): Map<string, SupplierLead> {
+  const byId = new Map(suppliers.map((s) => [s.supplierId, s]));
+  const prefBySku = preferredSupplierBySku(links);
+  const out = new Map<string, SupplierLead>();
+  for (const [sku, supplierId] of prefBySku) {
+    const s = byId.get(supplierId);
+    if (!s) continue;
+    out.set(sku, { kind: s.kind, sea: s.leadTimeSeaDays, air: s.leadTimeAirDays });
+  }
+  return out;
+}
+
 export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignoreFilter = false): Promise<PlanningInputs> => {
   const today = todayUtc();
   const nowIso = new Date().toISOString();
@@ -125,7 +141,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
   // instead of throwing (keeps the app building + usable before secrets are set).
   if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter, scenario };
 
-  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ] =
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ, suppliers, skuSuppliers] =
     await Promise.all([
       fetchStockStates(nowIso),
       fetchForecasts(),
@@ -137,6 +153,8 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
       fetchRecoveryRates(),
       fetchActiveScope(),
       fetchServiceLevelZ(),
+      fetchSuppliers(),
+      fetchSkuSuppliers(),
     ]);
 
   // Default SKU-universe scope (sub-project A): narrow to the active-scope set
@@ -188,7 +206,12 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
     : forecastBundle.bySku;
   const orders = active ? rawOrders.map((o) => delayOrder(o, scenario.poDelayDays)) : rawOrders;
 
-  const policies = buildPolicies({ stocks, forecasts, overrides: policyOverrides, nowIso });
+  // Lead time now lives on the supplier: override each SKU's lead from its preferred
+  // supplier (fallback = the SKU's own policy lead when it has no supplier).
+  const policies = applySupplierLeadTimes(
+    buildPolicies({ stocks, forecasts, overrides: policyOverrides, nowIso }),
+    supplierLeadBySku(suppliers, skuSuppliers),
+  );
 
   return {
     today,
@@ -520,7 +543,7 @@ export const loadSkuView = cache(
     }
 
     // Cheap, cross-request-cached sources only (no per-SKU heavy materialization).
-    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet, serviceLevelZ] =
+    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet, serviceLevelZ, suppliers, skuSuppliers] =
       await Promise.all([
         fetchStockStates(nowIso),
         fetchHubShares(),
@@ -531,6 +554,8 @@ export const loadSkuView = cache(
         fetchForecastMeta(),
         fetchActiveScope(),
         fetchServiceLevelZ(),
+        fetchSuppliers(),
+        fetchSkuSuppliers(),
       ]);
 
     // Default SKU-universe scope (sub-project A): the selector lists only in-scope
@@ -584,9 +609,13 @@ export const loadSkuView = cache(
     const selOrders = active ? selOrders0.map((o) => delayOrder(o, scenario.poDelayDays)) : selOrders0;
 
     // ONE policy (buildPolicies over a single-element stock list reuses the exact logic).
+    // Lead time overridden from the SKU's preferred supplier (same rule as the catalog).
     const forecasts = new Map<string, SkuForecast>();
     if (forecast) forecasts.set(selected, forecast);
-    const policies = buildPolicies({ stocks: [selStock], forecasts, overrides: policyOverrides, nowIso });
+    const policies = applySupplierLeadTimes(
+      buildPolicies({ stocks: [selStock], forecasts, overrides: policyOverrides, nowIso }),
+      supplierLeadBySku(suppliers, skuSuppliers),
+    );
 
     const inputs: PlanningInputs = {
       today,

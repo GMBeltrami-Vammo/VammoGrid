@@ -16,7 +16,14 @@ export interface SupplierInput {
   kind: SupplierKind;
   contact?: string | null;
   notes?: string | null;
+  leadTimeSeaDays?: number | null;
+  leadTimeAirDays?: number | null;
   active?: boolean;
+}
+
+// Nullable non-negative integer for lead-time fields.
+function leadDays(v: number | null | undefined): number | null {
+  return v == null || !Number.isFinite(v) ? null : Math.max(0, Math.round(v));
 }
 
 export async function createSupplier(input: SupplierInput): Promise<{ ok: boolean; id?: string; error?: string }> {
@@ -36,6 +43,8 @@ export async function createSupplier(input: SupplierInput): Promise<{ ok: boolea
         kind: input.kind,
         contact: input.contact?.trim() || null,
         notes: input.notes?.trim() || null,
+        lead_time_sea_days: leadDays(input.leadTimeSeaDays),
+        lead_time_air_days: leadDays(input.leadTimeAirDays),
         active: input.active ?? true,
         updated_by: email,
       },
@@ -67,6 +76,8 @@ export async function updateSupplier(
         kind: input.kind,
         contact: input.contact?.trim() || null,
         notes: input.notes?.trim() || null,
+        lead_time_sea_days: leadDays(input.leadTimeSeaDays),
+        lead_time_air_days: leadDays(input.leadTimeAirDays),
         active: input.active ?? true,
         updated_by: email,
       },

@@ -182,6 +182,8 @@ const DDL: string[] = [
     kind String DEFAULT 'internacional',
     contact Nullable(String),
     notes Nullable(String),
+    lead_time_sea_days Nullable(Int32),
+    lead_time_air_days Nullable(Int32),
     active Bool DEFAULT true,
     updated_by Nullable(String),
     updated_at DateTime64(3) DEFAULT now64(3),
@@ -230,6 +232,10 @@ const MIGRATIONS: string[] = [
   // Backlog #21 — item 4b: fornecedor vinculado ao pedido (para filtro/visão por fornecedor).
   `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS supplier_id Nullable(String)`,
   `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS supplier_name Nullable(String)`,
+  // Lead time agora vive no fornecedor (mar/aéreo). O lead efetivo do SKU vem do
+  // fornecedor preferido; sem fornecedor, cai no lead do próprio SKU.
+  `ALTER TABLE ${FLEET_TABLES.supplier} ADD COLUMN IF NOT EXISTS lead_time_sea_days Nullable(Int32)`,
+  `ALTER TABLE ${FLEET_TABLES.supplier} ADD COLUMN IF NOT EXISTS lead_time_air_days Nullable(Int32)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.

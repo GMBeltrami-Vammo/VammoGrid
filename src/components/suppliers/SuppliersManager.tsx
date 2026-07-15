@@ -19,15 +19,27 @@ interface Draft {
   kind: SupplierKind;
   contact: string;
   notes: string;
+  seaDays: string;
+  airDays: string;
   active: boolean;
 }
 
-const emptyDraft = (): Draft => ({ name: '', kind: 'internacional', contact: '', notes: '', active: true });
+const emptyDraft = (): Draft => ({
+  name: '',
+  kind: 'internacional',
+  contact: '',
+  notes: '',
+  seaDays: '',
+  airDays: '',
+  active: true,
+});
 const fromRow = (s: Supplier): Draft => ({
   name: s.name,
   kind: s.kind,
   contact: s.contact ?? '',
   notes: s.notes ?? '',
+  seaDays: s.leadTimeSeaDays != null ? String(s.leadTimeSeaDays) : '',
+  airDays: s.leadTimeAirDays != null ? String(s.leadTimeAirDays) : '',
   active: s.active,
 });
 const toInput = (d: Draft): SupplierInput => ({
@@ -35,6 +47,8 @@ const toInput = (d: Draft): SupplierInput => ({
   kind: d.kind,
   contact: d.contact || null,
   notes: d.notes || null,
+  leadTimeSeaDays: d.seaDays.trim() === '' ? null : Number(d.seaDays),
+  leadTimeAirDays: d.airDays.trim() === '' ? null : Number(d.airDays),
   active: d.active,
 });
 
@@ -133,6 +147,9 @@ export function SuppliersManager({
                     {s.kind === 'nacional' ? 'Nacional' : 'Internacional'}
                   </span>
                   {!s.active && <span className="text-[11px] text-muted-foreground">inativo</span>}
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    lead {s.leadTimeSeaDays ?? '—'}d mar / {s.leadTimeAirDays ?? '—'}d aéreo
+                  </span>
                   {s.contact && <span className="text-xs text-muted-foreground">{s.contact}</span>}
                   <button
                     onClick={() => setExpanded(open ? null : s.supplierId)}
@@ -229,6 +246,24 @@ function SupplierEditor({
         </Labeled>
         <Labeled label="Contato">
           <Input value={draft.contact} onChange={(e) => set('contact', e.target.value)} placeholder="e-mail / telefone" />
+        </Labeled>
+        <Labeled label="Lead marítimo (d)">
+          <Input
+            type="number"
+            min={0}
+            value={draft.seaDays}
+            onChange={(e) => set('seaDays', e.target.value)}
+            placeholder="105"
+          />
+        </Labeled>
+        <Labeled label="Lead aéreo (d)">
+          <Input
+            type="number"
+            min={0}
+            value={draft.airDays}
+            onChange={(e) => set('airDays', e.target.value)}
+            placeholder="45"
+          />
         </Labeled>
         <Labeled label="Ativo">
           <div className="flex h-8 gap-0.5 rounded-md bg-muted/60 p-0.5">

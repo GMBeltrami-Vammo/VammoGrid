@@ -50,6 +50,8 @@ export function mapSupplierRow(row: Record<string, any>): Supplier {
     kind: (row.kind === 'nacional' ? 'nacional' : 'internacional') as SupplierKind,
     contact: row.contact ?? null,
     notes: row.notes ?? null,
+    leadTimeSeaDays: row.lead_time_sea_days != null ? Number(row.lead_time_sea_days) : null,
+    leadTimeAirDays: row.lead_time_air_days != null ? Number(row.lead_time_air_days) : null,
     active: row.active == null ? true : Boolean(row.active),
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,

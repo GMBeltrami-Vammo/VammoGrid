@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Download, Plus, X } from 'lucide-react';
+import { Check, Download, Link2, Plus, X } from 'lucide-react';
 import type { PurchaseStatus, TransportModal } from '@/types/planning';
+import type { Supplier } from '@/types';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeFilterCookie, writeSkusCookies } from '@/lib/planning/applyFilter';
 import { createSku, setSkuScope } from '@/app/dashboard/skus/actions';
+import { linkSkusToSupplier } from '@/app/dashboard/fornecedores/actions';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -83,6 +85,7 @@ export function SkuTable({
   scopeSkus,
   matchingSkus,
   filterSignature,
+  suppliers = [],
   isHead = false,
 }: {
   rows: SkuRow[];
@@ -95,6 +98,8 @@ export function SkuTable({
   matchingSkus?: string[] | null;
   /** Serialized top-filter state — the sync effect fires only when this changes. */
   filterSignature?: string;
+  /** Suppliers for the bulk "link selected SKUs to a supplier" action. */
+  suppliers?: Supplier[];
   /** Only Heads may edit the scope. */
   isHead?: boolean;
 }) {
@@ -236,6 +241,29 @@ export function SkuTable({
   const clearSelection = () => {
     setCapHit(false);
     persist(new Set());
+  };
+
+  // Bulk-link the current selection to one supplier (from the selection banner).
+  const activeSuppliers = useMemo(() => suppliers.filter((s) => s.active), [suppliers]);
+  const [bulkSupplierId, setBulkSupplierId] = useState('');
+  const [bulkPreferred, setBulkPreferred] = useState(false);
+  const [bulkPending, startBulk] = useTransition();
+  const [bulkMsg, setBulkMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+
+  const bulkLink = () => {
+    if (!bulkSupplierId || selected.size === 0) return;
+    setBulkMsg(null);
+    const skus = [...selected];
+    startBulk(async () => {
+      const res = await linkSkusToSupplier(skus, bulkSupplierId, { makePreferred: bulkPreferred });
+      if (res.ok) {
+        const name = suppliers.find((s) => s.supplierId === bulkSupplierId)?.name ?? 'fornecedor';
+        setBulkMsg({ tone: 'ok', text: `${res.linked ?? skus.length} SKU(s) vinculados a ${name}.` });
+        router.refresh();
+      } else {
+        setBulkMsg({ tone: 'err', text: res.error ?? 'Erro ao vincular.' });
+      }
+    });
   };
 
   const localActive = abcFilter || statusFilter || search;
@@ -440,6 +468,58 @@ export function SkuTable({
           >
             Limpar seleção
           </button>
+
+          {/* Bulk-link the selection to a supplier */}
+          {isHead && (
+            <div className="flex w-full flex-wrap items-center gap-2 border-t border-brand-500/20 pt-2">
+              <Link2 size={13} className="text-brand-600" />
+              <span className="font-medium text-foreground">Vincular seleção a fornecedor:</span>
+              {activeSuppliers.length === 0 ? (
+                <Link
+                  href="/dashboard/fornecedores"
+                  className="text-brand-600 underline hover:text-brand-500"
+                >
+                  cadastre um fornecedor primeiro
+                </Link>
+              ) : (
+                <>
+                  <select
+                    value={bulkSupplierId}
+                    onChange={(e) => setBulkSupplierId(e.target.value)}
+                    className="h-7 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand-500"
+                  >
+                    <option value="">Escolher fornecedor…</option>
+                    {activeSuppliers.map((s) => (
+                      <option key={s.supplierId} value={s.supplierId}>
+                        {s.name} ({s.kind === 'nacional' ? 'Nac' : 'Intl'})
+                      </option>
+                    ))}
+                  </select>
+                  <label className="inline-flex items-center gap-1 text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={bulkPreferred}
+                      onChange={(e) => setBulkPreferred(e.target.checked)}
+                      className="size-3.5 cursor-pointer accent-brand-500"
+                    />
+                    marcar como preferido
+                  </label>
+                  <button
+                    onClick={bulkLink}
+                    disabled={!bulkSupplierId || bulkPending}
+                    className="rounded-md bg-brand-500 px-2.5 py-1 font-medium text-white hover:bg-brand-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {bulkPending ? 'Vinculando…' : `Vincular ${selected.size}`}
+                  </button>
+                  {bulkMsg && (
+                    <span className={bulkMsg.tone === 'ok' ? 'text-alert-success' : 'text-alert-error'}>
+                      {bulkMsg.text}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
       {capHit && (

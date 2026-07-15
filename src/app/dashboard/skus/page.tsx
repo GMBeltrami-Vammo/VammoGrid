@@ -3,6 +3,7 @@ import { safeComputeSnapshot } from '@/lib/planning/load';
 import { skuPasses } from '@/lib/planning/filter';
 import { fetchActiveScope } from '@/lib/planning/source/scope';
 import { fetchSkuPolicies } from '@/lib/planning/source/policies';
+import { fetchSuppliers } from '@/lib/planning/source/suppliers';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { SkuTable, type SkuRow } from '@/components/planning/SkuTable';
 
@@ -14,10 +15,11 @@ export default async function SkusPage() {
   // selection, which IS "visible to the other pages". The top filters drive that
   // selection: `matchingSkus` = the SKUs passing the current top filter, which the table
   // syncs into the selection so filtering checks/unchecks SKUs.
-  const [snap, scopeSet, policies, session] = await Promise.all([
+  const [snap, scopeSet, policies, suppliers, session] = await Promise.all([
     safeComputeSnapshot(true, true),
     fetchActiveScope(),
     fetchSkuPolicies(),
+    fetchSuppliers(),
     auth(),
   ]);
   const isHead = session?.user?.isHead ?? false;
@@ -123,6 +125,7 @@ export default async function SkusPage() {
           scopeSkus={[...scopeSet]}
           matchingSkus={matchingSkus}
           filterSignature={filterSignature}
+          suppliers={suppliers}
           isHead={isHead}
         />
       )}

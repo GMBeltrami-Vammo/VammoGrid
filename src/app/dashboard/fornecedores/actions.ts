@@ -3,7 +3,7 @@
 import { randomUUID } from 'crypto';
 import { updateTag } from 'next/cache';
 import { requireHead } from '@/lib/auth/requireHead';
-import { FLEET_TABLES, readFleetRow, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
+import { FLEET_TABLES, readFleetRow, readFleetTable, softDeleteFleetRow, upsertFleetRow } from '@/lib/clickhouse/fleet';
 import type { Row } from '@/lib/clickhouse/reader';
 import type { SupplierKind } from '@/types';
 
@@ -125,6 +125,72 @@ export async function linkSkuSupplier(
     });
     updateTag('suppliers');
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}
+
+/**
+ * Bulk-link many SKUs to ONE supplier in a single server round-trip (from the SKUs
+ * table selection). Reads the small link table once, then upserts one link per SKU.
+ * When makePreferred, sets it as each SKU's preferred and clears any other preferred
+ * link for that SKU (keeps "one preferred per SKU"). Idempotent per SKU.
+ */
+export async function linkSkusToSupplier(
+  skuBases: string[],
+  supplierId: string,
+  opts?: { makePreferred?: boolean },
+): Promise<{ ok: boolean; linked?: number; error?: string }> {
+  try {
+    const email = await requireHead();
+    if (!supplierId) return { ok: false, error: 'Fornecedor é obrigatório.' };
+    const skus = [...new Set(skuBases.map((s) => s.trim()).filter(Boolean))];
+    if (skus.length === 0) return { ok: false, error: 'Nenhum SKU selecionado.' };
+    const makePreferred = opts?.makePreferred ?? false;
+
+    // One read of the (small) link table, indexed by SKU.
+    const allLinks = await readFleetTable<Row>(FLEET_TABLES.skuSupplier);
+    const bySku = new Map<string, Row[]>();
+    for (const l of allLinks) {
+      const k = String(l.sku_base);
+      (bySku.get(k) ?? bySku.set(k, []).get(k)!).push(l);
+    }
+
+    for (const sku of skus) {
+      const existing = bySku.get(sku) ?? [];
+      const current = existing.find((l) => String(l.supplier_id) === supplierId) ?? null;
+      await upsertFleetRow({
+        table: FLEET_TABLES.skuSupplier,
+        entityType: 'sku_supplier',
+        entityId: `${sku}|${supplierId}`,
+        current,
+        next: {
+          ...current,
+          sku_base: sku,
+          supplier_id: supplierId,
+          is_preferred: makePreferred ? true : Boolean(current?.is_preferred ?? false),
+          priority: Number(current?.priority ?? 0),
+          updated_by: email,
+        },
+        changedBy: email,
+      });
+      // Keep one preferred per SKU: clear the flag on this SKU's other links.
+      if (makePreferred) {
+        for (const l of existing) {
+          if (String(l.supplier_id) === supplierId || !l.is_preferred) continue;
+          await upsertFleetRow({
+            table: FLEET_TABLES.skuSupplier,
+            entityType: 'sku_supplier',
+            entityId: `${sku}|${l.supplier_id}`,
+            current: l,
+            next: { ...l, is_preferred: false, updated_by: email },
+            changedBy: email,
+          });
+        }
+      }
+    }
+    updateTag('suppliers');
+    return { ok: true, linked: skus.length };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
   }

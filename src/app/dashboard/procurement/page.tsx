@@ -30,7 +30,15 @@ export default async function ProcurementPage({
   ]);
   const isHead = session?.user?.isHead ?? false;
   const { rows } = result;
-  const activeSuppliers = suppliers.filter((s) => s.active).map((s) => ({ supplierId: s.supplierId, name: s.name }));
+  const activeSuppliers = suppliers
+    .filter((s) => s.active)
+    .map((s) => ({
+      supplierId: s.supplierId,
+      name: s.name,
+      kind: s.kind,
+      leadTimeSeaDays: s.leadTimeSeaDays,
+      leadTimeAirDays: s.leadTimeAirDays,
+    }));
   const prefBySku = Object.fromEntries(preferredSupplierBySku(skuSuppliers));
 
   const total = rows.length;

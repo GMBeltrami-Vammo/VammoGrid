@@ -11,12 +11,20 @@ import type { OrderRules } from '@/lib/planning/elaboration';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
 import { groupBySupplier } from '@/lib/planning/supplierGroups';
-import { fmtBRL, fmtDate, fmtInt } from '@/lib/planning/format';
+import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
 type ModalFilter = 'all' | 'air' | 'sea';
+
+interface SupplierOption {
+  supplierId: string;
+  name: string;
+  kind: OrderType;
+  leadTimeSeaDays: number | null;
+  leadTimeAirDays: number | null;
+}
 
 // "Novo Pedido" builder: the SKUs that need buying (DOH<floor in the horizon), each
 // with a checkbox + editable qty; the MODAL is one global choice for the whole order;
@@ -41,8 +49,8 @@ export function ProcurementView({
   today: string;
   /** asOfDate of the forecast — frozen into the pedido at creation (item 8). */
   forecastAsOf: string;
-  /** Active suppliers (review 4b) — for the header selector + "pedido por fornecedor". */
-  suppliers?: { supplierId: string; name: string }[];
+  /** Active suppliers (review 4b) — the header selector (required), type + line lead. */
+  suppliers?: SupplierOption[];
   /** skuBase → preferred supplier_id (review 4b) — drives the per-supplier split. */
   prefBySku?: Record<string, string>;
 }) {
@@ -54,9 +62,12 @@ export function ProcurementView({
   const [modal, setModal] = useState<TransportModal>('sea');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [pedidoName, setPedidoName] = useState('');
-  const [orderType, setOrderType] = useState<OrderType>('internacional');
-  const [supplierId, setSupplierId] = useState(''); // header selector; '' = sem fornecedor
-  const supplierNameById = useMemo(() => new Map(suppliers.map((s) => [s.supplierId, s.name])), [suppliers]);
+  // Supplier is REQUIRED (todo Novo Pedido tem fornecedor). Preselect when there's only
+  // one active supplier (today: VMoto). Type (nac/int) is DERIVED from the supplier.
+  const supplierById = useMemo(() => new Map(suppliers.map((s) => [s.supplierId, s])), [suppliers]);
+  const [supplierId, setSupplierId] = useState(suppliers.length === 1 ? suppliers[0].supplierId : '');
+  const selectedSupplier = supplierById.get(supplierId) ?? null;
+  const orderType: OrderType = selectedSupplier?.kind ?? 'internacional';
   // Per-SKU inclusion + qty. Default: all included at the suggested qty for the default
   // modal (sea). Flipping the modal resets quantities to that modal's suggestion.
   const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
@@ -133,10 +144,6 @@ export function ProcurementView({
   const selectedRows = rows.filter((r) => included.has(r.suggestion.skuBase) && (qtys[r.suggestion.skuBase] ?? 0) > 0);
   const selectedCount = selectedRows.length;
   const selectedUnits = selectedRows.reduce((s, r) => s + (qtys[r.suggestion.skuBase] ?? 0), 0);
-  const selectedCost = selectedRows.reduce(
-    (s, r) => s + (r.unitPrice != null ? r.unitPrice * (qtys[r.suggestion.skuBase] ?? 0) : 0),
-    0,
-  );
 
   const toggle = (sku: string) =>
     setIncluded((prev) => {
@@ -171,11 +178,14 @@ export function ProcurementView({
     criteria: rules?.seaFloorDoh ? { ...criteria, dohThreshold: rules.seaFloorDoh } : criteria,
     rules: rules ?? undefined,
   };
-  const lineFor = (r: ElaborationRow) => ({
+  const lineFor = (r: ElaborationRow, sup: SupplierOption | null = selectedSupplier) => ({
     skuBase: r.suggestion.skuBase,
     skuName: r.suggestion.skuName,
     qty: qtys[r.suggestion.skuBase] ?? 0,
-    leadDays: modal === 'sea' ? r.suggestion.leadTimeSeaDays : r.suggestion.leadTimeAirDays,
+    // Lead comes from the pedido's supplier (fallback to the SKU's own lead).
+    leadDays:
+      (modal === 'sea' ? sup?.leadTimeSeaDays : sup?.leadTimeAirDays) ??
+      (modal === 'sea' ? r.suggestion.leadTimeSeaDays : r.suggestion.leadTimeAirDays),
     suggestedQty: suggestedFor(r, modal),
     suggestedModal: r.suggestion.suggestedModal,
   });
@@ -183,15 +193,19 @@ export function ProcurementView({
   const criarPedido = () => {
     setError(null);
     setCreatedVo(null);
+    if (!selectedSupplier) {
+      setError('Selecione um fornecedor para o pedido.');
+      return;
+    }
     startTransition(async () => {
       const res = await createPedido({
         modal,
         orderDate,
         pedidoName: pedidoName || null,
         orderType,
-        supplierId: supplierId || null,
-        supplierName: supplierId ? supplierNameById.get(supplierId) ?? null : null,
-        lines: selectedRows.map(lineFor),
+        supplierId: selectedSupplier.supplierId,
+        supplierName: selectedSupplier.name,
+        lines: selectedRows.map((r) => lineFor(r)),
         audit: auditObj,
       });
       if (res.ok) {
@@ -204,8 +218,8 @@ export function ProcurementView({
   };
 
   // "Pedido por fornecedor" (review 4b): split the selection by each SKU's preferred
-  // supplier and create ONE pedido per supplier (SKUs with no supplier → one untagged
-  // pedido). Runs sequentially so a failure stops with a clear message.
+  // supplier and create ONE pedido per supplier — type + lead come from each group's
+  // supplier. SKUs with no preferred supplier are SKIPPED (todo pedido tem fornecedor).
   const criarPorFornecedor = () => {
     setError(null);
     setCreatedVo(null);
@@ -213,29 +227,34 @@ export function ProcurementView({
       selectedRows.map((r) => ({ skuBase: r.suggestion.skuBase, row: r })),
       new Map(Object.entries(prefBySku)),
     );
+    const withSupplier = groups.filter((g) => g.supplierId && supplierById.has(g.supplierId));
+    const skipped = selectedRows.length - withSupplier.reduce((n, g) => n + g.items.length, 0);
+    if (withSupplier.length === 0) {
+      setError('Nenhum SKU selecionado tem fornecedor preferido. Vincule fornecedores primeiro.');
+      return;
+    }
     startTransition(async () => {
       let created = 0;
-      for (const g of groups) {
-        const supName = g.supplierId ? supplierNameById.get(g.supplierId) ?? null : null;
+      for (const g of withSupplier) {
+        const sup = supplierById.get(g.supplierId!)!;
         const res = await createPedido({
           modal,
           orderDate,
-          pedidoName: pedidoName ? `${pedidoName}${supName ? ` · ${supName}` : ''}` : supName,
-          orderType,
-          supplierId: g.supplierId,
-          supplierName: supName,
-          lines: g.items.map((it) => lineFor(it.row)),
+          pedidoName: pedidoName ? `${pedidoName} · ${sup.name}` : sup.name,
+          orderType: sup.kind,
+          supplierId: sup.supplierId,
+          supplierName: sup.name,
+          lines: g.items.map((it) => lineFor(it.row, sup)),
           audit: auditObj,
         });
         if (!res.ok) {
-          setError(`Erro no fornecedor ${supName ?? '—'}: ${res.error ?? 'falha'} (${created} pedido(s) criado(s) antes).`);
+          setError(`Erro no fornecedor ${sup.name}: ${res.error ?? 'falha'} (${created} pedido(s) criado(s) antes).`);
           router.refresh();
           return;
         }
         created++;
       }
-      setCreatedVo(null);
-      setError(null);
+      setError(skipped > 0 ? `${created} pedido(s) criado(s). ${skipped} SKU(s) sem fornecedor foram ignorados.` : null);
       router.refresh();
     });
   };
@@ -303,43 +322,41 @@ export function ProcurementView({
           />
         </div>
         <div>
-          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tipo</span>
-          <div className="mt-1 inline-flex overflow-hidden rounded-md border border-border">
-            {(['internacional', 'nacional'] as OrderType[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setOrderType(t)}
-                className={cn(
-                  'px-3 py-1.5 text-xs font-medium transition-colors',
-                  orderType === t ? 'bg-brand-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50',
-                )}
-              >
-                {t === 'internacional' ? 'Internacional' : 'Nacional'}
-              </button>
-            ))}
-          </div>
-        </div>
-        {suppliers.length > 0 && (
-          <div>
-            <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Fornecedor</span>
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Fornecedor <span className="text-alert-error">*</span>
+          </span>
+          {suppliers.length > 0 ? (
             <select
               value={supplierId}
               onChange={(e) => setSupplierId(e.target.value)}
-              className="mt-1 h-8 w-48 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500"
+              className={cn(
+                'mt-1 h-8 w-52 rounded-md border bg-background px-2 text-sm outline-none focus:border-brand-500',
+                supplierId ? 'border-border' : 'border-alert-error/50',
+              )}
             >
-              <option value="">— sem fornecedor —</option>
+              <option value="">Escolher fornecedor…</option>
               {suppliers.map((s) => (
                 <option key={s.supplierId} value={s.supplierId}>
-                  {s.name}
+                  {s.name} ({s.kind === 'nacional' ? 'Nacional' : 'Internacional'})
                 </option>
               ))}
             </select>
-          </div>
-        )}
+          ) : (
+            <Link href="/dashboard/fornecedores" className="mt-1 block text-xs text-brand-600 underline hover:text-brand-500">
+              cadastre um fornecedor primeiro
+            </Link>
+          )}
+        </div>
+        <div>
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tipo</span>
+          <span className="mt-1 inline-flex h-8 items-center rounded-md bg-muted/50 px-3 text-xs font-medium text-foreground">
+            {selectedSupplier ? (orderType === 'internacional' ? 'Internacional' : 'Nacional') : '—'}
+            <span className="ml-1 text-muted-foreground">(do fornecedor)</span>
+          </span>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{selectedCount}</span> SKUs · {fmtInt(selectedUnits)} un.
-            {selectedCost > 0 && <> · <span className="font-medium text-foreground">{fmtBRL(selectedCost)}</span></>}
           </span>
           {isHead && (
             <>
@@ -347,7 +364,7 @@ export function ProcurementView({
                 <button
                   onClick={criarPorFornecedor}
                   disabled={pending || selectedCount === 0}
-                  title="Cria um pedido separado para cada fornecedor preferencial dos SKUs selecionados"
+                  title="Cria um pedido separado para cada fornecedor preferencial dos SKUs selecionados (SKUs sem fornecedor são ignorados)"
                   className="inline-flex items-center gap-1.5 rounded-md border border-brand-500/40 px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-500/10 disabled:opacity-50"
                 >
                   <Check size={15} /> Por fornecedor ({distinctSuppliersInSelection})
@@ -355,7 +372,8 @@ export function ProcurementView({
               )}
               <button
                 onClick={criarPedido}
-                disabled={pending || selectedCount === 0}
+                disabled={pending || selectedCount === 0 || !supplierId}
+                title={!supplierId ? 'Selecione um fornecedor' : undefined}
                 className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
               >
                 <Check size={15} /> {pending ? 'Criando…' : 'Criar pedido'}

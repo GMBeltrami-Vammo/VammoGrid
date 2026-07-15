@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Check, Download, Link2, Plus, X } from 'lucide-react';
 import type { PurchaseStatus, TransportModal } from '@/types/planning';
-import type { Supplier } from '@/types';
+import type { FilterPreset, Supplier } from '@/types';
+import { deletePreset, savePreset } from '@/app/dashboard/skus/presetActions';
 import { BIKE_MODELS } from '@/types';
 import { MODEL_LABELS } from '@/constants/models';
 import { MAX_SELECTED_SKUS } from '@/lib/planning/filter';
@@ -105,6 +106,7 @@ export function SkuTable({
   initialSelection,
   scopeSkus,
   suppliers = [],
+  presets = [],
   isHead = false,
 }: {
   rows: SkuRow[];
@@ -114,6 +116,8 @@ export function SkuTable({
   scopeSkus?: string[];
   /** Suppliers for the bulk "link selected SKUs to a supplier" action + the supplier filter. */
   suppliers?: Supplier[];
+  /** Named selection presets — apply/save/delete. */
+  presets?: FilterPreset[];
   /** Only Heads may edit the scope. */
   isHead?: boolean;
 }) {
@@ -255,6 +259,54 @@ export function SkuTable({
   const clearSelection = () => {
     setCapHit(false);
     persist(new Set());
+  };
+
+  // Named presets: apply loads the saved list into the selection; save snapshots the
+  // current selection under a name (Head). Applying is instant/local (persist writes
+  // the cookies); other pages read it on their next render.
+  const [presetId, setPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
+  const [presetPending, startPreset] = useTransition();
+  const [presetMsg, setPresetMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
+
+  const applyPreset = (id: string) => {
+    setPresetId(id);
+    const p = presets.find((x) => x.presetId === id);
+    if (!p) return;
+    setCapHit(false);
+    persist(new Set(p.skus.slice(0, MAX_SELECTED_SKUS)));
+    setPresetMsg({ tone: 'ok', text: `Preset “${p.name}” aplicado (${p.skus.length} SKUs).` });
+  };
+
+  const saveCurrentAsPreset = () => {
+    if (!presetName.trim() || selected.size === 0) return;
+    setPresetMsg(null);
+    startPreset(async () => {
+      const res = await savePreset(presetName, [...selected]);
+      if (res.ok) {
+        setPresetName('');
+        setPresetMsg({ tone: 'ok', text: 'Preset salvo.' });
+        router.refresh();
+      } else {
+        setPresetMsg({ tone: 'err', text: res.error ?? 'Erro ao salvar preset.' });
+      }
+    });
+  };
+
+  const removePreset = () => {
+    if (!presetId) return;
+    const p = presets.find((x) => x.presetId === presetId);
+    if (!p || !window.confirm(`Excluir o preset “${p.name}”?`)) return;
+    startPreset(async () => {
+      const res = await deletePreset(presetId);
+      if (res.ok) {
+        setPresetId('');
+        setPresetMsg({ tone: 'ok', text: 'Preset excluído.' });
+        router.refresh();
+      } else {
+        setPresetMsg({ tone: 'err', text: res.error ?? 'Erro ao excluir.' });
+      }
+    });
   };
 
   // Bulk-link the current selection to one supplier (from the selection banner).
@@ -497,6 +549,49 @@ export function SkuTable({
           {scopeError}
         </p>
       )}
+
+      {/* Presets nomeados — aplicar/salvar/excluir a seleção como custom filter */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs">
+        <Chip label="Presets" />
+        <select
+          value={presetId}
+          onChange={(e) => applyPreset(e.target.value)}
+          className="h-7 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500"
+        >
+          <option value="">Aplicar preset…</option>
+          {presets.map((p) => (
+            <option key={p.presetId} value={p.presetId}>
+              {p.name} ({p.skus.length})
+            </option>
+          ))}
+        </select>
+        {isHead && presetId && (
+          <button onClick={removePreset} disabled={presetPending} className="text-muted-foreground hover:text-alert-error" title="Excluir preset">
+            <X size={13} />
+          </button>
+        )}
+        {isHead && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <input
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder="Salvar seleção como…"
+              className="h-7 w-44 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
+            />
+            <button
+              onClick={saveCurrentAsPreset}
+              disabled={presetPending || !presetName.trim() || selected.size === 0}
+              className="rounded-md bg-brand-500 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-brand-400 disabled:opacity-40"
+            >
+              {presetPending ? 'Salvando…' : `Salvar (${selected.size})`}
+            </button>
+          </>
+        )}
+        {presetMsg && (
+          <span className={presetMsg.tone === 'ok' ? 'text-alert-success' : 'text-alert-error'}>{presetMsg.text}</span>
+        )}
+      </div>
 
       {/* Selection summary — the hand-picked set that focuses every other analysis */}
       {selected.size > 0 && (

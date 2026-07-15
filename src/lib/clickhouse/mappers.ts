@@ -1,5 +1,6 @@
 import { deriveModels } from '@/constants/models';
 import type {
+  FilterPreset,
   FleetInfo,
   HubId,
   PartCompat,
@@ -53,6 +54,24 @@ export function mapSupplierRow(row: Record<string, any>): Supplier {
     leadTimeSeaDays: row.lead_time_sea_days != null ? Number(row.lead_time_sea_days) : null,
     leadTimeAirDays: row.lead_time_air_days != null ? Number(row.lead_time_air_days) : null,
     active: row.active == null ? true : Boolean(row.active),
+    updatedAt: String(row.updated_at ?? ''),
+    updatedBy: row.updated_by ?? null,
+  };
+}
+
+export function mapFilterPresetRow(row: Record<string, any>): FilterPreset {
+  let skus: string[] = [];
+  try {
+    const parsed = JSON.parse(String(row.skus ?? '[]'));
+    if (Array.isArray(parsed)) skus = parsed.map(String);
+  } catch {
+    /* malformed preset → empty list */
+  }
+  return {
+    presetId: String(row.preset_id),
+    name: String(row.name ?? ''),
+    skus,
+    note: row.note ?? null,
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,
   };

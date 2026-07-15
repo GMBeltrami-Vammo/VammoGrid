@@ -31,6 +31,7 @@ export const FLEET_TABLES = {
   fleetSizeWeekly: 'dev.fleet_size_weekly',
   supplier: 'dev.fleet_supplier',
   skuSupplier: 'dev.fleet_sku_supplier',
+  filterPreset: 'dev.fleet_filter_preset',
 } as const;
 
 const DDL: string[] = [
@@ -161,6 +162,18 @@ const DDL: string[] = [
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
   ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY (sku_base, hub_id)`,
+
+  // Named selection presets (custom filters): a saved list of sku_bases the team can
+  // re-apply as the app-wide recorte with one click. Shared team-wide (Head writes).
+  `CREATE TABLE IF NOT EXISTS ${FLEET_TABLES.filterPreset} (
+    preset_id String,
+    name String,
+    skus String,
+    note Nullable(String),
+    updated_by Nullable(String),
+    updated_at DateTime64(3) DEFAULT now64(3),
+    is_deleted Bool DEFAULT false
+  ) ENGINE = ReplacingMergeTree(updated_at) ORDER BY preset_id`,
 
   // Weekly REAL fleet size per model segment (stakeholder review item 2): the chart's
   // past becomes actuals and the projection anchors on the latest record. Fed weekly

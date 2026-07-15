@@ -78,6 +78,16 @@ export interface Supplier {
   updatedBy: string | null;
 }
 
+/** Named selection preset (custom filter): a saved SKU list re-applied as the recorte. */
+export interface FilterPreset {
+  presetId: string;
+  name: string;
+  skus: string[];
+  note: string | null;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
 /** SKU ↔ supplier link. is_preferred = the default supplier for "pedido por fornecedor". */
 export interface SkuSupplier {
   skuBase: string;

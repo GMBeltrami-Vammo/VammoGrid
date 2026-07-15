@@ -3,18 +3,26 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, X } from 'lucide-react';
-import { type PlanningFilter } from '@/lib/planning/filter';
+import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeSkusCookies } from '@/lib/planning/applyFilter';
 import { useSkuCatalog } from '@/hooks/useSkuCatalog';
+import type { FilterPreset } from '@/types';
 
 // Slim top bar: (a) SKU search as pure NAVIGATION (typeahead → SKU page; it does not
 // filter anything) and (b) the global "N SKUs selecionados" chip. All FILTERING lives
 // on the SKUs page — the hand-picked selection there is the single recorte the
 // analyses see (the old top-bar model/category/forecast filters were removed).
 
-export function FilterBar({ initial }: { initial: PlanningFilter }) {
+export function FilterBar({ initial, presets = [] }: { initial: PlanningFilter; presets?: FilterPreset[] }) {
   const router = useRouter();
   const [q, setQ] = useState('');
+
+  const applyPreset = (id: string) => {
+    const p = presets.find((x) => x.presetId === id);
+    if (!p) return;
+    writeSkusCookies(p.skus.slice(0, MAX_SELECTED_SKUS));
+    router.refresh();
+  };
 
   // Search typeahead: clickable SKU matches that navigate straight to the SKU page.
   const [searchOpen, setSearchOpen] = useState(false);
@@ -78,6 +86,22 @@ export function FilterBar({ initial }: { initial: PlanningFilter }) {
           </>
         )}
       </div>
+
+      {presets.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => e.target.value && applyPreset(e.target.value)}
+          className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand-500"
+          title="Aplicar um preset de seleção (recorte das análises)"
+        >
+          <option value="">Preset…</option>
+          {presets.map((p) => (
+            <option key={p.presetId} value={p.presetId}>
+              {p.name} ({p.skus.length})
+            </option>
+          ))}
+        </select>
+      )}
 
       {initial.skus.length > 0 && (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-500/15 px-2.5 py-1 text-[11px] font-medium text-brand-600">

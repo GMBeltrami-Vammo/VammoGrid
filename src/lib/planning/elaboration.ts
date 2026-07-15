@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { addDays, diffDays, nextFirstOfMonth } from './dates';
 import { forwardAvgDemand } from './projection';
+import type { ModalOption } from './supplierGroups';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Elaboration trigger (sub-project B5) — Compras' reorder rule, per the user's
@@ -247,4 +248,72 @@ export function suggestModalQuantities(args: {
   const seaQty = Math.max(0, Math.round(seaLevel - stockAt(seaArrival)));
 
   return { airQty, seaQty, airArrival, seaArrival };
+}
+
+// ─── N-modal quantity engine (mega-rodada — generalizes the air/sea plan) ──────────
+// Suppliers now expose N transport modals (Courier 15d / Aéreo 45d / Marítimo 105d…),
+// each a lane with its own lead + DOH floor + optional recurring cadence. This
+// generalizes the air-bridge/sea-bulk model to any number of lanes:
+//   • Enabled modals ordered by arrival (fastest first).
+//   • Every faster lane BRIDGES the gap from its arrival until the next lane's arrival,
+//     holding DOH ≥ its own minDoh (deepest-shortfall, exactly the old air bridge).
+//   • The SLOWEST enabled lane SUSTAINS: order-up-to (minDoh + cadence) of cover at its
+//     arrival (exactly the old sea bulk).
+// Reproduces suggestModalQuantities for 2 modals — minus the monthly sea anchor, which
+// is gone: arrivals are plain lead offsets and the cadence is now a per-order parameter.
+
+export interface ModalPlan {
+  modal: ModalOption; // { id, name, leadDays } — leadDays already reflects any override
+  /** Minimum DOH this lane must sustain in its window. */
+  minDoh: number;
+  /** Days of extra cover beyond minDoh for the SLOWEST lane (periodicidade). null/0 = one-time. */
+  cadenceDays: number | null;
+  enabled: boolean;
+}
+
+export interface ModalQty {
+  modalId: string;
+  modalName: string;
+  qty: number;
+  /** Arrival day offset from today (= the modal's lead). */
+  arrivalOffset: number;
+}
+
+export function suggestQuantities(args: { projection: StockProjection; plans: ModalPlan[] }): ModalQty[] {
+  const tl = args.projection.timeline;
+  const horizon = tl.length - 1;
+  const clamp = (d: number) => Math.max(0, Math.min(d, horizon));
+  const rateAt = (d: number) => forwardAvgDemand(tl, clamp(d), 7);
+  const stockAt = (d: number) => tl[clamp(d)]?.stock ?? 0;
+
+  const lanes = args.plans
+    .filter((p) => p.enabled && p.modal.leadDays >= 0)
+    .map((p) => ({ ...p, arrival: Math.max(0, Math.round(p.modal.leadDays)) }))
+    .sort((a, b) => a.arrival - b.arrival);
+  if (lanes.length === 0) return [];
+
+  return lanes.map((p, i) => {
+    const isSlowest = i === lanes.length - 1;
+    let qty: number;
+    if (!isSlowest) {
+      // Bridge [arrival_i, arrival_{i+1}]: deepest shortfall below this lane's floor.
+      const end = Math.min(lanes[i + 1].arrival, horizon);
+      let need = 0;
+      for (let d = p.arrival; d <= end; d++) {
+        const shortfall = p.minDoh * rateAt(d) - stockAt(d);
+        if (shortfall > need) need = shortfall;
+      }
+      qty = need;
+    } else {
+      // Sustaining lane: order-up-to (minDoh + cadence) of cover at its arrival.
+      const cadence = p.cadenceDays ?? 0;
+      qty = (p.minDoh + cadence) * rateAt(p.arrival) - stockAt(p.arrival);
+    }
+    return {
+      modalId: p.modal.id,
+      modalName: p.modal.name,
+      qty: Math.max(0, Math.round(qty)),
+      arrivalOffset: p.arrival,
+    };
+  });
 }

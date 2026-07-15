@@ -6,6 +6,8 @@ import {
   floorAtFactory,
   parseOrderRules,
   suggestModalQuantities,
+  suggestQuantities,
+  type ModalPlan,
 } from './elaboration';
 
 // Deterministic fixtures: stock starts at `start`, declines by `demand`/day (no
@@ -285,5 +287,72 @@ describe('per-pedido rules (7b)', () => {
       airFloorAt: floorAtFactory(75),
     });
     expect(explicit).toEqual(base);
+  });
+});
+
+// N-modal engine (mega-rodada) — generalizes air-bridge/sea-bulk to arbitrary lanes.
+describe('suggestQuantities (N modais)', () => {
+  const plan = (id: string, name: string, leadDays: number, minDoh: number, cadenceDays: number | null, enabled = true): ModalPlan => ({
+    modal: { id, name, leadDays },
+    minDoh,
+    cadenceDays,
+    enabled,
+  });
+
+  it('2 modais reproduzem exatamente suggestModalQuantities (hoje = dia 1º → sem âncora)', () => {
+    // TODAY is the 1st, so the old monthly sea anchor == today → arrivals coincide.
+    const proj = projection(TODAY, 100, 1);
+    const old = suggestModalQuantities({ projection: proj, policy: policy(120, 10), today: TODAY, dohThreshold: 75 });
+    const gen = suggestQuantities({
+      projection: proj,
+      plans: [plan('air', 'Aéreo', 10, 75, null), plan('sea', 'Marítimo', 120, 75, 30)],
+    });
+    const air = gen.find((q) => q.modalId === 'air')!;
+    const sea = gen.find((q) => q.modalId === 'sea')!;
+    expect(air.qty).toBe(old.airQty);
+    expect(sea.qty).toBe(old.seaQty);
+    expect(air.arrivalOffset).toBe(old.airArrival);
+    expect(sea.arrivalOffset).toBe(old.seaArrival);
+  });
+
+  it('3 modais (Courier/Aéreo/Marítimo): cada lane rápida faz a ponte, o mais lento sustenta', () => {
+    const proj = projection(TODAY, 100, 1); // DOH cai 1/dia
+    const gen = suggestQuantities({
+      projection: proj,
+      plans: [
+        plan('courier', 'Courier', 15, 75, null),
+        plan('air', 'Aéreo', 45, 75, null),
+        plan('sea', 'Marítimo', 105, 75, 30),
+      ],
+    });
+    expect(gen.map((q) => q.modalId)).toEqual(['courier', 'air', 'sea']); // ordenado por chegada
+    // Courier bridge [15,45]: deepest (75·rate − stock); no dia 45 stock=55 → 75−55=20.
+    expect(gen[0].qty).toBe(20);
+    // Marítimo (mais lento) faz order-up-to (75+30)=105 de cobertura no dia 105 (stock 0) → 105.
+    expect(gen[2].qty).toBe(105);
+  });
+
+  it('um único modal habilitado = order-up-to (o mais lento é ele mesmo)', () => {
+    const proj = projection(TODAY, 100, 1);
+    const gen = suggestQuantities({ projection: proj, plans: [plan('sea', 'Marítimo', 105, 75, 30)] });
+    expect(gen).toHaveLength(1);
+    expect(gen[0].qty).toBe(105); // (75+30)·1 − 0
+  });
+
+  it('modais desabilitados são ignorados; vazio quando nenhum habilitado', () => {
+    const proj = projection(TODAY, 100, 1);
+    const gen = suggestQuantities({
+      projection: proj,
+      plans: [plan('air', 'Aéreo', 45, 75, null, false), plan('sea', 'Marítimo', 105, 75, 30, true)],
+    });
+    expect(gen.map((q) => q.modalId)).toEqual(['sea']);
+    expect(suggestQuantities({ projection: proj, plans: [plan('air', 'Aéreo', 45, 75, null, false)] })).toEqual([]);
+  });
+
+  it('cadência maior aumenta a quantidade do lane sustentador', () => {
+    const proj = projection(TODAY, 100, 1);
+    const c30 = suggestQuantities({ projection: proj, plans: [plan('sea', 'Marítimo', 105, 75, 30)] })[0].qty;
+    const c60 = suggestQuantities({ projection: proj, plans: [plan('sea', 'Marítimo', 105, 75, 60)] })[0].qty;
+    expect(c60).toBe(c30 + 30); // +30 dias de cobertura a 1 un/dia
   });
 });

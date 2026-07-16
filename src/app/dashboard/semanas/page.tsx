@@ -48,6 +48,8 @@ export default async function SemanasPage({
   // grouped by each at-risk SKU's preferred supplier.
   const prefBySku = Object.fromEntries(preferredSupplierBySku(skuSuppliers));
   const supplierNames = Object.fromEntries(suppliers.map((s) => [s.supplierId, s.name]));
+  // Active suppliers (id + name) for the ephemeral simulation panel's lead-time overrides.
+  const simSuppliers = suppliers.filter((s) => s.active).map((s) => ({ supplierId: s.supplierId, name: s.name }));
 
   return (
     <div>
@@ -59,7 +61,13 @@ export default async function SemanasPage({
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
       <ScopeNotice shown={snap.stocks.length} total={snap.catalogSize} />
 
-      <WeekGridView grids={grids} weeks={weeks} prefBySku={prefBySku} supplierNames={supplierNames} />
+      <WeekGridView
+        grids={grids}
+        weeks={weeks}
+        prefBySku={prefBySku}
+        supplierNames={supplierNames}
+        simSuppliers={simSuppliers}
+      />
     </div>
   );
 }

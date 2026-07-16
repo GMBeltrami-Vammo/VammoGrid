@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Recycle, Flag, Ship, Plane, Truck, ArrowUpRight, type LucideIcon } from 'lucide-react';
+import { Recycle, Flag, Ship, Plane, Truck, ArrowUpRight, FlaskConical, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
+import { simulateWeekGrids } from '@/app/dashboard/semanas/actions';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -49,6 +50,7 @@ export function WeekGridView({
   weeks,
   prefBySku,
   supplierNames,
+  simSuppliers = [],
 }: {
   grids: Record<WeekGridScenario, WeekGrid>;
   weeks: number;
@@ -56,6 +58,8 @@ export function WeekGridView({
   prefBySku?: Record<string, string>;
   /** supplier_id → display name, for the export menu labels. */
   supplierNames?: Record<string, string>;
+  /** Active suppliers (id + name) — rows in the ephemeral simulation panel. */
+  simSuppliers?: { supplierId: string; name: string }[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -74,7 +78,46 @@ export function WeekGridView({
   // Cursor-following hover tooltip (fixed-position so it never clips in the scroll area).
   const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
-  const grid = grids[scenario];
+  // Ephemeral simulation (F6c): recompute the on-page suggestion scenarios with hypothetical
+  // leads (per supplier) + coverage floors (per modal). Never persisted; swaps the grids in
+  // place while active. Cleared whenever fresh server data arrives (new `grids` prop).
+  const [simOpen, setSimOpen] = useState(false);
+  const [simLeads, setSimLeads] = useState<Record<string, { sea: string; air: string }>>({});
+  const [simSeaDoh, setSimSeaDoh] = useState('');
+  const [simAirDoh, setSimAirDoh] = useState('');
+  const [simGrids, setSimGrids] = useState<Record<WeekGridScenario, WeekGrid> | null>(null);
+  const [simError, setSimError] = useState<string | null>(null);
+  const [simPending, startSim] = useTransition();
+  useEffect(() => {
+    setSimGrids(null);
+  }, [grids]);
+
+  const runSim = () => {
+    setSimError(null);
+    const leadBySupplier: Record<string, { seaLead?: number | null; airLead?: number | null }> = {};
+    for (const [sid, v] of Object.entries(simLeads)) {
+      const sea = v.sea.trim() ? Number(v.sea) : null;
+      const air = v.air.trim() ? Number(v.air) : null;
+      if ((sea && sea > 0) || (air && air > 0)) leadBySupplier[sid] = { seaLead: sea, airLead: air };
+    }
+    startSim(async () => {
+      const res = await simulateWeekGrids({
+        weeks,
+        leadBySupplier,
+        seaMinDoh: simSeaDoh.trim() ? Number(simSeaDoh) : null,
+        airMinDoh: simAirDoh.trim() ? Number(simAirDoh) : null,
+      });
+      if (res.ok && res.grids) setSimGrids(res.grids);
+      else setSimError(res.error ?? 'Erro na simulação.');
+    });
+  };
+  const clearSim = () => {
+    setSimGrids(null);
+    setSimError(null);
+  };
+
+  const activeGrids = simGrids ?? grids;
+  const grid = activeGrids[scenario];
 
   const goHorizon = (sem: number) => {
     const params = new URLSearchParams();
@@ -259,6 +302,121 @@ export function WeekGridView({
           {rows.length} SKUs · <span className="font-medium text-alert-error">{totalAtRisk}</span> com ruptura · {criteriaLabel(grid.criteria)}
         </span>
       </div>
+
+      {/* Ephemeral simulation (não salva) — recompute the suggestion scenarios with
+          hypothetical leads + coverage floors. */}
+      {simSuppliers.length > 0 && (
+        <div className="mb-3 rounded-xl bg-card ring-1 ring-foreground/10">
+          <button
+            onClick={() => setSimOpen((o) => !o)}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium hover:bg-muted/30"
+          >
+            <FlaskConical size={14} className="text-muted-foreground" />
+            Simulação (não salva)
+            {simGrids && (
+              <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-600">ativa</span>
+            )}
+            <span className="ml-auto text-xs text-muted-foreground">{simOpen ? 'ocultar' : 'configurar'}</span>
+          </button>
+          {simOpen && (
+            <div className="space-y-3 border-t border-border/60 px-4 py-3">
+              <p className="text-[11px] text-muted-foreground">
+                Recalcula só o &ldquo;com sugestão&rdquo; (aéreo / marítimo / combinado) desta página com leads e pisos
+                hipotéticos. Não afeta Novo Pedido nem Pedidos, e nada é salvo.
+              </p>
+              <div className="space-y-1.5">
+                {simSuppliers.map((s) => {
+                  const v = simLeads[s.supplierId] ?? { sea: '', air: '' };
+                  const setV = (patch: Partial<typeof v>) =>
+                    setSimLeads((p) => ({ ...p, [s.supplierId]: { ...v, ...patch } }));
+                  return (
+                    <div key={s.supplierId} className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="w-32 shrink-0 font-medium">{s.name}</span>
+                      <label className="inline-flex items-center gap-1 text-muted-foreground">
+                        <Ship className="size-3" /> lead marítimo
+                        <input
+                          type="number"
+                          min={1}
+                          value={v.sea}
+                          onChange={(e) => setV({ sea: e.target.value })}
+                          placeholder="105"
+                          className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500"
+                        />
+                      </label>
+                      <label className="inline-flex items-center gap-1 text-muted-foreground">
+                        <Plane className="size-3" /> lead aéreo
+                        <input
+                          type="number"
+                          min={1}
+                          value={v.air}
+                          onChange={(e) => setV({ air: e.target.value })}
+                          placeholder="45"
+                          className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500"
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                <span className="font-medium">Piso de cobertura (DOH):</span>
+                <label className="inline-flex items-center gap-1 text-muted-foreground">
+                  marítimo
+                  <input
+                    type="number"
+                    min={1}
+                    value={simSeaDoh}
+                    onChange={(e) => setSimSeaDoh(e.target.value)}
+                    placeholder="global"
+                    className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1 text-muted-foreground">
+                  aéreo
+                  <input
+                    type="number"
+                    min={1}
+                    value={simAirDoh}
+                    onChange={(e) => setSimAirDoh(e.target.value)}
+                    placeholder="global"
+                    className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                  />
+                </label>
+              </div>
+              {simError && <p className="text-[11px] text-alert-error">{simError}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={runSim}
+                  disabled={simPending}
+                  className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-400 disabled:opacity-50"
+                >
+                  {simPending ? 'Simulando…' : 'Simular'}
+                </button>
+                {simGrids && (
+                  <button
+                    onClick={clearSim}
+                    className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
+                  >
+                    Limpar simulação
+                  </button>
+                )}
+                <span className="text-[11px] text-muted-foreground">
+                  o piso por modal vale para o cenário respectivo; o lead é por fornecedor.
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {simGrids && (
+        <div className="mb-3 rounded-md bg-brand-500/10 px-3 py-2 text-xs text-brand-600">
+          Simulação ativa — a grade abaixo usa leads/pisos hipotéticos (não salvos).{' '}
+          <button onClick={clearSim} className="font-medium underline">
+            Voltar ao real
+          </button>
+        </div>
+      )}
 
       {/* Per-week new-stockout summary — click a tile to filter to the SKUs that first
           rupture that week (toggle off by clicking again or the chip above). */}

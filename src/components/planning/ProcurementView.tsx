@@ -11,6 +11,7 @@ import type { OrderRules } from '@/lib/planning/elaboration';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido } from '@/app/dashboard/pedidos/actions';
 import { groupBySupplier } from '@/lib/planning/supplierGroups';
+import { minDohWithin, projectFromSeed } from '@/lib/planning/miniStrip';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -61,7 +62,10 @@ export function ProcurementView({
   const pathname = usePathname();
   const [search, setSearch] = useState('');
   const [modalFilter, setModalFilter] = useState<ModalFilter>('all');
-  const [dohLt, setDohLt] = useState('');
+  // DOH filter reorganizado: (1) cobertura = horizonte que o filtro enxerga; (2) estoque
+  // mínimo DOH — o SKU aparece se ALGUM dia dentro da cobertura tiver DOH < esse valor.
+  const [covWeeks, setCovWeeks] = useState(16);
+  const [minDohFilter, setMinDohFilter] = useState('');
   const [modal, setModal] = useState<TransportModal>('sea');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [pedidoName, setPedidoName] = useState('');
@@ -138,18 +142,32 @@ export function ProcurementView({
     [supplierId, skusBySupplier],
   );
 
+  // Baseline (registered-orders-only) projection per SKU, re-projected client-side from
+  // the seed — powers both the DOH-over-horizon filter and (later) the mini-heatmap.
+  const baselineBySku = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof projectFromSeed>>();
+    for (const r of rows) m.set(r.suggestion.skuBase, projectFromSeed(r.miniSeed, [], today));
+    return m;
+  }, [rows, today]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const dohMax = dohLt.trim() ? Number(dohLt) : null;
+    const minDoh = minDohFilter.trim() ? Number(minDohFilter) : null;
+    const covDays = covWeeks * 7;
     return rows.filter((r) => {
       const s = r.suggestion;
       if (supplierSkuSet && !supplierSkuSet.has(s.skuBase)) return false;
       if (q && !s.skuBase.toLowerCase().includes(q) && !(s.skuName ?? '').toLowerCase().includes(q)) return false;
       if (modalFilter !== 'all' && s.suggestedModal !== modalFilter) return false;
-      if (dohMax != null && Number.isFinite(dohMax) && !(s.dohNow != null && s.dohNow < dohMax)) return false;
+      if (minDoh != null && Number.isFinite(minDoh)) {
+        // Show only if some day within the coverage horizon dips below the min DOH.
+        const proj = baselineBySku.get(s.skuBase);
+        const lowest = proj ? minDohWithin(proj, covDays) : null;
+        if (lowest == null || lowest >= minDoh) return false;
+      }
       return true;
     });
-  }, [rows, search, modalFilter, dohLt, supplierSkuSet]);
+  }, [rows, search, modalFilter, minDohFilter, covWeeks, supplierSkuSet, baselineBySku]);
 
   // Only the chosen supplier's SKUs enter the order (independent of the transient
   // search/modal/DOH filters, which shouldn't drop already-selected lines).
@@ -547,15 +565,28 @@ export function ProcurementView({
           </button>
         ))}
 
-        {/* DOH-less-than filter */}
+        {/* DOH filter: cobertura (horizonte) + estoque mínimo DOH */}
         <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-          DOH &lt;
+          Cobertura
+          <select
+            value={covWeeks}
+            onChange={(e) => setCovWeeks(Number(e.target.value))}
+            className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500"
+          >
+            {[4, 8, 12, 16, 20].map((w) => (
+              <option key={w} value={w}>{w} sem</option>
+            ))}
+          </select>
+        </label>
+        <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          Estoque mín. DOH &lt;
           <input
             type="number"
             min={0}
-            value={dohLt}
-            onChange={(e) => setDohLt(e.target.value)}
+            value={minDohFilter}
+            onChange={(e) => setMinDohFilter(e.target.value)}
             placeholder="—"
+            title="Mostra o SKU se algum dia dentro da cobertura tiver DOH abaixo deste valor"
             className="h-8 w-16 rounded-md border border-border bg-card px-2 text-right text-xs tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
           />
         </label>

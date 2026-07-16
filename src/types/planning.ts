@@ -148,6 +148,8 @@ export interface OpenPurchaseOrder {
   /** POs land at Osasco by default. */
   hubId: HubId;
   source: string;
+  /** 'nacional' | 'internacional' | null — a national arrival is flagged in the heatmap. */
+  orderType: string | null;
 }
 
 /** A draft order (elaborado/enviado) is not yet real inbound; only placed orders
@@ -232,6 +234,9 @@ export interface WeekCell {
   arrVos: string[];
   /** Recovered units credited during the week. */
   recovery: number;
+  /** Registered NATIONAL (nacional) arrivals this week — flagged with its own marker
+   *  (national emergency purchases, distinct from the international default). */
+  arrNat: number;
   isOut: boolean;
   isLow: boolean;
   /** True once this week is past the model's real forecast horizon (extrapolated). */

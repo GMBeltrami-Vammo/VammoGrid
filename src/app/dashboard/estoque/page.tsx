@@ -110,7 +110,7 @@ export default async function EstoquePage({
       return {
         id: `sug-${m}`, vo: null, skuCode: selected, skuBase: selected, skuName: selStock.skuName,
         qty, orderDate: addDays(inputs.today, Math.max(0, off - lead)), eta: addDays(inputs.today, off),
-        leadTimeDays: lead, modal: m, status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'scenario',
+        leadTimeDays: lead, modal: m, status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'scenario', orderType: null,
       };
     };
     const sugOrders: OpenPurchaseOrder[] = [];

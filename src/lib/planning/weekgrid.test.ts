@@ -109,6 +109,7 @@ function po(
     prepStatus: null,
     hubId: 'osasco',
     source: 'test',
+    orderType: null,
     ...over,
   };
 }

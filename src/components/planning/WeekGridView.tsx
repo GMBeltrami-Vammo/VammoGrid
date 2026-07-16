@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Recycle, Flag, Ship, Plane, Truck, ArrowUpRight, FlaskConical, type LucideIcon } from 'lucide-react';
+import { Recycle, Flag, Ship, Plane, Truck, ArrowUpRight, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
@@ -583,6 +583,11 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
           <Recycle className="size-3" /> Recuperação: +{fmtInt(cell.recovery)} un
         </div>
       )}
+      {cell.arrNat > 0 && (
+        <div className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+          <Landmark className="size-3" /> Inclui {fmtInt(cell.arrNat)} un de compra nacional
+        </div>
+      )}
       {row.buyByWeekIdx === week.idx && (
         <div className="font-medium text-[color:var(--color-alert-warning)]">Comprar até esta semana</div>
       )}
@@ -695,7 +700,7 @@ function GridRow({
                 <span className="block text-[10px] opacity-70">{fmtInt(c.stock)}</span>
               </>
             )}
-            {(c.inboundSea > 0 || c.inboundAir > 0 || c.recovery > 0) && (
+            {(c.inboundSea > 0 || c.inboundAir > 0 || c.recovery > 0 || c.arrNat > 0) && (
               <span className="flex flex-wrap items-center justify-center gap-x-1 text-[9px] font-medium opacity-90">
                 {c.inboundSea > 0 && (
                   <span className="inline-flex items-center gap-0.5 text-[color:var(--color-alert-info)]" title="Chegada marítima">
@@ -713,6 +718,14 @@ function GridRow({
                   <span className="inline-flex items-center gap-0.5">
                     <Recycle className="size-2.5" />
                     {fmtInt(c.recovery)}
+                  </span>
+                )}
+                {c.arrNat > 0 && (
+                  <span
+                    className="inline-flex items-center text-amber-600 dark:text-amber-400"
+                    title={`Inclui ${fmtInt(c.arrNat)} un de compra nacional`}
+                  >
+                    <Landmark className="size-2.5" />
                   </span>
                 )}
               </span>
@@ -753,6 +766,9 @@ function Legend({ criteria }: { criteria: PurchaseCriteria }) {
       </span>
       <span className="flex items-center gap-1.5 text-brand-600">
         <Recycle className="size-3" /> Recuperação (entrada de peças) <InfoHint id="recovery-line" />
+      </span>
+      <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+        <Landmark className="size-3" /> Chegada nacional
       </span>
       <span className="flex items-center gap-1.5">
         <Flag className="size-3 text-alert-warning" /> Semana-limite de compra <InfoHint id="buy-by-week" />

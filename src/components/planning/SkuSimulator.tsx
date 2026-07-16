@@ -75,6 +75,7 @@ export function SkuSimulator({
               prepStatus: null,
               hubId: 'osasco',
               source: 'sim',
+              orderType: null,
             },
           ]
         : orders;

@@ -111,6 +111,23 @@ function registeredKeysByWeek(orders: OpenPurchaseOrder[], weeks: WeekMeta[], to
   return out;
 }
 
+/** Per-week NATIONAL (nacional) arriving units, from the registered orders — flagged
+ *  separately in the heatmap (national emergency purchases vs the international default). */
+function nationalArrivalsByWeek(orders: OpenPurchaseOrder[], weeks: WeekMeta[], today: string): number[] {
+  const out = weeks.map(() => 0);
+  for (const o of orders) {
+    if (o.orderType !== 'nacional') continue;
+    if (!OPEN_STATUSES.has(o.status)) continue;
+    if (!countsAsInbound(o.prepStatus)) continue;
+    const arrival = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
+    if (!arrival) continue;
+    const wi = weekIndexFor(diffDays(today, arrival), weeks.length);
+    if (wi === -1) continue;
+    out[wi] += o.qty;
+  }
+  return out;
+}
+
 type ModalSplit = { sea: number; air: number }[];
 
 /** Sample one scope's projection timeline into per-week cells. `arrReg`/`arrSug` are the
@@ -125,6 +142,7 @@ function sampleCells(
   arrReg: ModalSplit,
   arrSug: ModalSplit,
   arrVosByWeek: string[][],
+  natArr: number[],
 ): WeekCell[] {
   return weeks.map((w, wi) => {
     const end = proj.timeline[w.dayOffset];
@@ -157,6 +175,7 @@ function sampleCells(
       arrSug: { sea: Math.round(sug.sea), air: Math.round(sug.air) },
       arrVos: arrVosByWeek[wi] ?? [],
       recovery: Math.round(recovery),
+      arrNat: Math.round(natArr[wi] ?? 0),
       isOut: stock <= 0,
       isLow,
       extrapolated: w.dayOffset > MODEL_HORIZON_DAYS,
@@ -288,6 +307,7 @@ function whenNeededInjection(args: {
       prepStatus: null, // a what-if arrival counts as inbound in the projection
       hubId: 'osasco',
       source: 'scenario',
+      orderType: null, // suggested arrivals are the international default, never national
     };
     injected.push(ord);
     orders.push(ord);
@@ -324,6 +344,7 @@ interface SkuWeekContext {
   baseProj: SkuProjections;
   regArrivals: ModalSplit;
   regKeys: string[][];
+  natArrivals: number[];
   meta: Omit<WeekGridRow, 'cells'>;
   baselineRows: ScopeRows;
 }
@@ -337,6 +358,7 @@ interface SharedGridContext {
   projectionHorizon: number;
   noArrivals: ModalSplit;
   noKeys: string[][];
+  noNat: number[];
   contexts: SkuWeekContext[];
 }
 
@@ -346,7 +368,7 @@ function rowsForProjection(
   proj: SkuProjections,
   sugArrivals: ModalSplit,
 ): ScopeRows {
-  const { weeks, criteria, noArrivals, noKeys } = shared;
+  const { weeks, criteria, noArrivals, noKeys, noNat } = shared;
   const rowFor = (p: StockProjection, hasArrivals: boolean, scopeRop: number): WeekGridRow => ({
     ...ctx.meta,
     cells: sampleCells(
@@ -357,6 +379,7 @@ function rowsForProjection(
       hasArrivals ? ctx.regArrivals : noArrivals,
       hasArrivals ? sugArrivals : noArrivals,
       hasArrivals ? ctx.regKeys : noKeys,
+      hasArrivals ? ctx.natArrivals : noNat,
     ),
   });
   const byHub = {} as Record<HubId, WeekGridRow>;
@@ -395,6 +418,7 @@ function buildSharedContext(args: {
   ];
   const noArrivals: ModalSplit = weeks.map(() => ({ sea: 0, air: 0 }));
   const noKeys: string[][] = weeks.map(() => []);
+  const noNat: number[] = weeks.map(() => 0);
 
   const purchaseBySku = new Map(args.purchases.map((p) => [p.skuBase, p]));
   const shared: SharedGridContext = {
@@ -406,6 +430,7 @@ function buildSharedContext(args: {
     projectionHorizon,
     noArrivals,
     noKeys,
+    noNat,
     contexts: [],
   };
 
@@ -461,6 +486,7 @@ function buildSharedContext(args: {
       baseProj,
       regArrivals: modalArrivalsByWeek(baseOrders, weeks, today),
       regKeys: registeredKeysByWeek(baseOrders, weeks, today),
+      natArrivals: nationalArrivalsByWeek(baseOrders, weeks, today),
       meta,
       baselineRows: undefined as unknown as ScopeRows, // set right below
     };

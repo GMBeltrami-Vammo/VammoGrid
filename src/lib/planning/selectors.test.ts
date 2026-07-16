@@ -58,8 +58,8 @@ describe('computeHubRisk', () => {
 describe('delayedShipments', () => {
   it('returns only overdue open POs with days-late', () => {
     const orders: OpenPurchaseOrder[] = [
-      { id: '1', vo: 'A', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, -5), leadTimeDays: 10, modal: 'sea', status: 'ordered', prepStatus: null, hubId: 'osasco', source: 't' },
-      { id: '2', vo: 'B', skuCode: 'Y', skuBase: 'Y', skuName: 'Y', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea', status: 'ordered', prepStatus: null, hubId: 'osasco', source: 't' },
+      { id: '1', vo: 'A', skuCode: 'X', skuBase: 'X', skuName: 'X', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, -5), leadTimeDays: 10, modal: 'sea', status: 'ordered', prepStatus: null, hubId: 'osasco', source: 't', orderType: null },
+      { id: '2', vo: 'B', skuCode: 'Y', skuBase: 'Y', skuName: 'Y', qty: 50, orderDate: '2026-01-01', eta: addDays(TODAY, 10), leadTimeDays: 10, modal: 'sea', status: 'ordered', prepStatus: null, hubId: 'osasco', source: 't', orderType: null },
     ];
     const purchases = new Map<string, PurchaseSuggestion>([
       ['X', { skuBase: 'X', status: 'CRITICAL' } as PurchaseSuggestion],

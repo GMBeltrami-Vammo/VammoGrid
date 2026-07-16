@@ -26,6 +26,7 @@ export interface PoRow {
   lead_time_days: number | null;
   status: string;
   modal: string | null;
+  order_type: string | null;
   hub_id: string;
   notes: string | null;
   source: string;
@@ -66,6 +67,7 @@ export async function fetchOpenOrders(): Promise<OpenPurchaseOrder[]> {
       prepStatus: (r.prep_status as PrepStatus | null) ?? null,
       hubId: (r.hub_id as HubId) ?? 'osasco',
       source: r.source ?? 'manual',
+      orderType: r.order_type ?? null,
     }));
   } catch (e) {
     console.error('[fetchOpenOrders]', e instanceof Error ? e.message : e);

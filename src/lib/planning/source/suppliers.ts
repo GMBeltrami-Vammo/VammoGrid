@@ -27,6 +27,7 @@ interface SkuSupplierRow {
   supplier_id: string;
   is_preferred: boolean | number;
   priority: number;
+  supplier_part_number: string | null;
   updated_at: string;
   updated_by: string | null;
 }

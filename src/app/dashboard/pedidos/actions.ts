@@ -82,6 +82,8 @@ export interface NewPedidoLine {
    *  the order-wide `modal` when absent (import flow). Free string — the engine is
    *  modal-agnostic (timing comes from leadDays), so any label is valid. */
   modal?: string | null;
+  /** Supplier's part number for this item (Notas P3); recorded on the line. */
+  partNumber?: string | null;
   /** Frozen elaboration basis for this line (review item 8). */
   suggestedQty?: number;
   suggestedModal?: string | null;
@@ -149,6 +151,7 @@ export async function createPedido(input: {
       lead_time_days: Math.max(0, Math.round(l.leadDays)),
       status: 'ordered',
       modal: l.modal ?? input.modal ?? null,
+      part_number: l.partNumber?.trim() || null,
       hub_id: 'osasco',
       notes: null,
       source: input.source ?? 'elaboracao',

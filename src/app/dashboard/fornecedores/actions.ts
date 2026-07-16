@@ -175,7 +175,7 @@ export async function deleteSupplierModal(
 export async function linkSkuSupplier(
   skuBase: string,
   supplierId: string,
-  opts?: { isPreferred?: boolean; priority?: number },
+  opts?: { isPreferred?: boolean; priority?: number; partNumber?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const email = await requireHead();
@@ -191,8 +191,35 @@ export async function linkSkuSupplier(
         supplier_id: supplierId,
         is_preferred: opts?.isPreferred ?? Boolean(current?.is_preferred) ?? false,
         priority: opts?.priority ?? Number(current?.priority ?? 0),
+        supplier_part_number:
+          opts?.partNumber !== undefined ? opts.partNumber?.trim() || null : (current?.supplier_part_number ?? null),
         updated_by: email,
       },
+      changedBy: email,
+    });
+    updateTag('suppliers');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Erro desconhecido' };
+  }
+}
+
+/** Edit just the supplier's part number on an existing SKU↔supplier link (Notas P3). */
+export async function setSupplierPartNumber(
+  skuBase: string,
+  supplierId: string,
+  partNumber: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const email = await requireHead();
+    const current = await readFleetRow<Row>(FLEET_TABLES.skuSupplier, { sku_base: skuBase, supplier_id: supplierId });
+    if (!current) return { ok: false, error: 'Vínculo não encontrado.' };
+    await upsertFleetRow({
+      table: FLEET_TABLES.skuSupplier,
+      entityType: 'sku_supplier',
+      entityId: `${skuBase}|${supplierId}`,
+      current,
+      next: { ...current, supplier_part_number: partNumber?.trim() || null, updated_by: email },
       changedBy: email,
     });
     updateTag('suppliers');

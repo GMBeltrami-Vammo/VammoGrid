@@ -40,6 +40,7 @@ export function mapPurchaseOrderRow(row: Record<string, any>): PurchaseOrder {
     elaborationSnapshot: row.elaboration_snapshot ?? null,
     supplierId: row.supplier_id ?? null,
     supplierName: row.supplier_name ?? null,
+    partNumber: row.part_number ?? null,
     createdAt: String(row.created_at ?? ''),
     updatedAt: String(row.updated_at ?? ''),
   };
@@ -96,6 +97,7 @@ export function mapSkuSupplierRow(row: Record<string, any>): SkuSupplier {
     supplierId: String(row.supplier_id),
     isPreferred: Boolean(row.is_preferred),
     priority: Number(row.priority) || 0,
+    supplierPartNumber: row.supplier_part_number ?? null,
     updatedAt: String(row.updated_at ?? ''),
     updatedBy: row.updated_by ?? null,
   };

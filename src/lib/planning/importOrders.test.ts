@@ -22,7 +22,7 @@ describe('toIsoDate', () => {
 describe('parseImportRows', () => {
   it('reads sku + quantidade with the canonical headers', () => {
     const r = parseImportRows([{ sku: 'VM-01-CAR0-3501', quantidade: 120 }], OPTS);
-    expect(r.lines).toEqual([{ skuBase: 'VM-01-CAR0-3501', skuName: null, qty: 120, leadDays: 40 }]);
+    expect(r.lines).toEqual([{ skuBase: 'VM-01-CAR0-3501', skuName: null, qty: 120, leadDays: 40, partNumber: null }]);
     expect(r.skipped).toBe(0);
   });
 
@@ -32,7 +32,7 @@ describe('parseImportRows', () => {
       OPTS,
     );
     expect(r.lines).toEqual([
-      { skuBase: 'VM-01-FRE0-1010', skuName: 'Pastilha', qty: 15, leadDays: 30 },
+      { skuBase: 'VM-01-FRE0-1010', skuName: 'Pastilha', qty: 15, leadDays: 30, partNumber: null },
     ]);
   });
 
@@ -62,7 +62,7 @@ describe('parseImportRows', () => {
       ],
       OPTS,
     );
-    expect(r.lines).toEqual([{ skuBase: 'C', skuName: null, qty: 7, leadDays: 40 }]);
+    expect(r.lines).toEqual([{ skuBase: 'C', skuName: null, qty: 7, leadDays: 40, partNumber: null }]);
     expect(r.skipped).toBe(3);
     expect(r.warnings).toHaveLength(3);
     // row numbering is 1-based + header row
@@ -96,9 +96,19 @@ describe('parseWorkbook (Vammo PO template — Dagster parity)', () => {
     expect(r.orderDate).toBe('2026-08-01');
     expect(r.poNumber).toBe('276.1');
     expect(r.lines).toEqual([
-      { skuBase: 'VM-01-CAR0-3501', skuName: 'Paralama traseiro', qty: 120, leadDays: 45 },
-      { skuBase: 'VM-01-FRE0-1010', skuName: 'Pastilha', qty: 15, leadDays: 45 }, // rounded, uppercased
+      { skuBase: 'VM-01-CAR0-3501', skuName: 'Paralama traseiro', qty: 120, leadDays: 45, partNumber: null },
+      { skuBase: 'VM-01-FRE0-1010', skuName: 'Pastilha', qty: 15, leadDays: 45, partNumber: null }, // rounded, uppercased
     ]);
+  });
+
+  it('reads the PART NUMBER column when present (Notas P3)', () => {
+    const grid: CellGrid = [
+      ['ITEM NO.', 'SKU VAMMO', 'DESCRIPTION', 'PART NUMBER', 'QTY'],
+      [1, 'VM-01-CAR0-3501', 'Paralama', 'PN-778', 120],
+      [2, 'VM-01-FRE0-1010', 'Pastilha', null, 15],
+    ];
+    const r = parseWorkbook([grid], { defaultLeadDays: 45 });
+    expect(r.lines.map((l) => l.partNumber)).toEqual(['PN-778', null]);
   });
 
   it('stops at the first fully blank row (ignores totals/notes below)', () => {

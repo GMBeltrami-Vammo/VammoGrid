@@ -7,6 +7,7 @@ const link = (skuBase: string, supplierId: string, isPreferred = false, priority
   supplierId,
   isPreferred,
   priority,
+  supplierPartNumber: null,
   updatedAt: '',
   updatedBy: null,
 });

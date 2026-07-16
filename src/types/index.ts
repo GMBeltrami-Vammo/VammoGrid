@@ -56,6 +56,8 @@ export interface PurchaseOrder {
   /** Fornecedor vinculado ao pedido (review 4b); null quando não atribuído. */
   supplierId: string | null;
   supplierName: string | null;
+  /** Part number do fornecedor para o item (Notas P3); null quando desconhecido. */
+  partNumber: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,6 +107,8 @@ export interface SkuSupplier {
   supplierId: string;
   isPreferred: boolean;
   priority: number;
+  /** The supplier's own catalog code for this SKU (Notas P3) — carried onto the pedido. */
+  supplierPartNumber: string | null;
   updatedAt: string;
   updatedBy: string | null;
 }

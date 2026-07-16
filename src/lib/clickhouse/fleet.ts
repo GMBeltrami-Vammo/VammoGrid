@@ -225,6 +225,7 @@ const DDL: string[] = [
     supplier_id String,
     is_preferred Bool DEFAULT false,
     priority Int32 DEFAULT 0,
+    supplier_part_number Nullable(String),
     updated_by Nullable(String),
     updated_at DateTime64(3) DEFAULT now64(3),
     is_deleted Bool DEFAULT false
@@ -264,6 +265,10 @@ const MIGRATIONS: string[] = [
   // fornecedor preferido; sem fornecedor, cai no lead do próprio SKU.
   `ALTER TABLE ${FLEET_TABLES.supplier} ADD COLUMN IF NOT EXISTS lead_time_sea_days Nullable(Int32)`,
   `ALTER TABLE ${FLEET_TABLES.supplier} ADD COLUMN IF NOT EXISTS lead_time_air_days Nullable(Int32)`,
+  // Notas P3: part number do fornecedor no vínculo SKU↔fornecedor (código do item no
+  // catálogo do fornecedor) + no pedido (a linha carrega o part number usado).
+  `ALTER TABLE ${FLEET_TABLES.skuSupplier} ADD COLUMN IF NOT EXISTS supplier_part_number Nullable(String)`,
+  `ALTER TABLE ${FLEET_TABLES.purchaseOrder} ADD COLUMN IF NOT EXISTS part_number Nullable(String)`,
 ];
 
 /** Idempotent — safe to call on every cold start; CREATE TABLE IF NOT EXISTS + ALTERs.

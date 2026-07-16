@@ -105,6 +105,7 @@ export function ImportPedidoDialog({
           skuName: l.skuName,
           qty: l.qty,
           leadDays: defaultLead,
+          partNumber: l.partNumber,
         })),
       });
       if (res.ok) onDone();
@@ -204,6 +205,7 @@ export function ImportPedidoDialog({
                 <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                   <th className="px-3 py-1.5 font-medium">SKU</th>
                   <th className="px-3 py-1.5 font-medium">Item</th>
+                  <th className="px-3 py-1.5 font-medium">P/N fornecedor</th>
                   <th className="px-3 py-1.5 text-right font-medium">Qtd</th>
                   <th className="px-3 py-1.5 text-right font-medium">Lead (d)</th>
                 </tr>
@@ -213,6 +215,7 @@ export function ImportPedidoDialog({
                   <tr key={`${l.skuBase}-${i}`} className="hover:bg-muted/20">
                     <td className="px-3 py-1.5 font-mono text-xs">{l.skuBase}</td>
                     <td className="px-3 py-1.5 text-xs text-muted-foreground">{l.skuName ?? '—'}</td>
+                    <td className="px-3 py-1.5 text-xs text-muted-foreground">{l.partNumber ?? '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{fmtInt(l.qty)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{l.leadDays}</td>
                   </tr>

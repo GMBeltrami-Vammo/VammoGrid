@@ -12,6 +12,8 @@ export interface ParsedImportLine {
   qty: number;
   /** Days from the (header) order date to arrival — from the row's lead/eta, else default. */
   leadDays: number;
+  /** Supplier part number read from the template's PART NUMBER column (Notas P3). */
+  partNumber: string | null;
 }
 
 export interface ImportParseResult {
@@ -21,12 +23,13 @@ export interface ImportParseResult {
 }
 
 // Canonical field → accepted header names (normalized: lowercased, spaces→_, dots dropped).
-const ALIASES: Record<'sku' | 'qty' | 'name' | 'eta' | 'lead', string[]> = {
+const ALIASES: Record<'sku' | 'qty' | 'name' | 'eta' | 'lead' | 'part', string[]> = {
   sku: ['sku', 'sku_base', 'skubase', 'codigo', 'cod', 'item', 'item_code'],
   qty: ['quantidade', 'qtd', 'qtde', 'qty', 'quantity'],
   name: ['nome_item', 'nome', 'descricao', 'item_name', 'name'],
   eta: ['eta', 'chegada', 'previsao', 'data_eta'],
   lead: ['lead_dias', 'lead', 'lead_time', 'lead_time_days', 'prazo', 'prazo_dias'],
+  part: ['part_number', 'partnumber', 'part_no', 'pn', 'codigo_fornecedor', 'part'],
 };
 
 function norm(s: string): string {
@@ -122,6 +125,7 @@ export function parseImportRows(
       skuName: f.name != null && String(f.name).trim() !== '' ? String(f.name).trim() : null,
       qty,
       leadDays,
+      partNumber: f.part != null && String(f.part).trim() !== '' ? String(f.part).trim() : null,
     });
   });
 
@@ -305,6 +309,7 @@ export function parseWorkbook(
       skuName: isBlankCell(name) ? null : String(name).trim(),
       qty,
       leadDays: defLead,
+      partNumber: isBlankCell(part) ? null : String(part).trim(),
     });
   }
 

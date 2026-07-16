@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Star, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import type { SkuSupplier, Supplier } from '@/types';
 import {
   linkSkuSupplier,
   setPreferredSupplier,
+  setSupplierPartNumber,
   unlinkSkuSupplier,
 } from '@/app/dashboard/fornecedores/actions';
 
@@ -80,6 +81,11 @@ export function SupplierLinksPanel({
                   </span>
                 )}
                 {l.isPreferred && <span className="text-[11px] text-[color:var(--color-alert-warning)]">preferido</span>}
+                <PartNumberField
+                  value={l.supplierPartNumber}
+                  isHead={isHead}
+                  onSave={(pn) => run(() => setSupplierPartNumber(skuBase, l.supplierId, pn))}
+                />
                 {isHead && (
                   <button
                     onClick={() => run(() => unlinkSkuSupplier(skuBase, l.supplierId))}
@@ -130,5 +136,38 @@ export function SupplierLinksPanel({
         </p>
       )}
     </div>
+  );
+}
+
+// Inline supplier part-number field for a link: read-only chip for non-Heads; an input
+// that saves on blur/Enter (only when changed) for Heads (Notas P3).
+function PartNumberField({
+  value,
+  isHead,
+  onSave,
+}: {
+  value: string | null;
+  isHead: boolean;
+  onSave: (partNumber: string | null) => void;
+}) {
+  const [v, setV] = useState(value ?? '');
+  useEffect(() => setV(value ?? ''), [value]);
+  if (!isHead) {
+    return value ? <span className="text-[11px] text-muted-foreground">P/N: {value}</span> : null;
+  }
+  return (
+    <input
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => {
+        if ((v.trim() || null) !== (value ?? null)) onSave(v.trim() || null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      }}
+      placeholder="P/N fornecedor"
+      title="Part number do fornecedor para este SKU"
+      className="h-6 w-32 rounded border border-border bg-background px-1.5 text-[11px] outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+    />
   );
 }

@@ -27,6 +27,7 @@ export interface PoRow {
   status: string;
   modal: string | null;
   order_type: string | null;
+  part_number: string | null;
   hub_id: string;
   notes: string | null;
   source: string;

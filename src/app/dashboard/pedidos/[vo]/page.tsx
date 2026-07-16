@@ -58,6 +58,7 @@ export default async function PedidoDetailPage({
   const status = group[0].status;
   const eta = group.map((o) => o.eta).filter(Boolean).sort()[0] ?? null;
   const orderDate = group.map((o) => o.orderDate).filter(Boolean).sort()[0] ?? null;
+  const showPn = group.some((o) => o.partNumber); // supplier part number column (Notas P3)
 
   // Frozen elaboration basis (item 8) — present on pedidos created via the builder.
   const snapshots = new Map<string, LineSnapshot>();
@@ -185,6 +186,7 @@ export default async function PedidoDetailPage({
             <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2.5 font-medium">SKU</th>
               <th className="px-3 py-2.5 font-medium">Item</th>
+              {showPn && <th className="px-3 py-2.5 font-medium">P/N forn.</th>}
               <th className="px-3 py-2.5 text-right font-medium">Qtd</th>
               <th className="px-3 py-2.5 font-medium">ETA</th>
               <th className="px-3 py-2.5 font-medium">Base</th>
@@ -204,6 +206,7 @@ export default async function PedidoDetailPage({
                   </Link>
                 </td>
                 <td className="max-w-[220px] truncate px-3 py-2 text-muted-foreground">{o.skuName ?? '—'}</td>
+                {showPn && <td className="px-3 py-2 text-xs text-muted-foreground">{o.partNumber ?? '—'}</td>}
                 <td className="px-3 py-2 text-right tabular-nums">{fmtInt(o.qtyOrdered)}</td>
                 <td className="px-3 py-2 tabular-nums text-xs">{o.eta ? fmtDate(o.eta) : '—'}</td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">{o.hubId}</td>

@@ -40,6 +40,10 @@ export default async function ProcurementPage({
       leadTimeAirDays: s.leadTimeAirDays,
     }));
   const prefBySku = Object.fromEntries(preferredSupplierBySku(skuSuppliers));
+  // All SKUs linked to each supplier (not just preferred) — the builder narrows to the
+  // chosen supplier's SKUs.
+  const skusBySupplier: Record<string, string[]> = {};
+  for (const l of skuSuppliers) (skusBySupplier[l.supplierId] ??= []).push(l.skuBase);
 
   const total = rows.length;
   const late = rows.filter((r) => r.suggestion.isLate).length;
@@ -77,6 +81,7 @@ export default async function ProcurementPage({
             forecastAsOf={result.asOfDate}
             suppliers={activeSuppliers}
             prefBySku={prefBySku}
+            skusBySupplier={skusBySupplier}
           />
         </>
       )}

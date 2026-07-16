@@ -22,7 +22,7 @@ export default async function SemanasPage({
   if (snap.stocks.length === 0) {
     return (
       <div>
-        <PageHeader eyebrow="Semanas" title="Heatmap semanal" />
+        <PageHeader eyebrow="Projeção Global" title="Projeção Global" />
         <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
         <EmptyState title="Sem dados" hint="Configure a fonte de dados para gerar o heatmap semanal." />
       </div>
@@ -40,8 +40,8 @@ export default async function SemanasPage({
   return (
     <div>
       <PageHeader
-        eyebrow="Semanas"
-        title="Heatmap semanal"
+        eyebrow="Projeção Global"
+        title="Projeção Global"
         subtitle="Estoque projetado por SKU e semana. Base = só pedidos já registrados; os cenários simulam comprar QUANDO NECESSÁRIO via aéreo, marítimo ou o melhor dos dois (combinado)."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />

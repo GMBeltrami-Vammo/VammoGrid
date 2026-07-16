@@ -64,7 +64,7 @@ export function Sidebar() {
           />
           <NavLink
             href="/dashboard/semanas"
-            label="Semanas"
+            label="Projeção Global"
             icon={CalendarRange}
             active={isActive('/dashboard/semanas')}
           />

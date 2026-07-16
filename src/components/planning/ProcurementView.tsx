@@ -39,6 +39,7 @@ export function ProcurementView({
   forecastAsOf,
   suppliers = [],
   prefBySku = {},
+  skusBySupplier = {},
 }: {
   rows: ElaborationRow[];
   isHead: boolean;
@@ -53,6 +54,8 @@ export function ProcurementView({
   suppliers?: SupplierOption[];
   /** skuBase → preferred supplier_id (review 4b) — drives the per-supplier split. */
   prefBySku?: Record<string, string>;
+  /** supplier_id → all linked sku_bases — the builder shows only the chosen supplier's SKUs. */
+  skusBySupplier?: Record<string, string[]>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -129,19 +132,33 @@ export function ProcurementView({
   const [createdVo, setCreatedVo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // When a supplier is chosen, the builder shows ONLY that supplier's linked SKUs.
+  const supplierSkuSet = useMemo(
+    () => (supplierId ? new Set(skusBySupplier[supplierId] ?? []) : null),
+    [supplierId, skusBySupplier],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const dohMax = dohLt.trim() ? Number(dohLt) : null;
     return rows.filter((r) => {
       const s = r.suggestion;
+      if (supplierSkuSet && !supplierSkuSet.has(s.skuBase)) return false;
       if (q && !s.skuBase.toLowerCase().includes(q) && !(s.skuName ?? '').toLowerCase().includes(q)) return false;
       if (modalFilter !== 'all' && s.suggestedModal !== modalFilter) return false;
       if (dohMax != null && Number.isFinite(dohMax) && !(s.dohNow != null && s.dohNow < dohMax)) return false;
       return true;
     });
-  }, [rows, search, modalFilter, dohLt]);
+  }, [rows, search, modalFilter, dohLt, supplierSkuSet]);
 
-  const selectedRows = rows.filter((r) => included.has(r.suggestion.skuBase) && (qtys[r.suggestion.skuBase] ?? 0) > 0);
+  // Only the chosen supplier's SKUs enter the order (independent of the transient
+  // search/modal/DOH filters, which shouldn't drop already-selected lines).
+  const selectedRows = rows.filter(
+    (r) =>
+      included.has(r.suggestion.skuBase) &&
+      (qtys[r.suggestion.skuBase] ?? 0) > 0 &&
+      (!supplierSkuSet || supplierSkuSet.has(r.suggestion.skuBase)),
+  );
   const selectedCount = selectedRows.length;
   const selectedUnits = selectedRows.reduce((s, r) => s + (qtys[r.suggestion.skuBase] ?? 0), 0);
 

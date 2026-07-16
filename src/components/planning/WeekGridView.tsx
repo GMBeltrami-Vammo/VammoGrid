@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Recycle, Flag, Ship, Plane, Truck, type LucideIcon } from 'lucide-react';
+import { Recycle, Flag, Ship, Plane, Truck, ArrowUpRight, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
@@ -47,9 +47,15 @@ function criteriaLabel(c: PurchaseCriteria): string {
 export function WeekGridView({
   grids,
   weeks,
+  prefBySku,
+  supplierNames,
 }: {
   grids: Record<WeekGridScenario, WeekGrid>;
   weeks: number;
+  /** skuBase → preferred supplier_id — groups the "exportar → Novo Pedido" suggestion. */
+  prefBySku?: Record<string, string>;
+  /** supplier_id → display name, for the export menu labels. */
+  supplierNames?: Record<string, string>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -119,6 +125,31 @@ export function WeekGridView({
 
   const totalAtRisk = useMemo(() => allRows.filter((r) => r.cells.some((c) => c.isOut)).length, [allRows]);
 
+  // "Exportar sugestão → Novo Pedido": the SKUs at risk in the CURRENT view (rupture or
+  // below floor), grouped by preferred supplier — each group deep-links to the builder
+  // with that supplier + SKUs preselected (the builder recomputes qty from the real leads).
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportGroups = useMemo(() => {
+    if (!prefBySku) return { groups: [] as { supplierId: string; name: string; skus: string[] }[], noSupplier: 0 };
+    const bySup = new Map<string, string[]>();
+    let noSupplier = 0;
+    for (const r of rows) {
+      if (!r.cells.some((c) => c.isOut || c.isLow)) continue;
+      const sid = prefBySku[r.skuBase];
+      if (!sid) {
+        noSupplier++;
+        continue;
+      }
+      const arr = bySup.get(sid) ?? [];
+      arr.push(r.skuBase);
+      bySup.set(sid, arr);
+    }
+    const groups = [...bySup.entries()]
+      .map(([supplierId, skus]) => ({ supplierId, name: supplierNames?.[supplierId] ?? supplierId, skus }))
+      .sort((a, b) => b.skus.length - a.skus.length);
+    return { groups, noSupplier };
+  }, [rows, prefBySku, supplierNames]);
+
   return (
     <div className={cn('rounded-xl bg-card p-4 ring-1 ring-foreground/10', navPending && 'opacity-60')}>
       {/* Row 1: scope + search + units */}
@@ -135,7 +166,45 @@ export function WeekGridView({
           onChange={(e) => setSearch(e.target.value)}
           className="h-8 w-40 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex items-center gap-1">
+          {prefBySku && exportGroups.groups.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen((o) => !o)}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                  exportOpen ? 'bg-brand-500/20 text-brand-600' : 'text-brand-600 hover:bg-brand-500/10',
+                )}
+              >
+                <ArrowUpRight className="size-3" /> Exportar → Novo Pedido
+              </button>
+              {exportOpen && (
+                <div className="absolute right-0 z-30 mt-1 w-72 rounded-lg border border-border bg-popover p-2 shadow-lg">
+                  <p className="px-1 pb-1 text-[10px] text-muted-foreground">
+                    SKUs em risco (nesta visão) por fornecedor preferido:
+                  </p>
+                  {exportGroups.groups.map((g) => (
+                    <Link
+                      key={g.supplierId}
+                      href={`/dashboard/procurement?supplier=${encodeURIComponent(g.supplierId)}&skus=${encodeURIComponent(
+                        g.skus.slice(0, 500).join('~'),
+                      )}`}
+                      onClick={() => setExportOpen(false)}
+                      className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-muted/50"
+                    >
+                      <span className="font-medium text-foreground">{g.name}</span>
+                      <span className="text-muted-foreground">{g.skus.length} SKU{g.skus.length > 1 ? 's' : ''} →</span>
+                    </Link>
+                  ))}
+                  {exportGroups.noSupplier > 0 && (
+                    <p className="px-2 pt-1 text-[10px] text-muted-foreground">
+                      {exportGroups.noSupplier} SKU(s) sem fornecedor preferido — vincule em Fornecedores.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <Toggle active={unit === 'units'} onClick={() => setUnit('units')}>Unidades</Toggle>
           <Toggle active={unit === 'doh'} onClick={() => setUnit('doh')}>DOH</Toggle>
         </div>

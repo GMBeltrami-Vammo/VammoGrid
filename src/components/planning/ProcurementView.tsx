@@ -46,6 +46,8 @@ export function ProcurementView({
   suppliers = [],
   supplierModals = [],
   skusBySupplier = {},
+  initialSupplierId,
+  initialSkus,
 }: {
   rows: ElaborationRow[];
   isHead: boolean;
@@ -62,6 +64,10 @@ export function ProcurementView({
   supplierModals?: SupplierModal[];
   /** supplier_id → all linked sku_bases — the builder shows only the chosen supplier's SKUs. */
   skusBySupplier?: Record<string, string[]>;
+  /** Preselected supplier (from a Projeção Global "exportar → Novo Pedido" deep link). */
+  initialSupplierId?: string;
+  /** Preselected SKU base codes (deep link) — restricts the initial inclusion set. */
+  initialSkus?: string[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -77,8 +83,10 @@ export function ProcurementView({
   // Supplier is REQUIRED. Preselect when there's only one active supplier (today: VMoto).
   // Type (nac/int) is DERIVED from the supplier.
   const supplierById = useMemo(() => new Map(suppliers.map((s) => [s.supplierId, s])), [suppliers]);
-  const initialSupplierId = suppliers.length === 1 ? suppliers[0].supplierId : '';
-  const [supplierId, setSupplierId] = useState(initialSupplierId);
+  const startSupplierId =
+    (initialSupplierId && suppliers.some((s) => s.supplierId === initialSupplierId) ? initialSupplierId : '') ||
+    (suppliers.length === 1 ? suppliers[0].supplierId : '');
+  const [supplierId, setSupplierId] = useState(startSupplierId);
   const selectedSupplier = supplierById.get(supplierId) ?? null;
   const orderType: OrderType = selectedSupplier?.kind ?? 'internacional';
 
@@ -90,7 +98,7 @@ export function ProcurementView({
   // Which modais are part of this order (default: all of the supplier's). Reset when the
   // supplier changes (and clear any manual per-modal qty edits).
   const [enabledModals, setEnabledModals] = useState<Set<string>>(
-    () => new Set(modalsForSupplier(supplierById.get(initialSupplierId) ?? null, supplierModals).map((m) => m.id)),
+    () => new Set(modalsForSupplier(supplierById.get(startSupplierId) ?? null, supplierModals).map((m) => m.id)),
   );
   // Per-(sku × modalId) manual qty override; absent → the suggested qty is used.
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, Record<string, number>>>({});
@@ -251,7 +259,15 @@ export function ProcurementView({
     });
   }, [rows, search, modalFilter, minDohFilter, covWeeks, supplierSkuSet, baselineBySku]);
 
-  const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
+  // Default inclusion: every row, unless the deep link named a specific SKU set (then only
+  // those, intersected with what actually needs an order).
+  const [included, setIncluded] = useState<Set<string>>(() => {
+    if (initialSkus && initialSkus.length > 0) {
+      const want = new Set(initialSkus);
+      return new Set(rows.map((r) => r.suggestion.skuBase).filter((b) => want.has(b)));
+    }
+    return new Set(rows.map((r) => r.suggestion.skuBase));
+  });
 
   // Only the chosen supplier's SKUs with a positive total across the enabled modais.
   const selectedRows = rows.filter(

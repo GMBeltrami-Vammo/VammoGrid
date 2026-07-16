@@ -1,6 +1,8 @@
 import { safeComputeSnapshot } from '@/lib/planning/load';
 import { buildAllScenarioGrids } from '@/lib/planning/weekgrid';
 import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
+import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
+import { preferredSupplierBySku } from '@/lib/planning/supplierGroups';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { ScopeNotice } from '@/components/planning/ScopeNotice';
 import { WeekGridView } from '@/components/planning/WeekGridView';
@@ -17,7 +19,12 @@ export default async function SemanasPage({
   const sp = await searchParams;
   const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 16;
 
-  const [snap, criteria] = await Promise.all([safeComputeSnapshot(), fetchPurchaseCriteria()]);
+  const [snap, criteria, suppliers, skuSuppliers] = await Promise.all([
+    safeComputeSnapshot(),
+    fetchPurchaseCriteria(),
+    fetchSuppliers(),
+    fetchSkuSuppliers(),
+  ]);
 
   if (snap.stocks.length === 0) {
     return (
@@ -37,6 +44,11 @@ export default async function SemanasPage({
     criteria,
   });
 
+  // Preferred supplier per SKU + names — powers "exportar sugestão → Novo Pedido",
+  // grouped by each at-risk SKU's preferred supplier.
+  const prefBySku = Object.fromEntries(preferredSupplierBySku(skuSuppliers));
+  const supplierNames = Object.fromEntries(suppliers.map((s) => [s.supplierId, s.name]));
+
   return (
     <div>
       <PageHeader
@@ -47,7 +59,7 @@ export default async function SemanasPage({
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
       <ScopeNotice shown={snap.stocks.length} total={snap.catalogSize} />
 
-      <WeekGridView grids={grids} weeks={weeks} />
+      <WeekGridView grids={grids} weeks={weeks} prefBySku={prefBySku} supplierNames={supplierNames} />
     </div>
   );
 }

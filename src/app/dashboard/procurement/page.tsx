@@ -17,10 +17,16 @@ export const dynamic = 'force-dynamic';
 export default async function ProcurementPage({
   searchParams,
 }: {
-  searchParams: Promise<{ rules?: string }>;
+  searchParams: Promise<{ rules?: string; supplier?: string; skus?: string }>;
 }) {
   const sp = await searchParams;
   const rules = parseOrderRules(sp.rules);
+  // Deep link from Projeção Global's "exportar → Novo Pedido": preselect a supplier and
+  // restrict the initial inclusion to the exported SKU base codes (URL-safe, '~'-joined).
+  const initialSupplierId = sp.supplier?.trim() || undefined;
+  const initialSkus = sp.skus
+    ? sp.skus.split('~').map((s) => s.trim()).filter(Boolean).slice(0, 500)
+    : undefined;
   const [result, suppliers, skuSuppliers, supplierModals, session] = await Promise.all([
     computeElaborations(false, rules),
     fetchSuppliers(),
@@ -81,6 +87,8 @@ export default async function ProcurementPage({
             suppliers={activeSuppliers}
             supplierModals={supplierModals}
             skusBySupplier={skusBySupplier}
+            initialSupplierId={initialSupplierId}
+            initialSkus={initialSkus}
           />
         </>
       )}

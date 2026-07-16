@@ -21,6 +21,8 @@ import { todayUtc } from './dates';
 import { applySupplierLeadTimes, buildPolicies, defaultPolicyFor, type SupplierLead } from './policy';
 import { modalsForSupplier, preferredSupplierBySku } from './supplierGroups';
 import { projectGlobal, projectSku, type SkuProjections } from './projection';
+import { buildDailyDemand } from './forecast';
+import type { MiniProjSeed } from './miniStrip';
 import { purchaseForAll } from './purchase';
 import { transferForAll } from './transfer';
 import { fetchSopAlerts } from './source/alerts';
@@ -294,6 +296,9 @@ export async function safeComputeSnapshot(
 
 // ─── Elaboration rows for the Compras page (sub-project B7) ───────────────────
 
+/** Weeks of mini-heatmap the builder projects per SKU (matches Projeção Global default). */
+const MINI_HORIZON_WEEKS = 16;
+
 export interface ElaborationRow {
   suggestion: ElaborationSuggestion;
   /** Default order quantity for the recommended modal (editable before confirm). */
@@ -309,6 +314,9 @@ export interface ElaborationRow {
   hasOpenOrder: boolean;
   isNational: boolean;
   category: string | null;
+  /** Minimal projection input so the builder can re-project this SKU live in the browser
+   *  (mini-heatmap com/sem + DOH-over-horizon filter) using the real engine (F5). */
+  miniSeed: MiniProjSeed;
 }
 
 export interface ElaborationResult {
@@ -397,6 +405,24 @@ export async function computeElaborations(
       const suggestedQty = recommended > 0 ? recommended : fallbackQty;
       const orders = inp.ordersBySku.get(stock.skuBase) ?? [];
 
+      // Seed the client-side re-projection (mini-heatmap com/sem + DOH-over-horizon filter).
+      // Horizon = MINI_HORIZON_WEEKS*7 + 7: the +7 keeps forwardAvgDemand's window full at
+      // the last sampled week, matching the Projeção Global heatmap exactly.
+      const H = MINI_HORIZON_WEEKS * 7 + 7;
+      const fleet = buildDailyDemand(forecast, H);
+      const receipts: Record<number, number> = {};
+      for (const p of proj.timeline) if (p.day <= H && p.inbound > 0) receipts[p.day] = p.inbound;
+      const miniSeed: MiniProjSeed = {
+        startStock: stock.total,
+        demandYhat: fleet.yhat,
+        modelHorizon: forecast?.horizonDays ?? H,
+        receipts,
+        recoveryRate: policy.recoveryRate,
+        recoveryTurnaround: policy.recoveryTurnaroundDays,
+        isRepairable: policy.isRepairable,
+        horizon: H,
+      };
+
       rows.push({
         suggestion,
         suggestedQty,
@@ -407,6 +433,7 @@ export async function computeElaborations(
         hasOpenOrder: orders.some((o) => o.status !== 'cancelled'),
         isNational: policy.leadTimeSource === 'national-file',
         category: stock.category,
+        miniSeed,
       });
     }
 

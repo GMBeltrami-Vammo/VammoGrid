@@ -262,6 +262,88 @@ describe('buildAllScenarioGrids — characterization (regression gate)', () => {
   });
 });
 
+// ── N-modal scenario behavior (the mega-rodada engine) ───────────────────────
+describe('N-modal scenarios — behavioral', () => {
+  // SKU-N: 1350 on-hand, 10/day demand → DOH 135−d, breaches the 75 floor at day 61.
+  // Modais Courier 15 / Aéreo 45 / Marítimo 105. At the day-61 breach the in-time lanes are
+  // Courier(15) and Aéreo(45); the combined scenario must pick the SLOWEST in time (Aéreo).
+  const skuN = stock('SKU-N', 'N-modal', { osasco: 1350, mooca: 0, sbc: 0 });
+  // SKU-M: only a Marítimo modal → the Courier scenario must leave it at baseline (no sug).
+  const skuM = stock('SKU-M', 'Marítimo-só', { osasco: 300, mooca: 0, sbc: 0 });
+  const nInputs = {
+    stocks: [skuN, skuM],
+    forecasts: new Map<string, SkuForecast>([
+      ['SKU-N', forecast('SKU-N', 10, 12)],
+      ['SKU-M', forecast('SKU-M', 10, 12)],
+    ]),
+    ordersBySku: new Map<string, OpenPurchaseOrder[]>(),
+    policies: new Map<string, SkuPolicy>([
+      ['SKU-N', policy('SKU-N', { leadTimeSeaDays: 105, leadTimeAirDays: 45, targetDoi: 60 })],
+      ['SKU-M', policy('SKU-M', { leadTimeSeaDays: 105, leadTimeAirDays: 45, targetDoi: 60 })],
+    ]),
+    shares: new Map<string, Record<HubId, number>>(),
+    today: TODAY,
+    modalsBySku: new Map<string, ModalOption[]>([
+      [
+        'SKU-N',
+        [
+          { id: 'Courier', name: 'Courier', leadDays: 15 },
+          { id: 'Aéreo', name: 'Aéreo', leadDays: 45 },
+          { id: 'Marítimo', name: 'Marítimo', leadDays: 105 },
+        ],
+      ],
+      ['SKU-M', [{ id: 'Marítimo', name: 'Marítimo', leadDays: 105 }]],
+    ]),
+  };
+  const nPurchases: PurchaseSuggestion[] = nInputs.stocks.map((s) =>
+    purchaseForSku({
+      skuBase: s.skuBase,
+      skuName: s.skuName,
+      forecast: nInputs.forecasts.get(s.skuBase) ?? null,
+      stock: s,
+      orders: [],
+      policy: nInputs.policies.get(s.skuBase)!,
+      today: TODAY,
+    }),
+  );
+  const { scenarios, grids } = buildAllScenarioGrids({ inputs: nInputs, purchases: nPurchases, weeks: 20, criteria: DOH });
+
+  // First (earliest week) suggested-arrival modal for a SKU in a scenario, or null.
+  const firstSug = (key: string, skuBase: string): string | null => {
+    const row = grids[key].global.find((r) => r.skuBase === skuBase);
+    if (!row) return null;
+    for (const c of row.cells) {
+      const a = c.arrivals.find((x) => x.sug > 0);
+      if (a) return a.modal;
+    }
+    return null;
+  };
+
+  it('the scenario set is baseline + one per modal + combined', () => {
+    expect(scenarios.map((s) => s.key)).toEqual(['baseline', 'Courier', 'Aéreo', 'Marítimo', 'combined']);
+  });
+
+  it('a per-modal scenario injects via that modal', () => {
+    expect(firstSug('Courier', 'SKU-N')).toBe('Courier');
+    expect(firstSug('Aéreo', 'SKU-N')).toBe('Aéreo');
+    expect(firstSug('Marítimo', 'SKU-N')).toBe('Marítimo');
+  });
+
+  it('combined picks the SLOWEST lane arriving in time at the first breach (Aéreo, not Courier)', () => {
+    expect(firstSug('combined', 'SKU-N')).toBe('Aéreo');
+  });
+
+  it('a SKU whose supplier lacks the modal stays at baseline in that scenario', () => {
+    expect(firstSug('Courier', 'SKU-M')).toBeNull(); // SKU-M has no Courier → no suggestion
+    expect(firstSug('Marítimo', 'SKU-M')).toBe('Marítimo'); // but it does inject via Marítimo
+  });
+
+  it('baseline never suggests', () => {
+    expect(firstSug('baseline', 'SKU-N')).toBeNull();
+    expect(firstSug('baseline', 'SKU-M')).toBeNull();
+  });
+});
+
 // ── forwardAvgDemand property test (guards the upcoming O(1) fast path) ───────
 
 /** Verbatim copy of the pre-optimization loop — the reference implementation. */

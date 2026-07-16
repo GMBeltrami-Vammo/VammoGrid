@@ -60,4 +60,31 @@ describe('buildPrevReal', () => {
     const { demandRatio } = buildPrevReal({ ...ARGS, forecastPoints: [] });
     expect(demandRatio).toBeNull();
   });
+
+  it('window [emissão → ETA]: realized is null in the future, prev keeps projecting (Notas P4)', () => {
+    const { demand, stock, elapsedDays, totalDays } = buildPrevReal({
+      ...ARGS,
+      windowStart: '2026-07-10',
+      windowEnd: '2026-07-15', // 2 days past today (07-13)
+    });
+    expect(demand.map((d) => d.date)).toEqual([
+      '2026-07-10', '2026-07-11', '2026-07-12', '2026-07-13', '2026-07-14', '2026-07-15',
+    ]);
+    // Future days (> today) have no realized consumption yet → null.
+    expect(demand[4].real).toBeNull();
+    expect(demand[5].real).toBeNull();
+    // …but the forecast is absent past the frozen run, so prev is null there too here.
+    expect(demand[4].prev).toBeNull();
+    // Realized stock is null in the future; projection continues from the anchor.
+    expect(stock[4].real).toBeNull();
+    expect(stock[5].real).toBeNull();
+    expect(elapsedDays).toBe(4); // 07-10..07-13
+    expect(totalDays).toBe(6); // 07-10..07-15
+  });
+
+  it('defaults the window to [asOf, today] when not given', () => {
+    const { totalDays, elapsedDays } = buildPrevReal(ARGS);
+    expect(totalDays).toBe(4);
+    expect(elapsedDays).toBe(4);
+  });
 });

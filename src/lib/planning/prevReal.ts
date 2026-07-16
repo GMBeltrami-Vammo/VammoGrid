@@ -17,6 +17,10 @@ export interface PrevRealSeries {
   stock: PrevRealPoint[];
   /** Σ realizado ÷ Σ previsto over the elapsed days where a forecast exists (null if none). */
   demandRatio: number | null;
+  /** Days of the window already elapsed (≤ today) and the window's total span — the
+   *  "X de Y dias decorridos" KPI (Notas P4). */
+  elapsedDays: number;
+  totalDays: number;
 }
 
 function dateRange(from: string, to: string): string[] {
@@ -31,25 +35,33 @@ export function buildPrevReal(args: {
   history: { date: string; stock: number }[];
   asOfDate: string;
   today: string;
+  /** Window to render over (Notas P4). Defaults to [asOf, today]; the pedido view passes
+   *  [emissão, ETA] so the series spans the order's whole lifecycle — realized fills up to
+   *  today, the rest of the window is the still-to-happen projection. */
+  windowStart?: string;
+  windowEnd?: string;
 }): PrevRealSeries {
-  const asOf = args.asOfDate.slice(0, 10);
   const today = args.today.slice(0, 10);
+  const start = (args.windowStart ?? args.asOfDate).slice(0, 10);
+  const end = (args.windowEnd ?? today).slice(0, 10);
   const yhatByDate = new Map(args.forecastPoints.map((p) => [p.date.slice(0, 10), p.yhat]));
   const usedByDate = new Map(args.consumption.map((p) => [p.date.slice(0, 10), p.qty]));
   const stockByDate = new Map(args.history.map((p) => [p.date.slice(0, 10), p.stock]));
 
-  const dates = dateRange(asOf, today);
+  const dates = dateRange(start, end);
 
   // Demand: prev = yhat (null when the run has no point that day); real = consumed that
-  // day (0 when no ledger row — a real zero-usage day).
+  // day (0 when no ledger row — a real zero-usage day), but NULL in the future (> today):
+  // there is no realized data yet for days the window extends past today.
   const demand: PrevRealPoint[] = dates.map((date) => ({
     date,
     prev: yhatByDate.has(date) ? yhatByDate.get(date)! : null,
-    real: usedByDate.get(date) ?? 0,
+    real: date <= today ? (usedByDate.get(date) ?? 0) : null,
   }));
 
-  // Stock: anchor the projection on the realized on-hand at (or just after) as_of, then
-  // subtract cumulative forecast demand, floored at 0 (lost-sales, as the engine does).
+  // Stock: anchor the projection on the realized on-hand at (or just after) the window
+  // start, then subtract cumulative forecast demand, floored at 0 (lost-sales, as the
+  // engine does). Realized on-hand is null in the future.
   const anchorDate = dates.find((d) => stockByDate.has(d));
   const stock: PrevRealPoint[] = [];
   if (anchorDate) {
@@ -61,7 +73,7 @@ export function buildPrevReal(args: {
       stock.push({
         date,
         prev: date >= anchorDate ? Math.round(proj) : null,
-        real: stockByDate.has(date) ? Math.round(stockByDate.get(date)!) : null,
+        real: date <= today && stockByDate.has(date) ? Math.round(stockByDate.get(date)!) : null,
       });
     }
   }
@@ -77,5 +89,8 @@ export function buildPrevReal(args: {
   }
   const demandRatio = sumPrev > 0 ? sumReal / sumPrev : null;
 
-  return { demand, stock, demandRatio };
+  const totalDays = dates.length;
+  const elapsedDays = dates.filter((d) => d <= today).length;
+
+  return { demand, stock, demandRatio, elapsedDays, totalDays };
 }

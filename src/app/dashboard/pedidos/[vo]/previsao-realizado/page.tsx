@@ -6,7 +6,7 @@ import { fetchForecastAsOf } from '@/lib/planning/source/forecast';
 import { fetchDailyConsumption } from '@/lib/planning/source/consumption';
 import { fetchStockHistory } from '@/lib/planning/source/history';
 import { buildPrevReal } from '@/lib/planning/prevReal';
-import { todayUtc } from '@/lib/planning/dates';
+import { diffDays, todayUtc } from '@/lib/planning/dates';
 import { EmptyState, PageHeader } from '@/components/planning/ui';
 import { PrevRealView, type PrevRealSku } from '@/components/planning/PrevRealView';
 import { fmtDate } from '@/lib/planning/format';
@@ -79,6 +79,19 @@ export default async function PrevRealPage({ params }: { params: Promise<{ vo: s
     );
   }
 
+  // Comparison window (Notas P4): the pedido's lifecycle [emissão → ETA]. Realized fills
+  // up to today; the rest is the still-to-happen projection.
+  const orderDates = group.map((o) => o.orderDate).filter(Boolean).sort() as string[];
+  const etas = group.map((o) => o.eta).filter(Boolean).sort() as string[];
+  const windowStart = (orderDates[0] ?? forecastAsOf).slice(0, 10);
+  const etaEnd = (etas.length ? etas[etas.length - 1] : today).slice(0, 10);
+  const windowEnd = etaEnd < windowStart ? windowStart : etaEnd;
+  const totalDays = diffDays(windowStart, windowEnd) + 1;
+  const elapsedDays = Math.max(0, Math.min(diffDays(windowStart, today) + 1, totalDays));
+  // History/consumption must reach back to the earlier of the window start and the forecast
+  // origin so the stock series can anchor on a realized on-hand within the window.
+  const dataStart = windowStart < forecastAsOf ? windowStart : forecastAsOf;
+
   // Unique SKUs in the pedido.
   const skuBases = [...new Set(group.map((o) => o.sku))];
   const nameBySku = new Map(group.map((o) => [o.sku, o.skuName]));
@@ -87,8 +100,8 @@ export default async function PrevRealPage({ params }: { params: Promise<{ vo: s
     skuBases.map(async (skuBase): Promise<PrevRealSku> => {
       const [forecast, consumption, history] = await Promise.all([
         fetchForecastAsOf(skuBase, forecastAsOf!),
-        fetchDailyConsumption(skuBase, forecastAsOf!, today),
-        fetchStockHistory(skuBase, { osasco: 0, mooca: 0, sbc: 0 }, Math.max(30, diffInclusive(forecastAsOf!, today))),
+        fetchDailyConsumption(skuBase, dataStart, today),
+        fetchStockHistory(skuBase, { osasco: 0, mooca: 0, sbc: 0 }, Math.max(30, diffInclusive(dataStart, today))),
       ]);
       const series = buildPrevReal({
         forecastPoints: (forecast?.points ?? []).map((p) => ({ date: p.date, yhat: p.yhat })),
@@ -96,6 +109,8 @@ export default async function PrevRealPage({ params }: { params: Promise<{ vo: s
         history: history.global,
         asOfDate: forecastAsOf!,
         today,
+        windowStart,
+        windowEnd,
       });
       return { skuBase, skuName: nameBySku.get(skuBase) ?? null, ...series };
     }),
@@ -107,7 +122,7 @@ export default async function PrevRealPage({ params }: { params: Promise<{ vo: s
       <PageHeader
         eyebrow="Previsão × Realizado"
         title={group[0].pedidoName ?? group[0].vo ?? key}
-        subtitle={`Base da previsão congelada em ${fmtDate(forecastAsOf)} — comparada com o consumo e o estoque reais desde então.`}
+        subtitle={`Base congelada em ${fmtDate(forecastAsOf)}. Janela do pedido ${fmtDate(windowStart)} (emissão) → ${fmtDate(windowEnd)} (ETA) · ${elapsedDays} de ${totalDays} dias decorridos.`}
       />
       <PrevRealView skus={skus} />
     </div>

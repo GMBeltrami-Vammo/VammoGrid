@@ -1,8 +1,7 @@
 import { auth } from '@/auth';
 import { computeElaborations } from '@/lib/planning/load';
 import { parseOrderRules } from '@/lib/planning/elaboration';
-import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
-import { preferredSupplierBySku } from '@/lib/planning/supplierGroups';
+import { fetchSuppliers, fetchSkuSuppliers, fetchSupplierModals } from '@/lib/planning/source/suppliers';
 import { fmtInt } from '@/lib/planning/format';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
 import { ProcurementView } from '@/components/planning/ProcurementView';
@@ -22,10 +21,11 @@ export default async function ProcurementPage({
 }) {
   const sp = await searchParams;
   const rules = parseOrderRules(sp.rules);
-  const [result, suppliers, skuSuppliers, session] = await Promise.all([
+  const [result, suppliers, skuSuppliers, supplierModals, session] = await Promise.all([
     computeElaborations(false, rules),
     fetchSuppliers(),
     fetchSkuSuppliers(),
+    fetchSupplierModals(),
     auth(),
   ]);
   const isHead = session?.user?.isHead ?? false;
@@ -39,7 +39,6 @@ export default async function ProcurementPage({
       leadTimeSeaDays: s.leadTimeSeaDays,
       leadTimeAirDays: s.leadTimeAirDays,
     }));
-  const prefBySku = Object.fromEntries(preferredSupplierBySku(skuSuppliers));
   // All SKUs linked to each supplier (not just preferred) — the builder narrows to the
   // chosen supplier's SKUs.
   const skusBySupplier: Record<string, string[]> = {};
@@ -80,7 +79,7 @@ export default async function ProcurementPage({
             today={result.today}
             forecastAsOf={result.asOfDate}
             suppliers={activeSuppliers}
-            prefBySku={prefBySku}
+            supplierModals={supplierModals}
             skusBySupplier={skusBySupplier}
           />
         </>

@@ -76,8 +76,12 @@ export interface NewPedidoLine {
   skuBase: string;
   skuName?: string | null;
   qty: number;
-  /** Lead time (days) for the chosen modal — drives this line's ETA. */
+  /** Lead time (days) for this line's modal — drives its ETA. */
   leadDays: number;
+  /** Per-line transport modal (N-modal builder: courier/aéreo/marítimo…). Falls back to
+   *  the order-wide `modal` when absent (import flow). Free string — the engine is
+   *  modal-agnostic (timing comes from leadDays), so any label is valid. */
+  modal?: string | null;
   /** Frozen elaboration basis for this line (review item 8). */
   suggestedQty?: number;
   suggestedModal?: string | null;
@@ -94,7 +98,9 @@ export interface PedidoAudit {
 }
 
 export async function createPedido(input: {
-  modal: TransportModal;
+  /** Order-wide modal (import flow). The N-modal builder sets `modal` per LINE instead;
+   *  each line falls back to this when its own modal is absent. */
+  modal?: TransportModal | string | null;
   orderDate: string;
   pedidoName?: string | null;
   orderType?: OrderType | null;
@@ -116,6 +122,9 @@ export async function createPedido(input: {
     const now = new Date().toISOString();
     // Human-ish shared VO so the lines group into one pedido everywhere.
     const vo = `NP-${input.orderDate.replace(/-/g, '')}-${randomUUID().slice(0, 4).toUpperCase()}`;
+    // A pedido can span modais (one line each) — summarize them for the creation audit.
+    const lineModals = [...new Set(lines.map((l) => l.modal).filter(Boolean) as string[])];
+    const modalSummary = input.modal ?? (lineModals.length > 0 ? lineModals.join('+') : null);
 
     const rows: Row[] = lines.map((l) => ({
       id: randomUUID(),
@@ -139,7 +148,7 @@ export async function createPedido(input: {
       eta: addDays(input.orderDate, Math.max(0, Math.round(l.leadDays))),
       lead_time_days: Math.max(0, Math.round(l.leadDays)),
       status: 'ordered',
-      modal: input.modal,
+      modal: l.modal ?? input.modal ?? null,
       hub_id: 'osasco',
       notes: null,
       source: input.source ?? 'elaboracao',
@@ -159,7 +168,7 @@ export async function createPedido(input: {
         entity_id: vo,
         field: 'created',
         old_value: null,
-        new_value: JSON.stringify({ vo, lines: rows.length, modal: input.modal }),
+        new_value: JSON.stringify({ vo, lines: rows.length, modal: modalSummary }),
         changed_by: changedBy,
         changed_at: now,
       },

@@ -1,23 +1,27 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Check, Download, Ship, Plane, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
+import { Check, Download, Package, Plane, Ship, Truck, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
-import type { TransportModal } from '@/types/planning';
-import type { OrderType } from '@/types';
-import type { OrderRules } from '@/lib/planning/elaboration';
+import type { OrderType, SupplierModal } from '@/types';
+import { suggestQuantities, type ModalPlan, type OrderRules } from '@/lib/planning/elaboration';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
-import { createPedido } from '@/app/dashboard/pedidos/actions';
-import { groupBySupplier } from '@/lib/planning/supplierGroups';
-import { minDohWithin, projectFromSeed } from '@/lib/planning/miniStrip';
+import { createPedido, type NewPedidoLine } from '@/app/dashboard/pedidos/actions';
+import { modalsForSupplier, type ModalOption } from '@/lib/planning/supplierGroups';
+import { minDohWithin, projectFromSeed, sampleMiniStrip, type MiniCell } from '@/lib/planning/miniStrip';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
 type ModalFilter = 'all' | 'air' | 'sea';
+
+// Weeks shown in the per-SKU mini-heatmap strip (kept fixed/compact so the column stays
+// narrow regardless of the coverage-filter horizon).
+const STRIP_WEEKS = 12;
+const STRIP_OFFSETS = Array.from({ length: STRIP_WEEKS }, (_, i) => i * 7);
 
 interface SupplierOption {
   supplierId: string;
@@ -27,10 +31,11 @@ interface SupplierOption {
   leadTimeAirDays: number | null;
 }
 
-// "Novo Pedido" builder: the SKUs that need buying (DOH<floor in the horizon), each
-// with a checkbox + editable qty; the MODAL is one global choice for the whole order;
-// "Criar pedido" writes a single pedido (one VO, all checked SKUs as lines).
-
+// "Novo Pedido" builder (N-modal). Flow: pick the supplier (required) → its transport
+// modais appear (Courier/Aéreo/Marítimo…) as a multi-select → per (SKU × modal) suggested
+// quantities come from suggestQuantities (fastest lanes bridge, slowest sustains order-up-to)
+// → a per-line mini-heatmap shows coverage WITH the order → "Criar pedido" writes ONE pedido
+// whose lines carry their own modal (the engine is modal-agnostic; timing = each lane's lead).
 export function ProcurementView({
   rows,
   isHead,
@@ -39,12 +44,12 @@ export function ProcurementView({
   today,
   forecastAsOf,
   suppliers = [],
-  prefBySku = {},
+  supplierModals = [],
   skusBySupplier = {},
 }: {
   rows: ElaborationRow[];
   isHead: boolean;
-  /** Global Admin criteria — the defaults the per-pedido rules panel starts from. */
+  /** Global Admin criteria — the min-DOH the per-modal quantities target. */
   criteria: PurchaseCriteria;
   /** Per-pedido overrides currently applied (from the URL), if any. */
   rules: OrderRules | null;
@@ -53,8 +58,8 @@ export function ProcurementView({
   forecastAsOf: string;
   /** Active suppliers (review 4b) — the header selector (required), type + line lead. */
   suppliers?: SupplierOption[];
-  /** skuBase → preferred supplier_id (review 4b) — drives the per-supplier split. */
-  prefBySku?: Record<string, string>;
+  /** All registered supplier modais — the chosen supplier's are the order's lanes. */
+  supplierModals?: SupplierModal[];
   /** supplier_id → all linked sku_bases — the builder shows only the chosen supplier's SKUs. */
   skusBySupplier?: Record<string, string[]>;
 }) {
@@ -66,29 +71,65 @@ export function ProcurementView({
   // mínimo DOH — o SKU aparece se ALGUM dia dentro da cobertura tiver DOH < esse valor.
   const [covWeeks, setCovWeeks] = useState(16);
   const [minDohFilter, setMinDohFilter] = useState('');
-  const [modal, setModal] = useState<TransportModal>('sea');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [pedidoName, setPedidoName] = useState('');
-  // Supplier is REQUIRED (todo Novo Pedido tem fornecedor). Preselect when there's only
-  // one active supplier (today: VMoto). Type (nac/int) is DERIVED from the supplier.
+
+  // Supplier is REQUIRED. Preselect when there's only one active supplier (today: VMoto).
+  // Type (nac/int) is DERIVED from the supplier.
   const supplierById = useMemo(() => new Map(suppliers.map((s) => [s.supplierId, s])), [suppliers]);
-  const [supplierId, setSupplierId] = useState(suppliers.length === 1 ? suppliers[0].supplierId : '');
+  const initialSupplierId = suppliers.length === 1 ? suppliers[0].supplierId : '';
+  const [supplierId, setSupplierId] = useState(initialSupplierId);
   const selectedSupplier = supplierById.get(supplierId) ?? null;
   const orderType: OrderType = selectedSupplier?.kind ?? 'internacional';
-  // Per-SKU inclusion + qty. Default: all included at the suggested qty for the default
-  // modal (sea). Flipping the modal resets quantities to that modal's suggestion.
-  const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
-  const [qtys, setQtys] = useState<Record<string, number>>(
-    () => Object.fromEntries(rows.map((r) => [r.suggestion.skuBase, r.suggestedQtySea])),
+
+  // The chosen supplier's transport modais, ordered slow→fast (real supplier leads).
+  const modalOptions = useMemo(
+    () => modalsForSupplier(supplierById.get(supplierId) ?? null, supplierModals),
+    [supplierId, supplierById, supplierModals],
+  );
+  // Which modais are part of this order (default: all of the supplier's). Reset when the
+  // supplier changes (and clear any manual per-modal qty edits).
+  const [enabledModals, setEnabledModals] = useState<Set<string>>(
+    () => new Set(modalsForSupplier(supplierById.get(initialSupplierId) ?? null, supplierModals).map((m) => m.id)),
+  );
+  // Per-(sku × modalId) manual qty override; absent → the suggested qty is used.
+  const [qtyOverrides, setQtyOverrides] = useState<Record<string, Record<string, number>>>({});
+  // Sustaining cadence (periodicidade) for the slowest lane: null = one-time.
+  const [frequencyDays, setFrequencyDays] = useState<number | null>(30);
+  useEffect(() => {
+    const opts = modalsForSupplier(supplierById.get(supplierId) ?? null, supplierModals);
+    setEnabledModals(new Set(opts.map((m) => m.id)));
+    setQtyOverrides({});
+  }, [supplierId, supplierById, supplierModals]);
+
+  const enabledModalOptions = useMemo(
+    () => modalOptions.filter((m) => enabledModals.has(m.id)),
+    [modalOptions, enabledModals],
+  );
+  // Slowest enabled lane (modalOptions is DESC by lead) — the bulk lane, used for buy-by.
+  const slowestLead = enabledModalOptions[0]?.leadDays ?? selectedSupplier?.leadTimeSeaDays ?? null;
+
+  // The plans the qty engine runs: every enabled lane targets the global min DOH; the
+  // cadence only bites on the slowest lane (suggestQuantities applies it there).
+  const plans = useMemo<ModalPlan[]>(
+    () =>
+      enabledModalOptions.map((m) => ({
+        modal: m,
+        minDoh: criteria.dohThreshold,
+        cadenceDays: frequencyDays,
+        enabled: true,
+      })),
+    [enabledModalOptions, criteria.dohThreshold, frequencyDays],
   );
 
-  const chooseModal = (m: TransportModal) => {
-    setModal(m);
-    setQtys(Object.fromEntries(rows.map((r) => [r.suggestion.skuBase, suggestedFor(r, m)])));
-  };
+  const toggleModal = (id: string) =>
+    setEnabledModals((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  // "Regras deste pedido" (7b): overrides vivem na URL — Aplicar recomputa no server
-  // com elas; o critério global do Admin segue sendo o default (e o heatmap não muda).
   const [rulesOpen, setRulesOpen] = useState(rules != null);
   const [rFloor, setRFloor] = useState(String(rules?.seaFloorDoh ?? criteria.dohThreshold));
   const [rCadence, setRCadence] = useState(String(rules?.seaCadenceDays ?? 30));
@@ -143,12 +184,54 @@ export function ProcurementView({
   );
 
   // Baseline (registered-orders-only) projection per SKU, re-projected client-side from
-  // the seed — powers both the DOH-over-horizon filter and (later) the mini-heatmap.
+  // the seed — powers the DOH-over-horizon filter and each row's mini-heatmap "sem" base.
   const baselineBySku = useMemo(() => {
     const m = new Map<string, ReturnType<typeof projectFromSeed>>();
     for (const r of rows) m.set(r.suggestion.skuBase, projectFromSeed(r.miniSeed, [], today));
     return m;
   }, [rows, today]);
+
+  // Suggested qty per (sku → modalId) from the N-modal engine, against each SKU's baseline.
+  const suggestedByModal = useMemo(() => {
+    const out = new Map<string, Map<string, number>>();
+    if (plans.length === 0) return out;
+    for (const r of rows) {
+      const proj = baselineBySku.get(r.suggestion.skuBase);
+      if (!proj) continue;
+      const qs = suggestQuantities({ projection: proj, plans });
+      out.set(r.suggestion.skuBase, new Map(qs.map((q) => [q.modalId, q.qty])));
+    }
+    return out;
+  }, [rows, baselineBySku, plans]);
+
+  const suggestedFor = (sku: string, modalId: string) => suggestedByModal.get(sku)?.get(modalId) ?? 0;
+  const qtyFor = (sku: string, modalId: string) => {
+    const o = qtyOverrides[sku]?.[modalId];
+    return o != null ? o : suggestedFor(sku, modalId);
+  };
+  const perSkuTotal = (sku: string) => enabledModalOptions.reduce((s, m) => s + qtyFor(sku, m.id), 0);
+
+  const setQtyOverride = (sku: string, modalId: string, v: number) =>
+    setQtyOverrides((prev) => ({ ...prev, [sku]: { ...prev[sku], [modalId]: Math.max(0, Math.round(v || 0)) } }));
+  const clearQtyOverride = (sku: string, modalId: string) =>
+    setQtyOverrides((prev) => {
+      const s = { ...prev[sku] };
+      delete s[modalId];
+      const next = { ...prev };
+      if (Object.keys(s).length) next[sku] = s;
+      else delete next[sku];
+      return next;
+    });
+
+  // Per-SKU "com pedido" coverage strip: baseline + this row's injected modal arrivals.
+  const stripFor = (r: ElaborationRow): MiniCell[] => {
+    const sku = r.suggestion.skuBase;
+    const injected = enabledModalOptions
+      .map((m) => ({ offset: m.leadDays, qty: qtyFor(sku, m.id) }))
+      .filter((x) => x.qty > 0);
+    const proj = projectFromSeed(r.miniSeed, injected, today);
+    return sampleMiniStrip(proj, STRIP_OFFSETS, criteria.dohThreshold);
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -160,7 +243,6 @@ export function ProcurementView({
       if (q && !s.skuBase.toLowerCase().includes(q) && !(s.skuName ?? '').toLowerCase().includes(q)) return false;
       if (modalFilter !== 'all' && s.suggestedModal !== modalFilter) return false;
       if (minDoh != null && Number.isFinite(minDoh)) {
-        // Show only if some day within the coverage horizon dips below the min DOH.
         const proj = baselineBySku.get(s.skuBase);
         const lowest = proj ? minDohWithin(proj, covDays) : null;
         if (lowest == null || lowest >= minDoh) return false;
@@ -169,16 +251,17 @@ export function ProcurementView({
     });
   }, [rows, search, modalFilter, minDohFilter, covWeeks, supplierSkuSet, baselineBySku]);
 
-  // Only the chosen supplier's SKUs enter the order (independent of the transient
-  // search/modal/DOH filters, which shouldn't drop already-selected lines).
+  const [included, setIncluded] = useState<Set<string>>(() => new Set(rows.map((r) => r.suggestion.skuBase)));
+
+  // Only the chosen supplier's SKUs with a positive total across the enabled modais.
   const selectedRows = rows.filter(
     (r) =>
       included.has(r.suggestion.skuBase) &&
-      (qtys[r.suggestion.skuBase] ?? 0) > 0 &&
+      perSkuTotal(r.suggestion.skuBase) > 0 &&
       (!supplierSkuSet || supplierSkuSet.has(r.suggestion.skuBase)),
   );
   const selectedCount = selectedRows.length;
-  const selectedUnits = selectedRows.reduce((s, r) => s + (qtys[r.suggestion.skuBase] ?? 0), 0);
+  const selectedUnits = selectedRows.reduce((s, r) => s + perSkuTotal(r.suggestion.skuBase), 0);
 
   const toggle = (sku: string) =>
     setIncluded((prev) => {
@@ -196,8 +279,6 @@ export function ProcurementView({
       else filtered.forEach((r) => next.add(r.suggestion.skuBase));
       return next;
     });
-  // Explicit bulk actions (in addition to the header checkbox): select every currently
-  // visible (filtered) SKU, or clear the whole selection.
   const selectVisible = () =>
     setIncluded((prev) => {
       const next = new Set(prev);
@@ -206,24 +287,29 @@ export function ProcurementView({
     });
   const clearSelection = () => setIncluded(new Set());
 
-  // Shared payload builder — the audit basis (item 8) is identical across the single-
-  // order and per-supplier flows.
+  // Frozen elaboration basis (item 8) — records the criteria + rules + the modal plan.
   const auditObj = {
     forecastAsOf,
     criteria: rules?.seaFloorDoh ? { ...criteria, dohThreshold: rules.seaFloorDoh } : criteria,
     rules: rules ?? undefined,
+    modalPlan: enabledModalOptions.map((m) => ({ id: m.id, name: m.name, leadDays: m.leadDays })),
+    frequencyDays,
   };
-  const lineFor = (r: ElaborationRow, sup: SupplierOption | null = selectedSupplier) => ({
-    skuBase: r.suggestion.skuBase,
-    skuName: r.suggestion.skuName,
-    qty: qtys[r.suggestion.skuBase] ?? 0,
-    // Lead comes from the pedido's supplier (fallback to the SKU's own lead).
-    leadDays:
-      (modal === 'sea' ? sup?.leadTimeSeaDays : sup?.leadTimeAirDays) ??
-      (modal === 'sea' ? r.suggestion.leadTimeSeaDays : r.suggestion.leadTimeAirDays),
-    suggestedQty: suggestedFor(r, modal),
-    suggestedModal: r.suggestion.suggestedModal,
-  });
+
+  // One line per (SKU × enabled modal) with a positive qty — the engine treats each as
+  // its own synthetic receipt, so a courier + aéreo + marítimo split lands as three lines.
+  const linesFor = (r: ElaborationRow): NewPedidoLine[] =>
+    enabledModalOptions
+      .map((m) => ({
+        skuBase: r.suggestion.skuBase,
+        skuName: r.suggestion.skuName,
+        qty: qtyFor(r.suggestion.skuBase, m.id),
+        leadDays: m.leadDays,
+        modal: m.name,
+        suggestedQty: suggestedFor(r.suggestion.skuBase, m.id),
+        suggestedModal: m.name,
+      }))
+      .filter((l) => l.qty > 0);
 
   const criarPedido = () => {
     setError(null);
@@ -232,15 +318,23 @@ export function ProcurementView({
       setError('Selecione um fornecedor para o pedido.');
       return;
     }
+    if (enabledModalOptions.length === 0) {
+      setError('Selecione ao menos um modal para o pedido.');
+      return;
+    }
+    const lines = selectedRows.flatMap((r) => linesFor(r));
+    if (lines.length === 0) {
+      setError('Nenhuma linha com quantidade maior que zero.');
+      return;
+    }
     startTransition(async () => {
       const res = await createPedido({
-        modal,
         orderDate,
         pedidoName: pedidoName || null,
         orderType,
         supplierId: selectedSupplier.supplierId,
         supplierName: selectedSupplier.name,
-        lines: selectedRows.map((r) => lineFor(r)),
+        lines,
         audit: auditObj,
       });
       if (res.ok) {
@@ -252,64 +346,22 @@ export function ProcurementView({
     });
   };
 
-  // "Pedido por fornecedor" (review 4b): split the selection by each SKU's preferred
-  // supplier and create ONE pedido per supplier — type + lead come from each group's
-  // supplier. SKUs with no preferred supplier are SKIPPED (todo pedido tem fornecedor).
-  const criarPorFornecedor = () => {
-    setError(null);
-    setCreatedVo(null);
-    const groups = groupBySupplier(
-      selectedRows.map((r) => ({ skuBase: r.suggestion.skuBase, row: r })),
-      new Map(Object.entries(prefBySku)),
-    );
-    const withSupplier = groups.filter((g) => g.supplierId && supplierById.has(g.supplierId));
-    const skipped = selectedRows.length - withSupplier.reduce((n, g) => n + g.items.length, 0);
-    if (withSupplier.length === 0) {
-      setError('Nenhum SKU selecionado tem fornecedor preferido. Vincule fornecedores primeiro.');
-      return;
-    }
-    startTransition(async () => {
-      let created = 0;
-      for (const g of withSupplier) {
-        const sup = supplierById.get(g.supplierId!)!;
-        const res = await createPedido({
-          modal,
-          orderDate,
-          pedidoName: pedidoName ? `${pedidoName} · ${sup.name}` : sup.name,
-          orderType: sup.kind,
-          supplierId: sup.supplierId,
-          supplierName: sup.name,
-          lines: g.items.map((it) => lineFor(it.row, sup)),
-          audit: auditObj,
-        });
-        if (!res.ok) {
-          setError(`Erro no fornecedor ${sup.name}: ${res.error ?? 'falha'} (${created} pedido(s) criado(s) antes).`);
-          router.refresh();
-          return;
-        }
-        created++;
-      }
-      setError(skipped > 0 ? `${created} pedido(s) criado(s). ${skipped} SKU(s) sem fornecedor foram ignorados.` : null);
-      router.refresh();
-    });
-  };
-  const distinctSuppliersInSelection = new Set(
-    selectedRows.map((r) => prefBySku[r.suggestion.skuBase] ?? '∅'),
-  ).size;
-
   const exportCsv = () => {
-    const header = ['sku', 'nome', 'doh_hoje', 'consumo_dia', 'ruptura', 'chegada', 'qtd', 'incluido'];
+    const header = ['sku', 'nome', 'doh_hoje', 'consumo_dia', 'ruptura', 'total', 'modais'];
     const lines = filtered.map((r) => {
       const s = r.suggestion;
+      const modais = enabledModalOptions
+        .map((m) => `${m.name}:${qtyFor(s.skuBase, m.id)}`)
+        .filter((x) => !x.endsWith(':0'))
+        .join('|');
       return [
         s.skuBase,
         `"${(s.skuName ?? '').replace(/"/g, '""')}"`,
         s.dohNow != null ? Math.round(s.dohNow) : '',
         s.dailyDemand.toFixed(2),
         s.firstBreachDate ?? '',
-        s.expectedArrival ?? '',
-        qtys[s.skuBase] ?? 0,
-        included.has(s.skuBase) ? 'sim' : 'nao',
+        perSkuTotal(s.skuBase),
+        `"${modais}"`,
       ].join(',');
     });
     const blob = new Blob([`﻿${[header.join(','), ...lines].join('\n')}`], { type: 'text/csv;charset=utf-8;' });
@@ -325,37 +377,6 @@ export function ProcurementView({
     <div>
       {/* Order-level controls */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-        <div>
-          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Modal do pedido</span>
-          <div className="mt-1 inline-flex overflow-hidden rounded-md border border-border">
-            {(['sea', 'air'] as TransportModal[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => chooseModal(m)}
-                className={cn(
-                  'inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors',
-                  modal === m ? 'bg-brand-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50',
-                )}
-              >
-                {m === 'sea' ? <Ship size={13} /> : <Plane size={13} />}
-                {m === 'sea' ? 'Marítimo' : 'Aéreo'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Data do pedido</span>
-          <DateField value={orderDate} onChange={setOrderDate} className="mt-1 h-8 w-36" aria-label="Data do pedido" />
-        </div>
-        <div>
-          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Nome do pedido</span>
-          <input
-            value={pedidoName}
-            onChange={(e) => setPedidoName(e.target.value)}
-            placeholder="Ex.: Reposição agosto"
-            className="mt-1 h-8 w-48 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
-          />
-        </div>
         <div>
           <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             Fornecedor <span className="text-alert-error">*</span>
@@ -389,34 +410,82 @@ export function ProcurementView({
             <span className="ml-1 text-muted-foreground">(do fornecedor)</span>
           </span>
         </div>
+        <div>
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Data do pedido</span>
+          <DateField value={orderDate} onChange={setOrderDate} className="mt-1 h-8 w-36" aria-label="Data do pedido" />
+        </div>
+        <div>
+          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Nome do pedido</span>
+          <input
+            value={pedidoName}
+            onChange={(e) => setPedidoName(e.target.value)}
+            placeholder="Ex.: Reposição agosto"
+            className="mt-1 h-8 w-48 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
+          />
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{selectedCount}</span> SKUs · {fmtInt(selectedUnits)} un.
           </span>
           {isHead && (
-            <>
-              {suppliers.length > 0 && distinctSuppliersInSelection > 1 && (
-                <button
-                  onClick={criarPorFornecedor}
-                  disabled={pending || selectedCount === 0}
-                  title="Cria um pedido separado para cada fornecedor preferencial dos SKUs selecionados (SKUs sem fornecedor são ignorados)"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-brand-500/40 px-3 py-2 text-sm font-medium text-brand-600 hover:bg-brand-500/10 disabled:opacity-50"
-                >
-                  <Check size={15} /> Por fornecedor ({distinctSuppliersInSelection})
-                </button>
-              )}
-              <button
-                onClick={criarPedido}
-                disabled={pending || selectedCount === 0 || !supplierId}
-                title={!supplierId ? 'Selecione um fornecedor' : undefined}
-                className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
-              >
-                <Check size={15} /> {pending ? 'Criando…' : 'Criar pedido'}
-              </button>
-            </>
+            <button
+              onClick={criarPedido}
+              disabled={pending || selectedCount === 0 || !supplierId || enabledModalOptions.length === 0}
+              title={!supplierId ? 'Selecione um fornecedor' : undefined}
+              className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
+            >
+              <Check size={15} /> {pending ? 'Criando…' : 'Criar pedido'}
+            </button>
           )}
         </div>
       </div>
+
+      {/* Modais deste pedido (N-modal) — the chosen supplier's transport lanes */}
+      {modalOptions.length > 0 ? (
+        <div className="mb-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Modais deste pedido</span>
+            {modalOptions.map((m) => (
+              <label key={m.id} className="inline-flex cursor-pointer items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={enabledModals.has(m.id)}
+                  onChange={() => toggleModal(m.id)}
+                  className="size-3.5 cursor-pointer accent-brand-500"
+                />
+                <ModalIcon m={m} />
+                {m.name}
+                <span className="text-xs text-muted-foreground">+{m.leadDays}d</span>
+              </label>
+            ))}
+            <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              Frequência (reposição)
+              <select
+                value={frequencyDays ?? 0}
+                onChange={(e) => setFrequencyDays(Number(e.target.value) || null)}
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand-500"
+              >
+                <option value={0}>Único</option>
+                <option value={30}>30 dias</option>
+                <option value={60}>60 dias</option>
+                <option value={90}>90 dias</option>
+              </select>
+            </label>
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            O modal mais lento repõe até o piso ({criteria.dohThreshold} DOH) + a frequência; os mais rápidos cobrem os vãos
+            até a próxima chegada. Quantidades calculadas com o lead real do fornecedor.
+          </p>
+        </div>
+      ) : selectedSupplier ? (
+        <div className="mb-4 rounded-xl bg-alert-warning/10 p-3 text-sm text-[color:var(--color-alert-warning)]">
+          Este fornecedor não tem modais cadastrados nem lead times.{' '}
+          <Link href="/dashboard/fornecedores" className="underline">
+            Cadastrar modais
+          </Link>{' '}
+          para gerar as quantidades sugeridas.
+        </div>
+      ) : null}
 
       {/* Regras deste pedido (7b) — override do critério global só para este cálculo */}
       <div className="mb-4 rounded-xl bg-card ring-1 ring-foreground/10">
@@ -545,7 +614,7 @@ export function ProcurementView({
           className="h-8 w-40 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
 
-        {/* Modal-necessity chips */}
+        {/* Modal-necessity chips (suggestão binária do motor) */}
         {([
           ['all', 'Tudo'],
           ['air', 'Aéreo necessário'],
@@ -643,39 +712,40 @@ export function ProcurementView({
               <th className="px-3 py-2.5 font-medium">
                 <span className="inline-flex items-center gap-1">Comprar até <InfoHint id="buy-by" /></span>
               </th>
-              <th className="px-3 py-2.5 font-medium">Chegada ({modal === 'sea' ? 'mar' : 'aéreo'})</th>
               <th className="px-3 py-2.5 text-right font-medium">
-                <span className="inline-flex items-center justify-end gap-1">Qtd sugerida <InfoHint id="order-qty" /></span>
+                <span className="inline-flex items-center justify-end gap-1">Quantidades por modal <InfoHint id="order-qty" /></span>
               </th>
+              <th className="px-3 py-2.5 font-medium">Cobertura c/ pedido</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
-                  Nenhum SKU precisa de pedido no horizonte (cobertura acima do piso).
+                  {supplierId
+                    ? 'Nenhum SKU deste fornecedor precisa de pedido no horizonte.'
+                    : 'Selecione um fornecedor para ver os SKUs e as quantidades por modal.'}
                 </td>
               </tr>
             ) : (
               filtered.map((r) => {
                 const s = r.suggestion;
-                const leadDays = modal === 'sea' ? s.leadTimeSeaDays : s.leadTimeAirDays;
-                const arrival = addDaysStr(orderDate, leadDays);
-                const buyBy = signedAddDays(s.firstBreachDate, -leadDays);
+                const buyBy = slowestLead != null ? signedAddDays(s.firstBreachDate, -slowestLead) : null;
                 const isIn = included.has(s.skuBase);
+                const total = perSkuTotal(s.skuBase);
                 return (
                   <tr key={s.skuBase} className={cn('transition-colors', isIn ? 'bg-brand-500/[0.04]' : 'hover:bg-muted/30')}>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-top">
                       <input
                         type="checkbox"
                         aria-label={`Incluir ${s.skuBase}`}
                         checked={isIn}
                         disabled={!isHead}
                         onChange={() => toggle(s.skuBase)}
-                        className="size-3.5 cursor-pointer accent-brand-500 align-middle disabled:cursor-not-allowed"
+                        className="mt-1 size-3.5 cursor-pointer accent-brand-500 align-middle disabled:cursor-not-allowed"
                       />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 align-top">
                       <Link
                         prefetch={false}
                         href={`/dashboard/estoque?sku=${encodeURIComponent(s.skuBase)}`}
@@ -684,14 +754,14 @@ export function ProcurementView({
                         {s.skuBase}
                       </Link>
                     </td>
-                    <td className="max-w-[200px] truncate px-3 py-2 text-muted-foreground">{s.skuName}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{s.dohNow != null ? fmtInt(s.dohNow) : '—'}</td>
-                    <td className="px-3 py-2 tabular-nums text-xs">
+                    <td className="max-w-[180px] truncate px-3 py-2 align-top text-muted-foreground">{s.skuName}</td>
+                    <td className="px-3 py-2 text-right align-top tabular-nums">{s.dohNow != null ? fmtInt(s.dohNow) : '—'}</td>
+                    <td className="px-3 py-2 align-top tabular-nums text-xs">
                       <span className={s.isLate ? 'text-alert-error' : 'text-amber-600 dark:text-alert-warning'}>
                         {fmtDate(s.firstBreachDate)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-xs">
+                    <td className="px-3 py-2 align-top tabular-nums text-xs">
                       {s.isLate ? (
                         <span className="inline-flex items-center rounded-full bg-alert-error/15 px-1.5 py-0.5 font-medium text-alert-error">
                           Atrasado
@@ -700,35 +770,65 @@ export function ProcurementView({
                         <span className="text-muted-foreground">{fmtDate(buyBy)}</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-xs text-muted-foreground">{fmtDate(arrival)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {isHead ? (
-                        <div className="flex flex-col items-end gap-0.5">
-                          <input
-                            type="number"
-                            min={0}
-                            value={qtys[s.skuBase] ?? 0}
-                            onChange={(e) => setQtys((p) => ({ ...p, [s.skuBase]: Number(e.target.value) }))}
-                            className="h-7 w-24 rounded border border-input bg-background px-1.5 text-right text-xs tabular-nums outline-none focus:border-brand-500"
-                          />
-                          <span className="text-[10px] text-muted-foreground">
-                            sug. {fmtInt(suggestedFor(r, modal))}
-                            {(qtys[s.skuBase] ?? 0) !== suggestedFor(r, modal) && (
-                              <button
-                                onClick={() => setQtys((p) => ({ ...p, [s.skuBase]: suggestedFor(r, modal) }))}
-                                className="ml-1 text-brand-600 hover:underline"
-                              >
-                                redefinir
-                              </button>
-                            )}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[9px] text-muted-foreground/70" title="Plano combinado: aéreo (ponte) · marítimo (lote)">
-                            <Plane size={8} /> {fmtInt(r.suggestedQtyAir)} · <Ship size={8} /> {fmtInt(r.suggestedQtySea)}
-                          </span>
+                    <td className="px-3 py-2 align-top">
+                      {enabledModalOptions.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : isHead ? (
+                        <div className="flex flex-col gap-1">
+                          {enabledModalOptions.map((m) => {
+                            const sug = suggestedFor(s.skuBase, m.id);
+                            const val = qtyFor(s.skuBase, m.id);
+                            return (
+                              <div key={m.id} className="flex items-center justify-end gap-1.5">
+                                <span className="mr-auto inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <ModalIcon m={m} sm /> {m.name} <span className="opacity-60">+{m.leadDays}d</span>
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={val}
+                                  onChange={(e) => setQtyOverride(s.skuBase, m.id, Number(e.target.value))}
+                                  className="h-6 w-20 rounded border border-input bg-background px-1 text-right text-[11px] tabular-nums outline-none focus:border-brand-500"
+                                />
+                                {val !== sug && (
+                                  <button
+                                    onClick={() => clearQtyOverride(s.skuBase, m.id)}
+                                    title={`sugerido ${fmtInt(sug)} — redefinir`}
+                                    className="text-[10px] text-brand-600 hover:underline"
+                                  >
+                                    ↺
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                          <div className="mt-0.5 border-t border-border/40 pt-0.5 text-right text-[10px] font-medium text-foreground">
+                            Σ {fmtInt(total)} un.
+                          </div>
                         </div>
                       ) : (
-                        <span className="tabular-nums">{fmtInt(qtys[s.skuBase] ?? 0)}</span>
+                        <div className="text-right text-xs tabular-nums">
+                          {enabledModalOptions.map((m) => (
+                            <div key={m.id}>
+                              {m.name}: {fmtInt(qtyFor(s.skuBase, m.id))}
+                            </div>
+                          ))}
+                        </div>
                       )}
+                    </td>
+                    <td className="px-3 py-2 align-top">
+                      <div
+                        className="flex items-center gap-px"
+                        title="Cobertura semanal com o pedido — verde: ok · amarelo: abaixo do piso · vermelho: ruptura"
+                      >
+                        {stripFor(r).map((c) => (
+                          <span
+                            key={c.weekIdx}
+                            className={cn('inline-block h-4 w-1.5 rounded-[1px]', miniCellClass(c))}
+                            title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
+                          />
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -741,14 +841,6 @@ export function ProcurementView({
   );
 }
 
-// Local DD-safe date add (client): orderDate + n days → YYYY-MM-DD.
-function addDaysStr(iso: string, days: number): string | null {
-  if (!iso) return null;
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + Math.max(0, Math.round(days)));
-  return d.toISOString().slice(0, 10);
-}
-
 // Signed date add (allows going backwards — for the buy-by = breach − lead calc).
 function signedAddDays(iso: string | null, days: number): string | null {
   if (!iso) return null;
@@ -757,6 +849,22 @@ function signedAddDays(iso: string | null, days: number): string | null {
   return d.toISOString().slice(0, 10);
 }
 
-// The suggested qty for the chosen order modal (combined plan: air bridge vs sea bulk).
-const suggestedFor = (r: ElaborationRow, m: TransportModal) =>
-  m === 'air' ? r.suggestedQtyAir : r.suggestedQtySea;
+// Mini-strip cell color — same precedence as the big heatmap (out > low > ok), solid so a
+// 6px cell reads at a glance.
+function miniCellClass(c: MiniCell): string {
+  if (c.isOut) return 'bg-alert-error';
+  if (c.isLow) return 'bg-alert-warning';
+  if (c.doh == null) return 'bg-muted';
+  return 'bg-alert-success/70';
+}
+
+// Modal glyph by lead/name: courier/express → Truck, aéreo → Plane, marítimo → Ship.
+function ModalIcon({ m, sm }: { m: ModalOption; sm?: boolean }) {
+  const size = sm ? 9 : 13;
+  const n = m.name.toLowerCase();
+  if (/mar[ií]t|sea|navio|barco/.test(n)) return <Ship size={size} />;
+  if (/a[eé]re|air|avi[ãa]o/.test(n)) return <Plane size={size} />;
+  if (/courier|expr|moto|terrestre|rodo/.test(n)) return <Truck size={size} />;
+  // Fallback by speed: fastest = truck, slowest = ship, middle = plane.
+  return <Package size={size} />;
+}

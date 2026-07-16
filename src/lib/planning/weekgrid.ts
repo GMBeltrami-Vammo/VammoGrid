@@ -3,10 +3,12 @@ import type {
   OpenPurchaseOrder,
   ProjectionScope,
   PurchaseSuggestion,
+  ScenarioMeta,
   SkuForecast,
   SkuPolicy,
   StockProjection,
   StockState,
+  WeekArrival,
   WeekCell,
   WeekGridRow,
   WeekGridScenario,
@@ -21,25 +23,39 @@ import {
   DEFAULT_PURCHASE_CRITERIA,
   type PurchaseCriteria,
 } from './constants';
-import { addDays, diffDays, nextFirstOfMonth } from './dates';
+import { addDays, diffDays } from './dates';
 import { defaultPolicyFor } from './policy';
 import { forwardAvgDemand, projectGlobal, projectSku, type SkuProjections } from './projection';
+import type { ModalOption } from './supplierGroups';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly stockout heatmap — a VIEW of the existing projection, sampled at week
-// boundaries. All four scopes (global + 3 hubs) are computed server-side so the
-// scope toggle is instant. Pure/deterministic: reuses projectSku(), so every cell
-// is consistent with the SKU-detail charts.
+// boundaries. All scopes (global + 3 hubs) are computed server-side so the scope
+// toggle is instant. Pure/deterministic: reuses projectSku(), so every cell is
+// consistent with the SKU-detail charts.
 //
-// Extended (sub-project C): a coverage SCENARIO can inject a hypothetical air/sea
-// order per SKU (baseline/air_only/sea_only/complete — "cobertura do pedido aéreo/
-// marítimo"); the low-DOH coloring floor is driven by the global service-level tier;
-// and weeks past the model horizon are flagged extrapolated.
+// N-modal (mega-rodada): a supplier offers N transport modais (Courier 15d / Aéreo
+// 45d / Marítimo 105d…). The scenario SET is dynamic — 'baseline', one per distinct
+// modal ("Courier quando necessário"…), and 'combined' — each computed by injecting
+// when-needed arrivals at that modal's REAL lead (the old monthly-batch anchor is gone;
+// arrivals are plain lead offsets). Cells carry a per-modal arrivals list, so courier /
+// aéreo / marítimo show up distinctly. The projection engine ignores `modal` (timing
+// comes from eta/lead), so this is purely a matter of which receipts get injected.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const HUBS: HubId[] = ['osasco', 'mooca', 'sbc'];
 const DEFAULT_WEEKS = 16;
 const MODEL_HORIZON_DAYS = 90; // forecast beyond this is extrapolated (greyed in the UI)
+
+/** Legacy PO modal codes → the display names the supplier modais use, so a synced
+ *  'sea'/'air' PO groups under the same bucket as the supplier's Marítimo/Aéreo modal. */
+function normalizeModal(m: string | null | undefined): string {
+  if (!m) return 'Marítimo';
+  const s = String(m).toLowerCase();
+  if (s === 'sea') return 'Marítimo';
+  if (s === 'air') return 'Aéreo';
+  return String(m);
+}
 
 export interface WeekGrid {
   weeks: WeekMeta[];
@@ -52,6 +68,12 @@ export interface WeekGrid {
   criteria: PurchaseCriteria;
 }
 
+/** buildAllScenarioGrids result: the dynamic scenario list + one grid per scenario key. */
+export interface ScenarioGrids {
+  scenarios: ScenarioMeta[];
+  grids: Record<string, WeekGrid>;
+}
+
 interface WeekGridInputs {
   stocks: StockState[];
   forecasts: Map<string, SkuForecast>;
@@ -59,6 +81,9 @@ interface WeekGridInputs {
   policies: Map<string, SkuPolicy>;
   shares: Map<string, Record<HubId, number>>;
   today: string;
+  /** Per-SKU transport modais (from the preferred supplier). Absent → the SKU's policy
+   *  sea/air leads become a 2-modal Marítimo/Aéreo fallback. */
+  modalsBySku?: Map<string, ModalOption[]>;
 }
 
 const OPEN_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
@@ -73,14 +98,22 @@ function weekIndexFor(offset: number, totalCols: number): number {
   return wi < totalCols ? wi : -1;
 }
 
-/** Per-week arriving units split by modal, from the SKU's orders (same arrival rule
- *  the projection uses). Applied to the scopes that receive POs (global + Osasco). */
-function modalArrivalsByWeek(
-  orders: OpenPurchaseOrder[],
-  weeks: WeekMeta[],
-  today: string,
-): { sea: number; air: number }[] {
-  const out = weeks.map(() => ({ sea: 0, air: 0 }));
+/** modalName → per-week arriving units. */
+type ModalWeek = Map<string, number[]>;
+
+function addArrival(map: ModalWeek, modal: string, wi: number, qty: number, weekCount: number): void {
+  let arr = map.get(modal);
+  if (!arr) {
+    arr = new Array<number>(weekCount).fill(0);
+    map.set(modal, arr);
+  }
+  arr[wi] += qty;
+}
+
+/** Per-week arriving units grouped by (normalized) modal, from the given orders (same
+ *  arrival rule the projection uses). Applied to scopes that receive POs (global + Osasco). */
+function arrivalsByModalWeek(orders: OpenPurchaseOrder[], weeks: WeekMeta[], today: string): ModalWeek {
+  const out: ModalWeek = new Map();
   for (const o of orders) {
     if (!OPEN_STATUSES.has(o.status)) continue;
     if (!countsAsInbound(o.prepStatus)) continue;
@@ -88,8 +121,7 @@ function modalArrivalsByWeek(
     if (!arrival) continue;
     const wi = weekIndexFor(diffDays(today, arrival), weeks.length);
     if (wi === -1) continue;
-    if (o.modal === 'air') out[wi].air += o.qty;
-    else out[wi].sea += o.qty; // default/unknown modal counts as maritime
+    addArrival(out, normalizeModal(o.modal), wi, o.qty, weeks.length);
   }
   return out;
 }
@@ -128,22 +160,26 @@ function nationalArrivalsByWeek(orders: OpenPurchaseOrder[], weeks: WeekMeta[], 
   return out;
 }
 
-type ModalSplit = { sea: number; air: number }[];
+const EMPTY_MODAL_WEEK: ModalWeek = new Map();
 
-/** Sample one scope's projection timeline into per-week cells. `arrReg`/`arrSug` are the
- *  per-week sea/air arrival splits for REGISTERED (already-placed) vs SUGGESTED (scenario
- *  when-needed) orders — zeros for spoke hubs, which receive no POs. `rop` is this scope's
- *  reorder point (used to flag "low" when criteria.mode = 'rop'). */
+/** Sample one scope's projection timeline into per-week cells. `regByModal`/`sugByModal`
+ *  are modalName→per-week arriving units for REGISTERED vs SUGGESTED (scenario when-needed)
+ *  orders — empty for spoke hubs, which receive no POs. `floor` is the DOH coloring floor
+ *  (doh mode); `rop` this scope's reorder point (rop mode). */
 function sampleCells(
   proj: StockProjection,
   weeks: WeekMeta[],
   criteria: PurchaseCriteria,
+  floor: number,
   rop: number,
-  arrReg: ModalSplit,
-  arrSug: ModalSplit,
+  regByModal: ModalWeek,
+  sugByModal: ModalWeek,
   arrVosByWeek: string[][],
   natArr: number[],
 ): WeekCell[] {
+  const modalNames = [...new Set([...regByModal.keys(), ...sugByModal.keys()])].sort((a, b) =>
+    a.localeCompare(b),
+  );
   return weeks.map((w, wi) => {
     const end = proj.timeline[w.dayOffset];
     const stock = end?.stock ?? 0;
@@ -160,19 +196,19 @@ function sampleCells(
       recovery += p.recovery;
     }
     const doh = fwd > 0 ? Math.round(stock / fwd) : null;
-    // "Low" per the active criteria: below the DOH floor, or below the reorder point.
-    const isLow =
-      criteria.mode === 'rop' ? rop > 0 && stock < rop : doh != null && doh < criteria.dohThreshold;
-    const reg = arrReg[wi] ?? { sea: 0, air: 0 };
-    const sug = arrSug[wi] ?? { sea: 0, air: 0 };
+    const isLow = criteria.mode === 'rop' ? rop > 0 && stock < rop : doh != null && doh < floor;
+
+    const arrivals: WeekArrival[] = [];
+    for (const modal of modalNames) {
+      const reg = Math.round(regByModal.get(modal)?.[wi] ?? 0);
+      const sug = Math.round(sugByModal.get(modal)?.[wi] ?? 0);
+      if (reg > 0 || sug > 0) arrivals.push({ modal, reg, sug });
+    }
     return {
       stock,
       doh,
       inbound: Math.round(inbound),
-      inboundSea: Math.round(reg.sea + sug.sea),
-      inboundAir: Math.round(reg.air + sug.air),
-      arrReg: { sea: Math.round(reg.sea), air: Math.round(reg.air) },
-      arrSug: { sea: Math.round(sug.sea), air: Math.round(sug.air) },
+      arrivals,
       arrVos: arrVosByWeek[wi] ?? [],
       recovery: Math.round(recovery),
       arrNat: Math.round(natArr[wi] ?? 0),
@@ -186,12 +222,12 @@ function sampleCells(
 const MAX_INJECTIONS = 6; // cap the when-needed reorder loop per SKU
 
 /** First day (offset 1..horizon) the projection breaches the active criteria; -1 if
- *  never. 'doh' → forward-7-day-avg DOH below the threshold (same metric the cells show);
- *  'rop' → stock below the reorder point. So the scenario's when-needed orders target
- *  exactly the condition the heatmap flags. */
+ *  never. 'doh' → forward-7-day-avg DOH below `floor`; 'rop' → stock below the reorder
+ *  point. So the scenario's when-needed orders target exactly the flagged condition. */
 function firstBreachDay(
   proj: StockProjection,
   criteria: PurchaseCriteria,
+  floor: number,
   rop: number,
   horizonDays: number,
 ): number {
@@ -203,95 +239,114 @@ function firstBreachDay(
     } else {
       const fwd = forwardAvgDemand(proj.timeline, d, 7);
       if (fwd <= 0) continue;
-      if (p.stock / fwd < criteria.dohThreshold) return d;
+      if (p.stock / fwd < floor) return d;
     }
   }
   return -1;
 }
 
-/** Latest monthly-batch (1st-of-month) sea order whose arrival offset ≤ breach; if
- *  even the first batch lands after the breach, the earliest batch (arriving late). */
-function seaArrivalForBreach(today: string, breachOffset: number, seaDays: number): number {
-  let earliest = -1;
-  let best = -1;
-  let cursor = nextFirstOfMonth(today);
-  for (let k = 0; k < 24; k++) {
-    const arrivalOffset = diffDays(today, cursor) + seaDays;
-    if (earliest === -1) earliest = arrivalOffset;
-    if (arrivalOffset <= breachOffset) best = arrivalOffset;
-    else break; // arrivals only grow month to month
-    cursor = nextFirstOfMonth(addDays(cursor, 1));
+/** The SKU's transport modais (fastest→slowest), from its preferred supplier; falls back
+ *  to the policy sea/air leads as a 2-modal Marítimo/Aéreo set. */
+function modalsForSku(
+  modalsBySku: Map<string, ModalOption[]> | undefined,
+  skuBase: string,
+  policy: SkuPolicy,
+): ModalOption[] {
+  const own = modalsBySku?.get(skuBase);
+  const list =
+    own && own.length > 0
+      ? [...own]
+      : ([
+          policy.leadTimeAirDays != null && policy.leadTimeAirDays > 0
+            ? { id: 'Aéreo', name: 'Aéreo', leadDays: Math.round(policy.leadTimeAirDays) }
+            : null,
+          {
+            id: 'Marítimo',
+            name: 'Marítimo',
+            leadDays: Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS),
+          },
+        ].filter(Boolean) as ModalOption[]);
+  return list.sort((a, b) => a.leadDays - b.leadDays); // fastest first
+}
+
+/** The dynamic scenario set: baseline + one per distinct modal name (fastest→slowest by a
+ *  representative lead) + combined. */
+function scenariosFor(contexts: SkuWeekContext[]): ScenarioMeta[] {
+  const minLeadByName = new Map<string, number>();
+  for (const ctx of contexts) {
+    for (const mo of ctx.modais) {
+      const cur = minLeadByName.get(mo.name);
+      if (cur == null || mo.leadDays < cur) minLeadByName.set(mo.name, mo.leadDays);
+    }
   }
-  return best !== -1 ? best : earliest;
+  const modalScenarios: ScenarioMeta[] = [...minLeadByName.entries()]
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .map(([name]) => ({ key: name, label: `${name} qdo necessário`, kind: 'modal' as const }));
+  const out: ScenarioMeta[] = [{ key: 'baseline', label: 'Base (pedidos atuais)', kind: 'baseline' }];
+  out.push(...modalScenarios);
+  if (modalScenarios.length > 1) out.push({ key: 'combined', label: 'Combinado', kind: 'combined' });
+  return out;
 }
 
 /**
- * "Buy when needed" injection (request): instead of a buy-NOW arrival, repeatedly find
- * the next point the projection would drop below the coverage floor and inject an order
- * of the scenario's modal that lands right when needed — air at the breach (ordered
- * breach−airLead, or ASAP if too soon), sea on the latest monthly batch that still
- * arrives in time (else the earliest, late), complete = sea if a batch makes it, else
- * air. Iterates so a long horizon gets successive reorders, like real replenishment.
+ * "Buy when needed" injection, generalized to N modais: repeatedly find the next day the
+ * projection drops below the floor and inject an order that lands right when needed. The
+ * per-breach lane comes from `pickLane`:
+ *   • modal scenario → always that modal (skip the SKU if it doesn't offer it);
+ *   • combined → the SLOWEST modal that still arrives ≤ breach, else the FASTEST (late).
+ * Returns the injected orders + the per-modal, per-week suggested arrivals for the cells.
  */
 function whenNeededInjection(args: {
-  scenario: WeekGridScenario;
+  scenario: ScenarioMeta;
+  modais: ModalOption[];
   stock: StockState;
   forecast: SkuForecast | null;
   policy: SkuPolicy;
   baseOrders: OpenPurchaseOrder[];
-  /** The base-orders-only GLOBAL projection (shared across scenarios) — iteration 0
-   *  of the loop is exactly this projection, so it's reused instead of recomputed. */
+  /** The base-orders-only GLOBAL projection (shared) — iteration 0 reuses it. */
   baselineGlobal: StockProjection;
   today: string;
+  weeks: WeekMeta[];
   criteria: PurchaseCriteria;
+  floor: number;
   rop: number;
   horizonDays: number;
-  /** Projection horizon (grid window + fwd-avg margin) — receipts beyond it only
-   *  affect days the grid never reads, so results are identical to the 150d default. */
   projectionHorizon: number;
-}): OpenPurchaseOrder[] {
-  const { scenario, stock, forecast, policy, baseOrders, baselineGlobal, today, criteria, rop, horizonDays, projectionHorizon } = args;
-  if (scenario === 'baseline') return [];
+}): { injected: OpenPurchaseOrder[]; sugByModal: ModalWeek } {
+  const { scenario, modais, stock, forecast, policy, baseOrders, baselineGlobal, today, weeks } = args;
+  const { criteria, floor, rop, horizonDays, projectionHorizon } = args;
+  const empty = { injected: [] as OpenPurchaseOrder[], sugByModal: new Map() as ModalWeek };
+  if (scenario.kind === 'baseline') return empty;
 
-  const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
-  const airDays = Math.max(0, Math.round(policy.leadTimeAirDays ?? INTERNATIONAL_AIR_LEAD_DAYS));
+  // fastest→slowest
+  const lanes = [...modais].sort((a, b) => a.leadDays - b.leadDays);
+  if (lanes.length === 0) return empty;
+
+  const pickLane = (bd: number): ModalOption | null => {
+    if (scenario.kind === 'modal') return lanes.find((m) => m.name === scenario.key) ?? null;
+    // combined: slowest lane arriving in time, else the fastest.
+    const inTime = lanes.filter((m) => m.leadDays <= bd);
+    return inTime.length > 0 ? inTime[inTime.length - 1] : lanes[0];
+  };
+
   const injected: OpenPurchaseOrder[] = [];
+  const sugByModal: ModalWeek = new Map();
   const orders = [...baseOrders];
 
   for (let iter = 0; iter < MAX_INJECTIONS; iter++) {
-    // Only the GLOBAL stream matters here (breach scan) — the hubs were 3/4 wasted work.
     const proj =
       iter === 0
         ? baselineGlobal
         : projectGlobal({ stock, forecast, orders, policy, today, horizon: projectionHorizon });
-    const bd = firstBreachDay(proj, criteria, rop, horizonDays);
+    const bd = firstBreachDay(proj, criteria, floor, rop, horizonDays);
     if (bd < 0) break;
+    const lane = pickLane(bd);
+    if (!lane) break; // this SKU's supplier doesn't offer the scenario's modal
     const dailyDemand = proj.dailyDemand > 0 ? proj.dailyDemand : proj.timeline[bd]?.demand ?? 0;
     if (dailyDemand <= 0) break;
-    // Each order covers targetDoi (≥30) days of demand.
     const qty = Math.max(1, Math.round(dailyDemand * Math.max(policy.targetDoi, 30)));
-
-    // Modal + arrival offset for THIS breach.
-    let modal: 'sea' | 'air';
-    let arrivalOffset: number;
-    if (scenario === 'air_only') {
-      modal = 'air';
-      arrivalOffset = airDays <= bd ? bd : airDays; // land at breach if we can, else ASAP
-    } else if (scenario === 'sea_only') {
-      modal = 'sea';
-      arrivalOffset = seaArrivalForBreach(today, bd, seaDays);
-    } else {
-      // complete: sea if a monthly batch arrives in time, else air at/after the breach.
-      const seaOff = seaArrivalForBreach(today, bd, seaDays);
-      if (seaOff <= bd) {
-        modal = 'sea';
-        arrivalOffset = seaOff;
-      } else {
-        modal = 'air';
-        arrivalOffset = airDays <= bd ? bd : airDays;
-      }
-    }
-    const lead = modal === 'sea' ? seaDays : airDays;
+    // Land at the breach if the lead allows, else as soon as the lead permits (late).
+    const arrivalOffset = lane.leadDays <= bd ? bd : lane.leadDays;
     const ord: OpenPurchaseOrder = {
       id: `scn-${iter}`,
       vo: null,
@@ -299,10 +354,12 @@ function whenNeededInjection(args: {
       skuBase: stock.skuBase,
       skuName: stock.skuName,
       qty,
-      orderDate: addDays(today, Math.max(0, arrivalOffset - lead)),
+      orderDate: addDays(today, Math.max(0, arrivalOffset - lane.leadDays)),
       eta: addDays(today, arrivalOffset),
-      leadTimeDays: lead,
-      modal,
+      leadTimeDays: lane.leadDays,
+      // Kept as a coarse code for any legacy reader; the engine ignores it and the cell
+      // grouping uses the display name below.
+      modal: lane.leadDays >= 30 ? 'sea' : 'air',
       status: 'ordered',
       prepStatus: null, // a what-if arrival counts as inbound in the projection
       hubId: 'osasco',
@@ -311,8 +368,10 @@ function whenNeededInjection(args: {
     };
     injected.push(ord);
     orders.push(ord);
+    const wi = weekIndexFor(arrivalOffset, weeks.length);
+    if (wi !== -1) addArrival(sugByModal, lane.name, wi, qty, weeks.length);
   }
-  return injected;
+  return { injected, sugByModal };
 }
 
 /** Which week column a buy-by date falls in (0 = the "Hoje" column, for buy-by today
@@ -325,11 +384,11 @@ function buyByWeek(buyByDate: string | null, today: string, weeks: number): numb
 }
 
 // ── Shared per-page context: everything scenario-INVARIANT, computed once ─────
-// The four scenario grids share the same weeks, criteria, and — per SKU — the same
-// policy/shares/purchase meta, registered arrivals, and (crucially) the same
-// base-orders-only projection: the baseline scenario IS that projection, and every
-// other scenario's injection loop starts from it. A SKU that never breaches injects
-// nothing, so its rows are identical across all four grids and are reused outright.
+// The scenario grids share the same weeks, criteria, and — per SKU — the same
+// policy/shares/purchase meta, registered arrivals, modais, and (crucially) the same
+// base-orders-only projection: baseline IS that projection, and every scenario's
+// injection loop starts from it. A SKU that injects nothing in a scenario reuses its
+// baseline rows outright.
 
 type ScopeRows = { global: WeekGridRow; byHub: Record<HubId, WeekGridRow> };
 
@@ -339,10 +398,11 @@ interface SkuWeekContext {
   policy: SkuPolicy;
   shares: Record<HubId, number>;
   rop: number;
+  modais: ModalOption[];
   baseOrders: OpenPurchaseOrder[];
   /** Base-orders-only projection at the grid horizon — the baseline of every scenario. */
   baseProj: SkuProjections;
-  regArrivals: ModalSplit;
+  regByModal: ModalWeek;
   regKeys: string[][];
   natArrivals: number[];
   meta: Omit<WeekGridRow, 'cells'>;
@@ -356,9 +416,9 @@ interface SharedGridContext {
   today: string;
   weeks: WeekMeta[];
   projectionHorizon: number;
-  noArrivals: ModalSplit;
   noKeys: string[][];
   noNat: number[];
+  scenarios: ScenarioMeta[];
   contexts: SkuWeekContext[];
 }
 
@@ -366,26 +426,26 @@ function rowsForProjection(
   ctx: SkuWeekContext,
   shared: SharedGridContext,
   proj: SkuProjections,
-  sugArrivals: ModalSplit,
+  sugByModal: ModalWeek,
+  floor: number,
 ): ScopeRows {
-  const { weeks, criteria, noArrivals, noKeys, noNat } = shared;
+  const { weeks, criteria, noKeys, noNat } = shared;
   const rowFor = (p: StockProjection, hasArrivals: boolean, scopeRop: number): WeekGridRow => ({
     ...ctx.meta,
     cells: sampleCells(
       p,
       weeks,
       criteria,
+      floor,
       scopeRop,
-      hasArrivals ? ctx.regArrivals : noArrivals,
-      hasArrivals ? sugArrivals : noArrivals,
+      hasArrivals ? ctx.regByModal : EMPTY_MODAL_WEEK,
+      hasArrivals ? sugByModal : EMPTY_MODAL_WEEK,
       hasArrivals ? ctx.regKeys : noKeys,
       hasArrivals ? ctx.natArrivals : noNat,
     ),
   });
   const byHub = {} as Record<HubId, WeekGridRow>;
   // POs land at Osasco → only the global + Osasco streams see arrivals; spokes get 0.
-  // Hub ROP is the global one pro-rated by demand share (a spoke's slice of the network
-  // reorder point) for ROP-mode coloring.
   for (const h of HUBS) byHub[h] = rowFor(proj.byHub[h], h === 'osasco', ctx.rop * (ctx.shares[h] ?? 0));
   return { global: rowFor(proj.global, true, ctx.rop), byHub };
 }
@@ -400,15 +460,8 @@ function buildSharedContext(args: {
   const weekCount = args.weeks ?? DEFAULT_WEEKS;
   const criteria = args.criteria ?? DEFAULT_PURCHASE_CRITERIA;
   const today = inputs.today;
-  // Project only as far as the grid reads: the last sampled day (weekCount*7) plus the
-  // 7-day forward-avg DOH window. Clamped ≥30 so dailyDemand's min(30,horizon) window —
-  // and therefore every displayed number — is identical to the old 150d projections;
-  // capped at HORIZON_DAYS so an out-of-range `weeks` arg reproduces today's behavior.
   const projectionHorizon = Math.min(HORIZON_DAYS, Math.max(weekCount * 7 + 7, 30));
 
-  // Column 0 = "Hoje" (the current position — the review flagged that the grid only
-  // started a week out); columns 1..N = end-of-week samples. WeekMeta.idx === array
-  // index, so cell i ↔ weeks[i] everywhere.
   const weeks: WeekMeta[] = [
     { idx: 0, dayOffset: 0, endDate: today },
     ...Array.from({ length: weekCount }, (_, i) => {
@@ -416,7 +469,6 @@ function buildSharedContext(args: {
       return { idx: i + 1, dayOffset, endDate: addDays(today, dayOffset) };
     }),
   ];
-  const noArrivals: ModalSplit = weeks.map(() => ({ sea: 0, air: 0 }));
   const noKeys: string[][] = weeks.map(() => []);
   const noNat: number[] = weeks.map(() => 0);
 
@@ -428,9 +480,9 @@ function buildSharedContext(args: {
     today,
     weeks,
     projectionHorizon,
-    noArrivals,
     noKeys,
     noNat,
+    scenarios: [],
     contexts: [],
   };
 
@@ -443,12 +495,9 @@ function buildSharedContext(args: {
     const purchase = purchaseBySku.get(stock.skuBase);
     const rop = purchase?.rop ?? 0;
 
-    // Baseline = ONLY already-registered orders; scenarios append when-needed arrivals.
     const baseOrders = inputs.ordersBySku.get(stock.skuBase) ?? [];
     const baseProj = projectSku({ stock, forecast, orders: baseOrders, policy, shares, today, horizon: projectionHorizon });
 
-    // dailyDemand comes from the forecast only (receipts never change demand), so the
-    // baseline projection's figure is identical to any scenario's.
     const meta: Omit<WeekGridRow, 'cells'> = {
       skuBase: stock.skuBase,
       skuName: stock.skuName,
@@ -462,8 +511,6 @@ function buildSharedContext(args: {
       recoveryTurnaroundDays: policy.recoveryTurnaroundDays ?? 0,
       category: stock.category ?? null,
       abcClass: forecast?.abcClass ?? policy.abcClass ?? 'C',
-      // Registered open POs feeding this SKU (same inbound rule as the projection), for
-      // the left-column "N pedidos" indicator, earliest ETA first.
       openPos: baseOrders
         .filter((o) => OPEN_STATUSES.has(o.status) && countsAsInbound(o.prepStatus))
         .map((o) => ({
@@ -482,44 +529,49 @@ function buildSharedContext(args: {
       policy,
       shares,
       rop,
+      modais: modalsForSku(inputs.modalsBySku, stock.skuBase, policy),
       baseOrders,
       baseProj,
-      regArrivals: modalArrivalsByWeek(baseOrders, weeks, today),
+      regByModal: arrivalsByModalWeek(baseOrders, weeks, today),
       regKeys: registeredKeysByWeek(baseOrders, weeks, today),
       natArrivals: nationalArrivalsByWeek(baseOrders, weeks, today),
       meta,
       baselineRows: undefined as unknown as ScopeRows, // set right below
     };
-    ctx.baselineRows = rowsForProjection(ctx, shared, baseProj, noArrivals);
+    ctx.baselineRows = rowsForProjection(ctx, shared, baseProj, EMPTY_MODAL_WEEK, criteria.dohThreshold);
     shared.contexts.push(ctx);
   }
 
+  shared.scenarios = scenariosFor(shared.contexts);
   return shared;
 }
 
-function buildGridForScenario(shared: SharedGridContext, scenario: WeekGridScenario): WeekGrid {
-  const { weekCount, criteria, dohFloor, today, weeks, projectionHorizon } = shared;
+function buildGridForScenario(shared: SharedGridContext, scenario: ScenarioMeta, floor: number): WeekGrid {
+  const { weekCount, criteria, today, weeks, projectionHorizon } = shared;
   const global: WeekGridRow[] = [];
   const byHub: Record<HubId, WeekGridRow[]> = { osasco: [], mooca: [], sbc: [] };
+  // Baseline coloring always uses the global criteria floor; scenario floors (sim) recolor.
+  const cellFloor = scenario.kind === 'baseline' ? criteria.dohThreshold : floor;
 
   for (const ctx of shared.contexts) {
     let rows = ctx.baselineRows;
-    if (scenario !== 'baseline') {
-      const injected = whenNeededInjection({
+    if (scenario.kind !== 'baseline') {
+      const { injected, sugByModal } = whenNeededInjection({
         scenario,
+        modais: ctx.modais,
         stock: ctx.stock,
         forecast: ctx.forecast,
         policy: ctx.policy,
         baseOrders: ctx.baseOrders,
         baselineGlobal: ctx.baseProj.global,
         today,
+        weeks,
         criteria,
+        floor: cellFloor,
         rop: ctx.rop,
         horizonDays: weekCount * 7,
         projectionHorizon,
       });
-      // No injections → the scenario projection equals the baseline one; reuse the rows
-      // (they're immutable after construction — each grid only sorts its own arrays).
       if (injected.length > 0) {
         const proj = projectSku({
           stock: ctx.stock,
@@ -530,29 +582,28 @@ function buildGridForScenario(shared: SharedGridContext, scenario: WeekGridScena
           today,
           horizon: projectionHorizon,
         });
-        rows = rowsForProjection(ctx, shared, proj, modalArrivalsByWeek(injected, weeks, today));
+        rows = rowsForProjection(ctx, shared, proj, sugByModal, cellFloor);
+      } else if (cellFloor !== criteria.dohThreshold) {
+        // No injection but a different coloring floor (sim) → recolor the baseline rows.
+        rows = rowsForProjection(ctx, shared, ctx.baseProj, EMPTY_MODAL_WEEK, cellFloor);
       }
     }
     global.push(rows.global);
     for (const h of HUBS) byHub[h].push(rows.byHub[h]);
   }
 
-  // Sort each scope: earliest stockout first, then by name. A row's urgency is the
-  // first week it ruptures (Infinity when it never does in the window).
+  // Sort each scope: earliest stockout first, then by name.
   const firstOutWeek = (r: WeekGridRow) => {
     const i = r.cells.findIndex((c) => c.isOut);
     return i === -1 ? Infinity : i;
   };
   const sortRows = (rows: WeekGridRow[]) =>
-    rows.sort(
-      (a, b) =>
-        firstOutWeek(a) - firstOutWeek(b) || a.skuName.localeCompare(b.skuName, 'pt-BR'),
-    );
+    rows.sort((a, b) => firstOutWeek(a) - firstOutWeek(b) || a.skuName.localeCompare(b.skuName, 'pt-BR'));
 
   sortRows(global);
   for (const h of HUBS) sortRows(byHub[h]);
 
-  return { weeks, global, byHub, scenario, dohFloor, criteria };
+  return { weeks, global, byHub, scenario: scenario.key, dohFloor: cellFloor, criteria };
 }
 
 export function buildWeekGrid(args: {
@@ -560,29 +611,32 @@ export function buildWeekGrid(args: {
   purchases: PurchaseSuggestion[];
   weeks?: number;
   scenario?: WeekGridScenario;
-  /** Active purchase criteria → drives the "low"/breach coloring + when-needed injection. */
   criteria?: PurchaseCriteria;
 }): WeekGrid {
-  return buildGridForScenario(buildSharedContext(args), args.scenario ?? 'baseline');
+  const shared = buildSharedContext(args);
+  const key = args.scenario ?? 'baseline';
+  const meta = shared.scenarios.find((s) => s.key === key) ?? shared.scenarios[0];
+  return buildGridForScenario(shared, meta, shared.criteria.dohThreshold);
 }
 
-/** All four coverage scenarios in one pass (shared inputs) so the client can toggle
- *  between them instantly — no per-scenario server round-trip. The scenario-invariant
- *  work (baseline projections, registered arrivals, meta, baseline rows) is computed
- *  ONCE and shared; scenarios only recompute the SKUs that actually inject orders. */
+/** All scenarios in one pass (shared inputs) so the client toggles instantly. The
+ *  scenario-invariant work is computed ONCE; scenarios only recompute the SKUs that
+ *  actually inject orders. `floorByScenario` (sim) overrides the coloring/injection floor
+ *  per scenario key (default = the global criteria threshold). */
 export function buildAllScenarioGrids(args: {
   inputs: WeekGridInputs;
   purchases: PurchaseSuggestion[];
   weeks?: number;
   criteria?: PurchaseCriteria;
-}): Record<WeekGridScenario, WeekGrid> {
+  floorByScenario?: Record<string, number>;
+}): ScenarioGrids {
   const shared = buildSharedContext(args);
-  const scenarios: WeekGridScenario[] = ['baseline', 'air_only', 'sea_only', 'complete'];
-  const out = {} as Record<WeekGridScenario, WeekGrid>;
-  for (const scenario of scenarios) {
-    out[scenario] = buildGridForScenario(shared, scenario);
+  const grids: Record<string, WeekGrid> = {};
+  for (const scenario of shared.scenarios) {
+    const floor = args.floorByScenario?.[scenario.key] ?? shared.criteria.dohThreshold;
+    grids[scenario.key] = buildGridForScenario(shared, scenario, floor);
   }
-  return out;
+  return { scenarios: shared.scenarios, grids };
 }
 
 // ─── Scope helper (shared label set with the chart components) ────────────────

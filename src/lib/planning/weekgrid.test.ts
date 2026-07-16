@@ -7,13 +7,13 @@ import type {
   SkuForecast,
   SkuPolicy,
   StockState,
-  WeekGridScenario,
 } from '@/types/planning';
 import type { PurchaseCriteria } from './constants';
 import { addDays } from './dates';
 import { forwardAvgDemand } from './projection';
 import { purchaseForSku } from './purchase';
-import { buildAllScenarioGrids, type WeekGrid } from './weekgrid';
+import type { ModalOption } from './supplierGroups';
+import { buildAllScenarioGrids, type ScenarioGrids, type WeekGrid } from './weekgrid';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CHARACTERIZATION / REGRESSION GATE for the weekgrid engine.
@@ -28,7 +28,6 @@ import { buildAllScenarioGrids, type WeekGrid } from './weekgrid';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TODAY = '2026-06-23';
-const SCENARIOS: WeekGridScenario[] = ['baseline', 'air_only', 'sea_only', 'complete'];
 const SCOPES: ('global' | HubId)[] = ['global', 'osasco', 'mooca', 'sbc'];
 
 function forecast(skuBase: string, yhat: number, hi: number, days = 150): SkuForecast {
@@ -161,6 +160,18 @@ function buildInputs() {
   const shares = new Map<string, Record<HubId, number>>([
     ['SKU-STEADY', { osasco: 0.5, mooca: 0.3, sbc: 0.2 }],
   ]);
+  // One SKU with an explicit 3-modal supplier (Courier/Aéreo/Marítimo) so the N-modal
+  // scenario set + per-modal arrivals are exercised; the rest fall back to policy sea/air.
+  const modalsBySku = new Map<string, ModalOption[]>([
+    [
+      'SKU-STEADY',
+      [
+        { id: 'Courier', name: 'Courier', leadDays: 15 },
+        { id: 'Aéreo', name: 'Aéreo', leadDays: 45 },
+        { id: 'Marítimo', name: 'Marítimo', leadDays: 105 },
+      ],
+    ],
+  ]);
 
   // Real purchase suggestions (status/isLate/buyBy/rop), exactly like production.
   const purchases: PurchaseSuggestion[] = stocks.map((s) =>
@@ -175,7 +186,7 @@ function buildInputs() {
     }),
   );
 
-  return { inputs: { stocks, forecasts, ordersBySku, policies, shares, today: TODAY }, purchases };
+  return { inputs: { stocks, forecasts, ordersBySku, policies, shares, today: TODAY, modalsBySku }, purchases };
 }
 
 // ── Deterministic full-fidelity serialization (key-order independent) ─────────
@@ -194,10 +205,10 @@ function serializeGrid(grid: WeekGrid): string[] {
           `dd=${r.dailyDemand} status=${r.status} late=${r.isLate} buyBy=${r.buyByWeekIdx}`,
       );
       r.cells.forEach((c, i) => {
+        const arr = c.arrivals.map((a) => `${a.modal}:${a.reg}/${a.sug}`).join(',');
         lines.push(
-          `  w${i + 1} stock=${c.stock} doh=${c.doh} in=${c.inbound} sea=${c.inboundSea} air=${c.inboundAir} ` +
-            `reg=${c.arrReg.sea}/${c.arrReg.air} sug=${c.arrSug.sea}/${c.arrSug.air} vos=[${c.arrVos.join(',')}] ` +
-            `rec=${c.recovery} out=${c.isOut} low=${c.isLow} x=${c.extrapolated}`,
+          `  w${i + 1} stock=${c.stock} doh=${c.doh} in=${c.inbound} arr=[${arr}] vos=[${c.arrVos.join(',')}] ` +
+            `rec=${c.recovery} nat=${c.arrNat} out=${c.isOut} low=${c.isLow} x=${c.extrapolated}`,
         );
       });
     }
@@ -205,8 +216,11 @@ function serializeGrid(grid: WeekGrid): string[] {
   return lines;
 }
 
-function serializeAll(grids: Record<WeekGridScenario, WeekGrid>): string {
-  return SCENARIOS.flatMap((s) => serializeGrid(grids[s])).join('\n');
+function serializeAll(result: ScenarioGrids): string {
+  return [
+    `scenarios=${result.scenarios.map((s) => `${s.key}(${s.kind})`).join('|')}`,
+    ...result.scenarios.flatMap((s) => serializeGrid(result.grids[s.key])),
+  ].join('\n');
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');

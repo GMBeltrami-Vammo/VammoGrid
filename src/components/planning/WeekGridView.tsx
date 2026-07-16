@@ -3,18 +3,20 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Recycle, Flag, Ship, Plane, Truck, ArrowUpRight, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
-import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
+import { Recycle, Flag, Ship, Plane, Truck, Package, ArrowUpRight, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
+import type { HubId, ScenarioMeta, WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
+import type { ModalOption } from '@/lib/planning/supplierGroups';
 import { simulateWeekGrids } from '@/app/dashboard/semanas/actions';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { InfoHint } from '@/components/planning/InfoHint';
 
-// Weekly stockout heatmap. All 4 scenarios are precomputed server-side; the scenario
-// toggle, scope, filter and units are instant client-side views. Only the horizon
-// reloads (it changes how many weeks are computed). Rows = SKUs, columns = W1..Wn.
+// Weekly stockout heatmap (N-modal). All scenarios are precomputed server-side; the
+// scenario/scope/filter/unit toggles are instant client-side views. Only the horizon
+// reloads. Rows = SKUs, columns = Hoje..Wn. Scenarios are dynamic: baseline + one per
+// supplier modal (Courier/Aéreo/Marítimo…) + combined.
 
 type Scope = 'global' | HubId;
 const SCOPES: { id: Scope; label: string }[] = [
@@ -22,14 +24,6 @@ const SCOPES: { id: Scope; label: string }[] = [
   { id: 'osasco', label: 'Osasco' },
   { id: 'mooca', label: 'Mooca' },
   { id: 'sbc', label: 'SBC' },
-];
-
-// Scenarios simulate buying WHEN NEEDED (not now). Base = registered orders only.
-const SCENARIOS: { id: WeekGridScenario; label: string }[] = [
-  { id: 'baseline', label: 'Base (pedidos atuais)' },
-  { id: 'air_only', label: 'Aéreo qdo necessário' },
-  { id: 'sea_only', label: 'Marítimo qdo necessário' },
-  { id: 'complete', label: 'Combinado' },
 ];
 
 const HORIZONS = [8, 12, 16, 20];
@@ -40,84 +34,106 @@ const INITIAL_VISIBLE_ROWS = 300;
 type HeatFilter = 'all' | 'critico' | 'baixo';
 type Unit = 'units' | 'doh';
 
-// Short label for the active purchase criteria (shown in the summary + legend).
+interface SimSupplier {
+  supplierId: string;
+  name: string;
+  modais: ModalOption[];
+}
+
 function criteriaLabel(c: PurchaseCriteria): string {
   return c.mode === 'rop' ? 'critério: estoque mín + segurança' : `piso ${c.dohThreshold}d (DOH)`;
 }
 
+/** Icon + accent color for a modal, by name (marítimo/aéreo/courier/other). */
+function modalVisual(name: string): { Icon: LucideIcon; className: string } {
+  const n = name.toLowerCase();
+  if (/mar[ií]t|sea|navio|barco/.test(n)) return { Icon: Ship, className: 'text-[color:var(--color-alert-info)]' };
+  if (/a[eé]re|air|avi[ãa]o/.test(n)) return { Icon: Plane, className: 'text-brand-600' };
+  if (/courier|expr|moto|terrestre|rodo/.test(n)) return { Icon: Truck, className: 'text-emerald-600 dark:text-emerald-400' };
+  return { Icon: Package, className: 'text-muted-foreground' };
+}
+
 export function WeekGridView({
+  scenarios,
   grids,
   weeks,
   prefBySku,
   supplierNames,
   simSuppliers = [],
 }: {
-  grids: Record<WeekGridScenario, WeekGrid>;
+  scenarios: ScenarioMeta[];
+  grids: Record<string, WeekGrid>;
   weeks: number;
   /** skuBase → preferred supplier_id — groups the "exportar → Novo Pedido" suggestion. */
   prefBySku?: Record<string, string>;
   /** supplier_id → display name, for the export menu labels. */
   supplierNames?: Record<string, string>;
-  /** Active suppliers (id + name) — rows in the ephemeral simulation panel. */
-  simSuppliers?: { supplierId: string; name: string }[];
+  /** Active suppliers with their modais — the ephemeral simulation panel's per-modal knobs. */
+  simSuppliers?: SimSupplier[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const [navPending, startNav] = useTransition();
 
-  const [scenario, setScenario] = useState<WeekGridScenario>('baseline');
+  const [scenario, setScenario] = useState<string>('baseline');
   const [scope, setScope] = useState<Scope>('global');
   const [search, setSearch] = useState('');
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
-  // Local (client-side) filters over the row meta: coarse category + ABC class, plus a
-  // "first ruptures in week N" filter driven by clicking a summary tile.
   const [catFilter, setCatFilter] = useState<string>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [weekFilter, setWeekFilter] = useState<number | null>(null);
-  // Cursor-following hover tooltip (fixed-position so it never clips in the scroll area).
   const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
-  // Ephemeral simulation (F6c): recompute the on-page suggestion scenarios with hypothetical
-  // leads (per supplier) + coverage floors (per modal). Never persisted; swaps the grids in
-  // place while active. Cleared whenever fresh server data arrives (new `grids` prop).
+  // Ephemeral N-modal simulation: recompute the suggestion scenarios with hypothetical
+  // leads (per supplier × modal) + coverage floors (per modal). Never persisted.
   const [simOpen, setSimOpen] = useState(false);
-  const [simLeads, setSimLeads] = useState<Record<string, { sea: string; air: string }>>({});
-  const [simSeaDoh, setSimSeaDoh] = useState('');
-  const [simAirDoh, setSimAirDoh] = useState('');
-  const [simGrids, setSimGrids] = useState<Record<WeekGridScenario, WeekGrid> | null>(null);
+  const [simLeads, setSimLeads] = useState<Record<string, Record<string, string>>>({});
+  const [simFloors, setSimFloors] = useState<Record<string, string>>({});
+  const [simResult, setSimResult] = useState<{ scenarios: ScenarioMeta[]; grids: Record<string, WeekGrid> } | null>(null);
   const [simError, setSimError] = useState<string | null>(null);
   const [simPending, startSim] = useTransition();
   useEffect(() => {
-    setSimGrids(null);
+    setSimResult(null);
   }, [grids]);
+
+  const allModalNames = useMemo(
+    () => [...new Set(simSuppliers.flatMap((s) => s.modais.map((m) => m.name)))].sort(),
+    [simSuppliers],
+  );
 
   const runSim = () => {
     setSimError(null);
-    const leadBySupplier: Record<string, { seaLead?: number | null; airLead?: number | null }> = {};
-    for (const [sid, v] of Object.entries(simLeads)) {
-      const sea = v.sea.trim() ? Number(v.sea) : null;
-      const air = v.air.trim() ? Number(v.air) : null;
-      if ((sea && sea > 0) || (air && air > 0)) leadBySupplier[sid] = { seaLead: sea, airLead: air };
+    const leadBySupplierModal: Record<string, Record<string, number>> = {};
+    for (const [sid, byModal] of Object.entries(simLeads)) {
+      for (const [name, val] of Object.entries(byModal)) {
+        const n = val.trim() ? Number(val) : null;
+        if (n && n > 0) (leadBySupplierModal[sid] ??= {})[name] = Math.round(n);
+      }
+    }
+    const floorByModal: Record<string, number> = {};
+    for (const [name, val] of Object.entries(simFloors)) {
+      const n = val.trim() ? Number(val) : null;
+      if (n && n > 0) floorByModal[name] = Math.round(n);
     }
     startSim(async () => {
-      const res = await simulateWeekGrids({
-        weeks,
-        leadBySupplier,
-        seaMinDoh: simSeaDoh.trim() ? Number(simSeaDoh) : null,
-        airMinDoh: simAirDoh.trim() ? Number(simAirDoh) : null,
-      });
-      if (res.ok && res.grids) setSimGrids(res.grids);
+      const res = await simulateWeekGrids({ weeks, leadBySupplierModal, floorByModal });
+      if (res.ok && res.grids && res.scenarios) setSimResult({ scenarios: res.scenarios, grids: res.grids });
       else setSimError(res.error ?? 'Erro na simulação.');
     });
   };
   const clearSim = () => {
-    setSimGrids(null);
+    setSimResult(null);
     setSimError(null);
   };
 
-  const activeGrids = simGrids ?? grids;
-  const grid = activeGrids[scenario];
+  const activeScenarios = simResult?.scenarios ?? scenarios;
+  const activeGrids = simResult?.grids ?? grids;
+  // Reset to baseline if the current scenario key isn't in the active set.
+  useEffect(() => {
+    if (!activeGrids[scenario]) setScenario('baseline');
+  }, [activeGrids, scenario]);
+  const grid = activeGrids[scenario] ?? activeGrids.baseline ?? Object.values(activeGrids)[0];
 
   const goHorizon = (sem: number) => {
     const params = new URLSearchParams();
@@ -149,8 +165,6 @@ export function WeekGridView({
     });
   }, [allRows, search, heat, catFilter, classFilter, weekFilter]);
 
-  // DOM relief: each row is weeks+2 cells, so big scopes explode the node count.
-  // The per-week summary + totalAtRisk keep computing from allRows (unsliced).
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_ROWS);
@@ -168,9 +182,6 @@ export function WeekGridView({
 
   const totalAtRisk = useMemo(() => allRows.filter((r) => r.cells.some((c) => c.isOut)).length, [allRows]);
 
-  // "Exportar sugestão → Novo Pedido": the SKUs at risk in the CURRENT view (rupture or
-  // below floor), grouped by preferred supplier — each group deep-links to the builder
-  // with that supplier + SKUs preselected (the builder recomputes qty from the real leads).
   const [exportOpen, setExportOpen] = useState(false);
   const exportGroups = useMemo(() => {
     if (!prefBySku) return { groups: [] as { supplierId: string; name: string; skus: string[] }[], noSupplier: 0 };
@@ -195,7 +206,7 @@ export function WeekGridView({
 
   return (
     <div className={cn('rounded-xl bg-card p-4 ring-1 ring-foreground/10', navPending && 'opacity-60')}>
-      {/* Row 1: scope + search + units */}
+      {/* Row 1: scope + search + export + units */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <div className="flex gap-1">
           {SCOPES.map((s) => (
@@ -253,11 +264,11 @@ export function WeekGridView({
         </div>
       </div>
 
-      {/* Row 2: scenario (buy-when-needed) + horizon + heat filter */}
+      {/* Row 2: scenario (dynamic per modal) + horizon + filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Cenário</span>
-        {SCENARIOS.map((s) => (
-          <Chip key={s.id} active={scenario === s.id} onClick={() => setScenario(s.id)}>{s.label}</Chip>
+        {activeScenarios.map((s) => (
+          <Chip key={s.key} active={scenario === s.key} onClick={() => setScenario(s.key)}>{s.label}</Chip>
         ))}
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Semanas</span>
@@ -303,8 +314,7 @@ export function WeekGridView({
         </span>
       </div>
 
-      {/* Ephemeral simulation (não salva) — recompute the suggestion scenarios with
-          hypothetical leads + coverage floors. */}
+      {/* Ephemeral N-modal simulation (não salva) */}
       {simSuppliers.length > 0 && (
         <div className="mb-3 rounded-xl bg-card ring-1 ring-foreground/10">
           <button
@@ -313,7 +323,7 @@ export function WeekGridView({
           >
             <FlaskConical size={14} className="text-muted-foreground" />
             Simulação (não salva)
-            {simGrids && (
+            {simResult && (
               <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-600">ativa</span>
             )}
             <span className="ml-auto text-xs text-muted-foreground">{simOpen ? 'ocultar' : 'configurar'}</span>
@@ -321,68 +331,60 @@ export function WeekGridView({
           {simOpen && (
             <div className="space-y-3 border-t border-border/60 px-4 py-3">
               <p className="text-[11px] text-muted-foreground">
-                Recalcula só o &ldquo;com sugestão&rdquo; (aéreo / marítimo / combinado) desta página com leads e pisos
-                hipotéticos. Não afeta Novo Pedido nem Pedidos, e nada é salvo.
+                Recalcula só o &ldquo;com sugestão&rdquo; desta página com leads e pisos hipotéticos por modal
+                (inclui o Courier). Não afeta Novo Pedido nem Pedidos, e nada é salvo.
               </p>
-              <div className="space-y-1.5">
-                {simSuppliers.map((s) => {
-                  const v = simLeads[s.supplierId] ?? { sea: '', air: '' };
-                  const setV = (patch: Partial<typeof v>) =>
-                    setSimLeads((p) => ({ ...p, [s.supplierId]: { ...v, ...patch } }));
-                  return (
-                    <div key={s.supplierId} className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="w-32 shrink-0 font-medium">{s.name}</span>
-                      <label className="inline-flex items-center gap-1 text-muted-foreground">
-                        <Ship className="size-3" /> lead marítimo
-                        <input
-                          type="number"
-                          min={1}
-                          value={v.sea}
-                          onChange={(e) => setV({ sea: e.target.value })}
-                          placeholder="105"
-                          className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500"
-                        />
-                      </label>
-                      <label className="inline-flex items-center gap-1 text-muted-foreground">
-                        <Plane className="size-3" /> lead aéreo
-                        <input
-                          type="number"
-                          min={1}
-                          value={v.air}
-                          onChange={(e) => setV({ air: e.target.value })}
-                          placeholder="45"
-                          className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500"
-                        />
-                      </label>
-                    </div>
-                  );
-                })}
+              <div className="space-y-2">
+                {simSuppliers.map((s) => (
+                  <div key={s.supplierId} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                    <span className="w-32 shrink-0 font-medium">{s.name}</span>
+                    {s.modais.length === 0 && (
+                      <span className="text-muted-foreground">sem modais cadastrados</span>
+                    )}
+                    {s.modais.map((m) => {
+                      const { Icon, className } = modalVisual(m.name);
+                      const val = simLeads[s.supplierId]?.[m.name] ?? '';
+                      return (
+                        <label key={m.id} className="inline-flex items-center gap-1 text-muted-foreground">
+                          <Icon className={cn('size-3', className)} /> {m.name}
+                          <input
+                            type="number"
+                            min={1}
+                            value={val}
+                            onChange={(e) =>
+                              setSimLeads((p) => ({
+                                ...p,
+                                [s.supplierId]: { ...p[s.supplierId], [m.name]: e.target.value },
+                              }))
+                            }
+                            placeholder={String(m.leadDays)}
+                            title={`Lead hipotético (dias) — real: ${m.leadDays}`}
+                            className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs">
-                <span className="font-medium">Piso de cobertura (DOH):</span>
-                <label className="inline-flex items-center gap-1 text-muted-foreground">
-                  marítimo
-                  <input
-                    type="number"
-                    min={1}
-                    value={simSeaDoh}
-                    onChange={(e) => setSimSeaDoh(e.target.value)}
-                    placeholder="global"
-                    className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                  />
-                </label>
-                <label className="inline-flex items-center gap-1 text-muted-foreground">
-                  aéreo
-                  <input
-                    type="number"
-                    min={1}
-                    value={simAirDoh}
-                    onChange={(e) => setSimAirDoh(e.target.value)}
-                    placeholder="global"
-                    className="h-7 w-20 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                  />
-                </label>
-              </div>
+              {allModalNames.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <span className="font-medium">Piso de cobertura (DOH) por modal:</span>
+                  {allModalNames.map((name) => (
+                    <label key={name} className="inline-flex items-center gap-1 text-muted-foreground">
+                      {name}
+                      <input
+                        type="number"
+                        min={1}
+                        value={simFloors[name] ?? ''}
+                        onChange={(e) => setSimFloors((p) => ({ ...p, [name]: e.target.value }))}
+                        placeholder="global"
+                        className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
               {simError && <p className="text-[11px] text-alert-error">{simError}</p>}
               <div className="flex items-center gap-2">
                 <button
@@ -392,7 +394,7 @@ export function WeekGridView({
                 >
                   {simPending ? 'Simulando…' : 'Simular'}
                 </button>
-                {simGrids && (
+                {simResult && (
                   <button
                     onClick={clearSim}
                     className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
@@ -401,7 +403,7 @@ export function WeekGridView({
                   </button>
                 )}
                 <span className="text-[11px] text-muted-foreground">
-                  o piso por modal vale para o cenário respectivo; o lead é por fornecedor.
+                  cada cenário &ldquo;X qdo necessário&rdquo; injeta no lead daquele modal; o combinado escolhe o mais lento que chega a tempo.
                 </span>
               </div>
             </div>
@@ -409,7 +411,7 @@ export function WeekGridView({
         </div>
       )}
 
-      {simGrids && (
+      {simResult && (
         <div className="mb-3 rounded-md bg-brand-500/10 px-3 py-2 text-xs text-brand-600">
           Simulação ativa — a grade abaixo usa leads/pisos hipotéticos (não salvos).{' '}
           <button onClick={clearSim} className="font-medium underline">
@@ -418,8 +420,7 @@ export function WeekGridView({
         </div>
       )}
 
-      {/* Per-week new-stockout summary — click a tile to filter to the SKUs that first
-          rupture that week (toggle off by clicking again or the chip above). */}
+      {/* Per-week new-stockout summary — clickable to filter by rupture week */}
       <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-9">
         {grid.weeks.map((w, i) => {
           const active = weekFilter === i;
@@ -521,10 +522,9 @@ export function WeekGridView({
   );
 }
 
-// The hover-detail for one cell: stock, coverage vs floor, and WHAT is happening —
-// registered orders in transit vs suggested (scenario) orders, recovery income, and the
-// buy-by flag. This is the "small window explaining what it is" the heatmap needed.
-function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, criteria: PurchaseCriteria) {
+function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, criteria: PurchaseCriteria) {
+  const reg = cell.arrivals.filter((a) => a.reg > 0);
+  const sug = cell.arrivals.filter((a) => a.sug > 0);
   return (
     <div className="space-y-0.5">
       <div className="font-semibold text-foreground">
@@ -551,14 +551,15 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
           {criteria.mode === 'rop' ? 'Abaixo do ponto de recompra' : 'Abaixo do piso de cobertura'}
         </div>
       )}
-      {(cell.arrReg.sea > 0 || cell.arrReg.air > 0) && (
+      {reg.length > 0 && (
         <div className="mt-1 border-t border-border/60 pt-1">
-          <div className="font-medium text-alert-success">
-            ✓ Pedido já colocado (chega esta semana)
-          </div>
-          <div className="text-muted-foreground">
-            {cell.arrReg.sea > 0 && <span>Marítimo +{fmtInt(cell.arrReg.sea)} un. </span>}
-            {cell.arrReg.air > 0 && <span>Aéreo +{fmtInt(cell.arrReg.air)} un.</span>}
+          <div className="font-medium text-alert-success">✓ Pedido já colocado (chega esta semana)</div>
+          <div className="flex flex-wrap gap-x-2 text-muted-foreground">
+            {reg.map((a) => (
+              <span key={a.modal} className={cn('inline-flex items-center gap-0.5', modalVisual(a.modal).className)}>
+                {a.modal} +{fmtInt(a.reg)}
+              </span>
+            ))}
           </div>
           {cell.arrVos.length > 0 && (
             <div className="text-brand-600">
@@ -567,14 +568,17 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
           )}
         </div>
       )}
-      {(cell.arrSug.sea > 0 || cell.arrSug.air > 0) && (
+      {sug.length > 0 && (
         <div className="mt-1 border-t border-border/60 pt-1">
           <div className="font-medium text-[color:var(--color-alert-warning)]">
             💡 Sugestão de compra (cenário) — ainda NÃO é um pedido
           </div>
-          <div className="text-muted-foreground">
-            {cell.arrSug.sea > 0 && <span>Marítimo +{fmtInt(cell.arrSug.sea)} un. </span>}
-            {cell.arrSug.air > 0 && <span>Aéreo +{fmtInt(cell.arrSug.air)} un.</span>}
+          <div className="flex flex-wrap gap-x-2 text-muted-foreground">
+            {sug.map((a) => (
+              <span key={a.modal} className={cn('inline-flex items-center gap-0.5', modalVisual(a.modal).className)}>
+                {a.modal} +{fmtInt(a.sug)}
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -596,8 +600,7 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
   );
 }
 
-// The left-column "N pedidos" hover: each registered open PO feeding this SKU, VO → ETA →
-// qty → modal, earliest first. Clicking the badge opens the pedido (single) or the list.
+// The left-column "N pedidos" hover: each registered open PO feeding this SKU.
 function posTip(row: WeekGridRow) {
   return (
     <div className="space-y-0.5">
@@ -675,6 +678,7 @@ function GridRow({
       {row.cells.map((c, i) => {
         const isBuyBy = row.buyByWeekIdx === weeks[i].idx;
         const clickable = c.arrVos.length > 0;
+        const hasMarkers = c.arrivals.length > 0 || c.recovery > 0 || c.arrNat > 0;
         return (
           <td
             key={i}
@@ -684,8 +688,8 @@ function GridRow({
               c.extrapolated && 'opacity-55',
               clickable ? 'cursor-pointer hover:ring-1 hover:ring-inset hover:ring-brand-500/50' : 'cursor-default',
             )}
-            onMouseEnter={(e) => onHover(e, cellTip(row, c, weeks[i], i, criteria))}
-            onMouseMove={(e) => onHover(e, cellTip(row, c, weeks[i], i, criteria))}
+            onMouseEnter={(e) => onHover(e, cellTip(row, c, weeks[i], criteria))}
+            onMouseMove={(e) => onHover(e, cellTip(row, c, weeks[i], criteria))}
             onMouseLeave={onLeave}
             onClick={clickable ? () => onOpenPedido(c.arrVos) : undefined}
           >
@@ -700,20 +704,23 @@ function GridRow({
                 <span className="block text-[10px] opacity-70">{fmtInt(c.stock)}</span>
               </>
             )}
-            {(c.inboundSea > 0 || c.inboundAir > 0 || c.recovery > 0 || c.arrNat > 0) && (
+            {hasMarkers && (
               <span className="flex flex-wrap items-center justify-center gap-x-1 text-[9px] font-medium opacity-90">
-                {c.inboundSea > 0 && (
-                  <span className="inline-flex items-center gap-0.5 text-[color:var(--color-alert-info)]" title="Chegada marítima">
-                    <Ship className="size-2.5" />
-                    {fmtInt(c.inboundSea)}
-                  </span>
-                )}
-                {c.inboundAir > 0 && (
-                  <span className="inline-flex items-center gap-0.5 text-brand-600" title="Chegada aérea">
-                    <Plane className="size-2.5" />
-                    {fmtInt(c.inboundAir)}
-                  </span>
-                )}
+                {c.arrivals.map((a) => {
+                  const { Icon, className } = modalVisual(a.modal);
+                  const total = a.reg + a.sug;
+                  const suggestedOnly = a.reg === 0 && a.sug > 0;
+                  return (
+                    <span
+                      key={a.modal}
+                      className={cn('inline-flex items-center gap-0.5', className, suggestedOnly && 'opacity-60')}
+                      title={`${a.modal}: ${a.reg > 0 ? `${fmtInt(a.reg)} pedido` : ''}${a.reg > 0 && a.sug > 0 ? ' · ' : ''}${a.sug > 0 ? `${fmtInt(a.sug)} sugerido` : ''}`}
+                    >
+                      <Icon className="size-2.5" />
+                      {fmtInt(total)}
+                    </span>
+                  );
+                })}
                 {c.recovery > 0 && (
                   <span className="inline-flex items-center gap-0.5">
                     <Recycle className="size-2.5" />
@@ -745,7 +752,7 @@ function GridRow({
 function Legend({ criteria }: { criteria: PurchaseCriteria }) {
   const lowLabel =
     criteria.mode === 'rop' ? 'Abaixo do ponto de recompra' : `Cobertura < ${criteria.dohThreshold}d (piso)`;
-  const items: { cls: string; label: string; hint: Parameters<typeof InfoHint>[0]['id']; icon?: LucideIcon }[] = [
+  const items: { cls: string; label: string; hint: Parameters<typeof InfoHint>[0]['id'] }[] = [
     { cls: 'bg-alert-error/15 text-alert-error', label: 'Ruptura (estoque ≤ 0)', hint: 'week-stock' },
     { cls: 'bg-alert-warning/15 text-[color:var(--color-alert-warning)]', label: lowLabel, hint: 'week-doh' },
     { cls: 'bg-alert-success/10 text-alert-success', label: 'Chegada de pedido', hint: 'week-inbound' },
@@ -755,17 +762,20 @@ function Legend({ criteria }: { criteria: PurchaseCriteria }) {
       {items.map((it) => (
         <span key={it.label} className="flex items-center gap-1.5">
           <span className={cn('inline-block h-3 w-3 rounded-sm', it.cls)} />
-          {it.label} {it.icon && <it.icon className="size-3" />} <InfoHint id={it.hint} />
+          {it.label} <InfoHint id={it.hint} />
         </span>
       ))}
       <span className="flex items-center gap-1.5 text-[color:var(--color-alert-info)]">
-        <Ship className="size-3" /> Chegada marítima <InfoHint id="week-inbound" />
+        <Ship className="size-3" /> Marítimo
       </span>
       <span className="flex items-center gap-1.5 text-brand-600">
-        <Plane className="size-3" /> Chegada aérea
+        <Plane className="size-3" /> Aéreo
+      </span>
+      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+        <Truck className="size-3" /> Courier / express
       </span>
       <span className="flex items-center gap-1.5 text-brand-600">
-        <Recycle className="size-3" /> Recuperação (entrada de peças) <InfoHint id="recovery-line" />
+        <Recycle className="size-3" /> Recuperação <InfoHint id="recovery-line" />
       </span>
       <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
         <Landmark className="size-3" /> Chegada nacional
@@ -774,7 +784,7 @@ function Legend({ criteria }: { criteria: PurchaseCriteria }) {
         <Flag className="size-3 text-alert-warning" /> Semana-limite de compra <InfoHint id="buy-by-week" />
       </span>
       <span className="flex items-center gap-1.5 opacity-55">
-        <span className="inline-block h-3 w-3 rounded-sm bg-muted-foreground/30" /> Extrapolado (além do modelo)
+        <span className="inline-block h-3 w-3 rounded-sm bg-muted-foreground/30" /> Extrapolado
       </span>
     </div>
   );

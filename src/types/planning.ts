@@ -213,6 +213,17 @@ export interface WeekMeta {
   endDate: string;
 }
 
+/** Arriving units for ONE transport modal in a week: registered (already-placed) vs
+ *  suggested (scenario "buy when needed"). The heatmap is now N-modal — a supplier can
+ *  offer Courier/Aéreo/Marítimo… — so arrivals are a list, not a fixed sea/air pair. */
+export interface WeekArrival {
+  /** Display modal name (e.g. 'Marítimo', 'Aéreo', 'Courier'). Legacy 'sea'/'air' POs are
+   *  normalized to 'Marítimo'/'Aéreo'. */
+  modal: string;
+  reg: number;
+  sug: number;
+}
+
 /** One SKU × week cell: end-of-week projected state. */
 export interface WeekCell {
   stock: number;
@@ -221,14 +232,9 @@ export interface WeekCell {
   doh: number | null;
   /** Units arriving (open POs) during the week. */
   inbound: number;
-  /** Arriving units split by modal (maritime vs air) — totals (registered + suggested),
-   *  for the inline arrival markers. */
-  inboundSea: number;
-  inboundAir: number;
-  /** Registered (already-placed) order arrivals this week, by modal — for the tooltip. */
-  arrReg: { sea: number; air: number };
-  /** Suggested (scenario "buy when needed") arrivals this week, by modal — for the tooltip. */
-  arrSug: { sea: number; air: number };
+  /** Per-modal arrivals this week (registered + suggested) — the inline markers + tooltip.
+   *  Only modais with a nonzero arrival are listed. */
+  arrivals: WeekArrival[];
   /** Linkable keys (VO, else row id) of the REGISTERED orders arriving this week — the
    *  cell links to the pedido page. Empty = no real placed order arriving (or spoke hub). */
   arrVos: string[];
@@ -267,8 +273,18 @@ export interface WeekGridRow {
   cells: WeekCell[];
 }
 
-/** Coverage scenario for the heatmap (sub-project C1) — what-if air/sea order injection. */
-export type WeekGridScenario = 'baseline' | 'air_only' | 'sea_only' | 'complete';
+/** Coverage scenario for the heatmap. Now N-modal (mega-rodada): a scenario key is
+ *  'baseline', 'combined', or a supplier modal name (e.g. 'Courier'/'Aéreo'/'Marítimo').
+ *  The scenario SET is computed from the SKUs' suppliers, so it's a string. */
+export type WeekGridScenario = string;
+
+/** Describes one heatmap scenario for the UI (dynamic set). */
+export interface ScenarioMeta {
+  /** 'baseline' | 'combined' | a modal name. */
+  key: string;
+  label: string;
+  kind: 'baseline' | 'modal' | 'combined';
+}
 
 // ─── Purchase recommendation ──────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Recycle, Flag, Ship, Plane, type LucideIcon } from 'lucide-react';
+import { Recycle, Flag, Ship, Plane, Truck, type LucideIcon } from 'lucide-react';
 import type { HubId, WeekCell, WeekGridRow, WeekGridScenario, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
@@ -60,6 +60,11 @@ export function WeekGridView({
   const [search, setSearch] = useState('');
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
+  // Local (client-side) filters over the row meta: coarse category + ABC class, plus a
+  // "first ruptures in week N" filter driven by clicking a summary tile.
+  const [catFilter, setCatFilter] = useState<string>('all');
+  const [classFilter, setClassFilter] = useState<string>('all');
+  const [weekFilter, setWeekFilter] = useState<number | null>(null);
   // Cursor-following hover tooltip (fixed-position so it never clips in the scroll area).
   const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
@@ -73,22 +78,34 @@ export function WeekGridView({
 
   const allRows = scope === 'global' ? grid.global : grid.byHub[scope];
 
+  const categories = useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.category).filter(Boolean))).sort() as string[],
+    [allRows],
+  );
+  const classes = useMemo(
+    () => Array.from(new Set(allRows.map((r) => r.abcClass).filter(Boolean))).sort() as string[],
+    [allRows],
+  );
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allRows.filter((r) => {
       if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q)) return false;
       if (heat === 'critico' && !r.cells.some((c) => c.isOut)) return false;
       if (heat === 'baixo' && !r.cells.some((c) => c.isLow)) return false;
+      if (catFilter !== 'all' && r.category !== catFilter) return false;
+      if (classFilter !== 'all' && r.abcClass !== classFilter) return false;
+      if (weekFilter != null && r.cells.findIndex((c) => c.isOut) !== weekFilter) return false;
       return true;
     });
-  }, [allRows, search, heat]);
+  }, [allRows, search, heat, catFilter, classFilter, weekFilter]);
 
   // DOM relief: each row is weeks+2 cells, so big scopes explode the node count.
   // The per-week summary + totalAtRisk keep computing from allRows (unsliced).
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_ROWS);
-  }, [scenario, scope, search, heat]);
+  }, [scenario, scope, search, heat, catFilter, classFilter, weekFilter]);
   const visibleRows = rows.length > visibleCount ? rows.slice(0, visibleCount) : rows;
 
   const summary = useMemo(() => {
@@ -144,28 +161,66 @@ export function WeekGridView({
         ] as const).map(([id, label]) => (
           <Chip key={id} active={heat === id} onClick={() => setHeat(id)}>{label}</Chip>
         ))}
+        {categories.length > 1 && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Categoria</span>
+            <Chip active={catFilter === 'all'} onClick={() => setCatFilter('all')}>Todas</Chip>
+            {categories.map((c) => (
+              <Chip key={c} active={catFilter === c} onClick={() => setCatFilter(c)}>{c}</Chip>
+            ))}
+          </>
+        )}
+        {classes.length > 1 && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" />
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Classe</span>
+            <Chip active={classFilter === 'all'} onClick={() => setClassFilter('all')}>ABC</Chip>
+            {classes.map((c) => (
+              <Chip key={c} active={classFilter === c} onClick={() => setClassFilter(c)}>{c}</Chip>
+            ))}
+          </>
+        )}
+        {weekFilter != null && (
+          <Chip active onClick={() => setWeekFilter(null)}>
+            {weekFilter === 0 ? 'Ruptura: hoje' : `Ruptura: sem ${weekFilter}`} ✕
+          </Chip>
+        )}
         <span className="ml-auto text-[11px] text-muted-foreground">
           {rows.length} SKUs · <span className="font-medium text-alert-error">{totalAtRisk}</span> com ruptura · {criteriaLabel(grid.criteria)}
         </span>
       </div>
 
-      {/* Per-week new-stockout summary */}
+      {/* Per-week new-stockout summary — click a tile to filter to the SKUs that first
+          rupture that week (toggle off by clicking again or the chip above). */}
       <div className="mb-4 grid grid-cols-4 gap-2 sm:grid-cols-9">
-        {grid.weeks.map((w, i) => (
-          <div
-            key={w.idx}
-            className={cn(
-              'rounded-lg border p-2 text-center',
-              summary[i] > 0 ? 'border-alert-error/30 bg-alert-error/5' : 'border-border bg-muted/20',
-            )}
-          >
-            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{w.idx === 0 ? 'Hoje' : `Sem ${w.idx}`}</p>
-            <p className="text-[10px] text-muted-foreground">{fmtDate(w.endDate)}</p>
-            <p className={cn('mt-0.5 text-lg font-bold tabular-nums', summary[i] > 0 ? 'text-alert-error' : 'text-muted-foreground/40')}>
-              {summary[i]}
-            </p>
-          </div>
-        ))}
+        {grid.weeks.map((w, i) => {
+          const active = weekFilter === i;
+          const clickable = summary[i] > 0;
+          return (
+            <button
+              key={w.idx}
+              type="button"
+              disabled={!clickable}
+              onClick={() => setWeekFilter(active ? null : i)}
+              className={cn(
+                'rounded-lg border p-2 text-center transition-colors',
+                active
+                  ? 'border-alert-error bg-alert-error/10 ring-1 ring-alert-error/40'
+                  : summary[i] > 0
+                    ? 'border-alert-error/30 bg-alert-error/5 hover:bg-alert-error/10'
+                    : 'border-border bg-muted/20',
+                clickable ? 'cursor-pointer' : 'cursor-default',
+              )}
+            >
+              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{w.idx === 0 ? 'Hoje' : `Sem ${w.idx}`}</p>
+              <p className="text-[10px] text-muted-foreground">{fmtDate(w.endDate)}</p>
+              <p className={cn('mt-0.5 text-lg font-bold tabular-nums', summary[i] > 0 ? 'text-alert-error' : 'text-muted-foreground/40')}>
+                {summary[i]}
+              </p>
+            </button>
+          );
+        })}
       </div>
 
       {/* Grid */}
@@ -309,6 +364,29 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, idx: number, 
   );
 }
 
+// The left-column "N pedidos" hover: each registered open PO feeding this SKU, VO → ETA →
+// qty → modal, earliest first. Clicking the badge opens the pedido (single) or the list.
+function posTip(row: WeekGridRow) {
+  return (
+    <div className="space-y-0.5">
+      <div className="font-semibold text-foreground">
+        {row.skuBase} · {row.openPos.length} pedido{row.openPos.length > 1 ? 's' : ''} em aberto
+      </div>
+      {row.openPos.map((p) => (
+        <div key={p.id} className="flex items-center justify-between gap-2 text-muted-foreground">
+          <span className="text-brand-600">{p.vo ?? '—'}</span>
+          <span>{fmtDate(p.eta)}</span>
+          <span className="tabular-nums">
+            +{fmtInt(p.qty)}
+            {p.modal ? ` ${p.modal === 'air' ? '✈' : p.modal === 'sea' ? '🚢' : p.modal}` : ''}
+          </span>
+        </div>
+      ))}
+      <div className="text-brand-600">clique para abrir →</div>
+    </div>
+  );
+}
+
 function GridRow({
   row,
   unit,
@@ -339,9 +417,28 @@ function GridRow({
         <span className="block max-w-[180px] truncate text-[11px] text-muted-foreground" title={row.skuName}>
           {row.skuName}
         </span>
+        {row.openPos.length > 0 && (
+          <button
+            type="button"
+            onMouseEnter={(e) => onHover(e, posTip(row))}
+            onMouseMove={(e) => onHover(e, posTip(row))}
+            onMouseLeave={onLeave}
+            onClick={() => onOpenPedido(row.openPos.map((p) => p.vo).filter(Boolean) as string[])}
+            className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[9px] font-medium text-brand-600 hover:bg-brand-500/20"
+          >
+            <Truck className="size-2.5" /> {row.openPos.length} pedido{row.openPos.length > 1 ? 's' : ''}
+          </button>
+        )}
       </td>
       <td className="border-l border-foreground/5 px-2 py-1.5 text-right align-middle tabular-nums text-xs text-muted-foreground">
-        {row.dailyDemand > 0 ? `${row.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}/d` : '—'}
+        <span className="block">
+          {row.dailyDemand > 0 ? `${row.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}/d` : '—'}
+        </span>
+        {row.recoveryRate > 0 && (
+          <span className="mt-0.5 inline-flex items-center gap-0.5 text-[9px] text-[color:var(--color-alert-info)]" title="Recuperação (refurb): taxa de retorno · dias de giro">
+            <Recycle className="size-2.5" /> {Math.round(row.recoveryRate * 100)}% · {row.recoveryTurnaroundDays}d
+          </span>
+        )}
       </td>
       {row.cells.map((c, i) => {
         const isBuyBy = row.buyByWeekIdx === weeks[i].idx;

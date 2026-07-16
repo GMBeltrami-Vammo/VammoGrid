@@ -250,6 +250,15 @@ export interface WeekGridRow {
   isLate: boolean;
   /** Week column the buy-by date falls in (null = no buy-by, or beyond the grid). */
   buyByWeekIdx: number | null;
+  /** Recovery (refurb) inflow params — shown beside consumption (%/turnaround). */
+  recoveryRate: number;
+  recoveryTurnaroundDays: number;
+  /** Coarse warehouse category ('BIKE'|'BATTERY'|'BOX'|null) — a local heatmap filter. */
+  category: string | null;
+  /** ABC class — a local heatmap filter. */
+  abcClass: string;
+  /** Registered open POs feeding this SKU (countsAsInbound) — listed in the left column. */
+  openPos: { id: string; vo: string | null; eta: string | null; qty: number; modal: string | null }[];
   cells: WeekCell[];
 }
 

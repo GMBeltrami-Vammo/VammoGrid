@@ -433,6 +433,22 @@ function buildSharedContext(args: {
       status: purchase?.status ?? 'OK',
       isLate: purchase?.isLate ?? false,
       buyByWeekIdx: buyByWeek(purchase?.buyByDate ?? null, today, weekCount),
+      recoveryRate: policy.recoveryRate ?? 0,
+      recoveryTurnaroundDays: policy.recoveryTurnaroundDays ?? 0,
+      category: stock.category ?? null,
+      abcClass: forecast?.abcClass ?? policy.abcClass ?? 'C',
+      // Registered open POs feeding this SKU (same inbound rule as the projection), for
+      // the left-column "N pedidos" indicator, earliest ETA first.
+      openPos: baseOrders
+        .filter((o) => OPEN_STATUSES.has(o.status) && countsAsInbound(o.prepStatus))
+        .map((o) => ({
+          id: o.id,
+          vo: o.vo,
+          eta: o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null),
+          qty: o.qty,
+          modal: o.modal,
+        }))
+        .sort((a, b) => (a.eta ?? '').localeCompare(b.eta ?? '')),
     };
 
     const ctx: SkuWeekContext = {

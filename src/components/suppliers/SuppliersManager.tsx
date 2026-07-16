@@ -135,7 +135,17 @@ export function SuppliersManager({
       {error && <p className="rounded-md bg-alert-error/10 px-3 py-2 text-sm text-alert-error">{error}</p>}
 
       {(creating || editingId) && (
-        <SupplierEditor draft={draft} setDraft={setDraft} onSave={save} onCancel={cancel} pending={pending} />
+        <SupplierEditor
+          draft={draft}
+          setDraft={setDraft}
+          onSave={save}
+          onCancel={cancel}
+          pending={pending}
+          supplierId={editingId ?? undefined}
+          modals={editingId ? modalsBySupplier[editingId] ?? [] : []}
+          isHead={isHead}
+          onModalsChanged={() => router.refresh()}
+        />
       )}
 
       {suppliers.length === 0 ? (
@@ -163,6 +173,11 @@ export function SuppliersManager({
                   <span className="text-[11px] text-muted-foreground tabular-nums">
                     lead {s.leadTimeSeaDays ?? '—'}d mar / {s.leadTimeAirDays ?? '—'}d aéreo
                   </span>
+                  {(modalsBySupplier[s.supplierId]?.length ?? 0) > 0 && (
+                    <span className="rounded-full bg-brand-500/10 px-2 py-0.5 text-[11px] font-medium text-brand-600">
+                      {modalsBySupplier[s.supplierId]!.length} modais
+                    </span>
+                  )}
                   {s.contact && <span className="text-xs text-muted-foreground">{s.contact}</span>}
                   <button
                     onClick={() => setExpanded(open ? null : s.supplierId)}
@@ -240,12 +255,21 @@ function SupplierEditor({
   onSave,
   onCancel,
   pending,
+  supplierId,
+  modals = [],
+  isHead = false,
+  onModalsChanged,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   onSave: () => void;
   onCancel: () => void;
   pending: boolean;
+  /** Present only when editing an existing supplier — enables the modais editor here. */
+  supplierId?: string;
+  modals?: SupplierModal[];
+  isHead?: boolean;
+  onModalsChanged?: () => void;
 }) {
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft({ ...draft, [key]: value });
   return (
@@ -311,6 +335,20 @@ function SupplierEditor({
           <Input value={draft.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Observações" />
         </Labeled>
       </div>
+
+      {/* Modais (Courier/Aéreo/Marítimo…) — aqui mesmo no cadastro, ao editar. Os campos
+          "Lead marítimo/aéreo" acima são o fallback legado (2 modais); use esta seção para
+          cadastrar N modais com leads próprios (ex.: Courier 15). */}
+      {supplierId ? (
+        <div className="mt-4 border-t border-border/60 pt-3">
+          <ModalsEditor supplierId={supplierId} modals={modals} isHead={isHead} onChanged={onModalsChanged ?? (() => {})} />
+        </div>
+      ) : (
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Salve o fornecedor para então cadastrar os modais (Courier, Aéreo, Marítimo…).
+        </p>
+      )}
+
       <div className="mt-4 flex gap-2">
         <Button size="sm" onClick={onSave} disabled={pending}>
           <Check /> {pending ? 'Salvando…' : 'Salvar'}
@@ -414,7 +452,7 @@ function ModalsEditor({
               )
             }
           >
-            <Plus /> Add modal
+            <Plus /> Adicionar modal
           </Button>
         </div>
       )}

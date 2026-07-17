@@ -10,6 +10,13 @@ import { suggestQuantities, type ModalPlan, type OrderRules } from '@/lib/planni
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido, type NewPedidoLine } from '@/app/dashboard/pedidos/actions';
 import { modalsForSupplier, type ModalOption } from '@/lib/planning/supplierGroups';
+import {
+  modalCfgEntry,
+  readModalCfgClient,
+  setModalCfgEntry,
+  writeModalCfgClient,
+  type ModalCfg,
+} from '@/lib/planning/modalConfig';
 import { projectFromSeed, sampleMiniStrip, type MiniCell } from '@/lib/planning/miniStrip';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
@@ -98,40 +105,72 @@ export function ProcurementView({
   );
   // Per-(sku × modalId) manual qty override; absent → the suggested qty is used.
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, Record<string, number>>>({});
-  // Per-modal piso (DOH mín) + cadência (periodicidade, dias) — the layered floors
-  // (ex.: Courier 15 / Aéreo 30 / Marítimo 75 = a meta). Blank → global criteria piso + 30d.
-  const [modalParams, setModalParams] = useState<Record<string, { piso: string; cadencia: string }>>({});
+  // Per-modal config (piso DOH + cadência + lead-sim) — SHARED with Projeção Global via a
+  // session cookie (ephemeral, not persisted). Loaded once on mount; every edit rewrites it.
+  const [cfg, setCfg] = useState<ModalCfg>({});
+  useEffect(() => {
+    setCfg(readModalCfgClient());
+  }, []);
+  const entryFor = (m: ModalOption) => modalCfgEntry(cfg, supplierId, m.name);
+  const patchEntry = (m: ModalOption, patch: { piso?: number | null; cad?: number | null; lead?: number | null }) => {
+    const next = setModalCfgEntry(cfg, supplierId, m.name, {
+      piso: patch.piso === null ? NaN : patch.piso,
+      cad: patch.cad === null ? NaN : patch.cad,
+      lead: patch.lead === null ? NaN : patch.lead,
+    });
+    setCfg(next);
+    writeModalCfgClient(next);
+  };
   useEffect(() => {
     const opts = modalsForSupplier(supplierById.get(supplierId) ?? null, supplierModals);
     setEnabledModals(new Set(opts.map((m) => m.id)));
     setQtyOverrides({});
-    setModalParams({});
   }, [supplierId, supplierById, supplierModals]);
 
   const enabledModalOptions = useMemo(
     () => modalOptions.filter((m) => enabledModals.has(m.id)),
     [modalOptions, enabledModals],
   );
-  // Slowest enabled lane (modalOptions is DESC by lead) — the bulk lane, used for buy-by.
-  const slowestLead = enabledModalOptions[0]?.leadDays ?? selectedSupplier?.leadTimeSeaDays ?? null;
+  // Simulated lead (cfg override, else the real supplier lead). Only affects the suggestion +
+  // mini-heatmap; the created order's ETA always uses the REAL lead (m.leadDays).
+  const simLead = (m: ModalOption) => {
+    const e = modalCfgEntry(cfg, supplierId, m.name);
+    return e.lead && e.lead > 0 ? e.lead : m.leadDays;
+  };
+  // The slowest ENABLED lane by simulated lead — only it carries a cadência ("uma vez só" for
+  // the others). Used for the cadence input + the buy-by column.
+  const slowestModalId = useMemo(() => {
+    let id: string | null = null;
+    let max = -1;
+    for (const m of enabledModalOptions) {
+      const l = simLead(m);
+      if (l > max) {
+        max = l;
+        id = m.id;
+      }
+    }
+    return id;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledModalOptions, cfg, supplierId]);
+  const slowestLead = enabledModalOptions.find((m) => m.id === slowestModalId)?.leadDays ?? selectedSupplier?.leadTimeSeaDays ?? null;
 
-  // The plans the qty engine runs: each lane holds ITS piso (DOH mín) + cadência. The
-  // faster lanes bridge the near-term gap holding their (lower) floors; the slowest sustains
-  // order-up-to (piso + cadência) — the layered-floor cascade the user asked for.
+  // The plans the qty engine runs: each lane holds ITS piso (DOH mín) at its SIM lead. Only the
+  // slowest lane carries a cadência (order-up-to piso+cadência); the faster lanes bridge the
+  // gap from their arrival to the next lane holding their (lower) floor — the layered cascade.
   const plans = useMemo<ModalPlan[]>(
     () =>
       enabledModalOptions.map((m) => {
-        const p = modalParams[m.id];
-        const piso = p?.piso.trim() ? Number(p.piso) : NaN;
-        const cad = p?.cadencia.trim() ? Number(p.cadencia) : NaN;
+        const e = modalCfgEntry(cfg, supplierId, m.name);
+        const lead = e.lead && e.lead > 0 ? e.lead : m.leadDays;
+        const isSlow = m.id === slowestModalId;
         return {
-          modal: m,
-          minDoh: Number.isFinite(piso) && piso > 0 ? piso : criteria.dohThreshold,
-          cadenceDays: Number.isFinite(cad) && cad > 0 ? cad : 30,
+          modal: { ...m, leadDays: lead }, // sim lead — planning only, not the order ETA
+          minDoh: e.piso && e.piso > 0 ? e.piso : criteria.dohThreshold,
+          cadenceDays: isSlow ? (e.cad && e.cad > 0 ? e.cad : 30) : 0,
           enabled: true,
         };
       }),
-    [enabledModalOptions, criteria.dohThreshold, modalParams],
+    [enabledModalOptions, criteria.dohThreshold, cfg, supplierId, slowestModalId],
   );
 
   const toggleModal = (id: string) =>
@@ -235,11 +274,12 @@ export function ProcurementView({
       return next;
     });
 
-  // Per-SKU "com pedido" coverage strip: baseline + this row's injected modal arrivals.
+  // Per-SKU "com pedido" coverage strip: baseline + this row's injected modal arrivals (at
+  // the SIM lead, so the strip reflects the simulated timing).
   const stripFor = (r: ElaborationRow): MiniCell[] => {
     const sku = r.suggestion.skuBase;
     const injected = enabledModalOptions
-      .map((m) => ({ offset: m.leadDays, qty: qtyFor(sku, m.id) }))
+      .map((m) => ({ offset: simLead(m), qty: qtyFor(sku, m.id) }))
       .filter((x) => x.qty > 0);
     const proj = projectFromSeed(r.miniSeed, injected, today);
     return sampleMiniStrip(proj, STRIP_OFFSETS, criteria.dohThreshold);
@@ -248,16 +288,19 @@ export function ProcurementView({
   // Which strip cell (week) a day-offset lands in (0 = today/overdue; else ceil(days/7)).
   const weekOf = (offset: number) => (offset <= 0 ? 0 : Math.min(STRIP_WEEKS - 1, Math.ceil(offset / 7)));
 
-  // Per-week arrival markers for the mini-heatmap: REGISTERED orders (from r.openPos) above
-  // the bars, and the SIMULATED order being built (enabled modais × qty) below.
+  // Per-week arrival markers for the mini-heatmap: REGISTERED orders (from r.openPos) above the
+  // bars, and the SIMULATED order being built below — each with the DOH it ADDS (qty ÷ consumo/dia).
   const stripArrivals = (r: ElaborationRow): { reg: RegArrival[][]; sim: SimArrival[][] } => {
     const sku = r.suggestion.skuBase;
+    const rate = r.suggestion.dailyDemand;
+    const dohOf = (qty: number) => (rate > 0 ? Math.round(qty / rate) : 0);
     const reg: RegArrival[][] = Array.from({ length: STRIP_WEEKS }, () => []);
-    for (const p of r.openPos) reg[weekOf(p.dayOffset)].push({ name: p.name || p.vo || 'pedido', qty: p.qty, modal: p.modal });
+    for (const p of r.openPos)
+      reg[weekOf(p.dayOffset)].push({ name: p.name || p.vo || 'pedido', qty: p.qty, modal: p.modal, doh: dohOf(p.qty) });
     const sim: SimArrival[][] = Array.from({ length: STRIP_WEEKS }, () => []);
     for (const m of enabledModalOptions) {
       const qty = qtyFor(sku, m.id);
-      if (qty > 0) sim[weekOf(m.leadDays)].push({ modal: m.name, qty });
+      if (qty > 0) sim[weekOf(simLead(m))].push({ modal: m.name, qty, doh: dohOf(qty) });
     }
     return { reg, sim };
   };
@@ -491,9 +534,9 @@ export function ProcurementView({
           <div className="mt-2 space-y-1.5">
             {modalOptions.map((m) => {
               const on = enabledModals.has(m.id);
-              const p = modalParams[m.id] ?? { piso: '', cadencia: '' };
-              const setP = (patch: Partial<typeof p>) =>
-                setModalParams((prev) => ({ ...prev, [m.id]: { ...p, ...patch } }));
+              const e = entryFor(m);
+              const isSlow = m.id === slowestModalId;
+              const numOr = (v: string) => (v.trim() === '' ? null : Number(v));
               return (
                 <div key={m.id} className={cn('flex flex-wrap items-center gap-2 text-sm', !on && 'opacity-50')}>
                   <label className="inline-flex w-40 cursor-pointer items-center gap-1.5">
@@ -508,39 +551,56 @@ export function ProcurementView({
                     <span className="text-xs text-muted-foreground">+{m.leadDays}d</span>
                   </label>
                   <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    Lead sim.
+                    <input
+                      type="number"
+                      min={1}
+                      value={e.lead ?? ''}
+                      disabled={!on}
+                      onChange={(ev) => patchEntry(m, { lead: numOr(ev.target.value) })}
+                      placeholder={String(m.leadDays)}
+                      title="Lead hipotético (dias) — só a simulação/sugestão; a ETA do pedido usa o lead real"
+                      className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                     Piso (DOH)
                     <input
                       type="number"
                       min={1}
-                      value={p.piso}
+                      value={e.piso ?? ''}
                       disabled={!on}
-                      onChange={(e) => setP({ piso: e.target.value })}
+                      onChange={(ev) => patchEntry(m, { piso: numOr(ev.target.value) })}
                       placeholder={String(criteria.dohThreshold)}
                       title="Piso de cobertura (DOH mín) que este modal segura"
                       className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
                     />
                   </label>
-                  <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                    Cadência (dias)
-                    <input
-                      type="number"
-                      min={1}
-                      value={p.cadencia}
-                      disabled={!on}
-                      onChange={(e) => setP({ cadencia: e.target.value })}
-                      placeholder="30"
-                      title="Periodicidade de reposição — quanto de cobertura extra o pedido repõe"
-                      className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
-                    />
-                  </label>
+                  {isSlow ? (
+                    <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      Cadência (dias)
+                      <input
+                        type="number"
+                        min={1}
+                        value={e.cad ?? ''}
+                        disabled={!on}
+                        onChange={(ev) => patchEntry(m, { cad: numOr(ev.target.value) })}
+                        placeholder="30"
+                        title="Periodicidade de reposição do modal mais lento — cobertura extra além do piso"
+                        className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                      />
+                    </label>
+                  ) : (
+                    <span className="text-[10px] italic text-muted-foreground/70">uma vez só</span>
+                  )}
                 </div>
               );
             })}
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
             Pisos em camadas (ex.: Courier 15 · Aéreo 30 · Marítimo 75 = a meta): o modal mais lento faz o volume até
-            piso + cadência; os mais rápidos só cobrem o vão que ele não alcança a tempo, segurando os pisos menores.
-            Cada modal vira <b>um pedido separado</b>. Quantidades com o lead real do fornecedor.
+            piso + cadência; os mais rápidos cobrem o vão só uma vez, segurando os pisos menores. Lead sim. muda só a
+            sugestão/heatmap (a ETA do pedido usa o lead real). Cada modal vira <b>um pedido separado</b>.
           </p>
         </div>
       ) : selectedSupplier ? (
@@ -873,9 +933,8 @@ export function ProcurementView({
       </div>
 
       <p className="mt-2 text-[10px] text-muted-foreground">
-        Cobertura c/ pedido: <span className="text-[color:var(--color-alert-info)]">▾</span> chegada de pedido já
-        registrado · <span className="text-brand-600">▴</span> chegada do pedido simulado (em construção). Passe o
-        mouse no marcador pra ver o pedido, a semana e a quantidade.
+        Cobertura c/ pedido: o número em cada quadradinho é o DOH da semana. <span className="font-bold text-[color:var(--color-alert-info)]">▼N</span> = chegada de pedido JÁ REGISTRADO (N = DOH que ele adiciona);
+        <span className="font-bold text-brand-600">▲N</span> = chegada do pedido SIMULADO (em construção). Hover mostra pedido/modal + quantidade.
       </p>
     </div>
   );
@@ -902,62 +961,59 @@ interface RegArrival {
   name: string;
   qty: number;
   modal: string | null;
+  /** DOH this arrival adds (qty ÷ consumo/dia). */
+  doh: number;
 }
 interface SimArrival {
   modal: string;
   qty: number;
+  doh: number;
 }
 
-// The "Cobertura c/ pedido" mini-heatmap: weekly coverage bars, with a ▾ above each week a
-// REGISTERED order arrives (blue) and a ▴ below each week the SIMULATED order (being built)
-// would arrive (brand). Hover any marker for the order name/modal, week and quantity.
+// The "Cobertura c/ pedido" mini-heatmap: one column per week. The coverage cell shows its
+// DOH inside; a triangle above marks a REGISTERED order arriving (azul) and below marks the
+// SIMULATED order (em construÃ§Ã£o, brand), each labeled with the DOH it ADDS. Hover for the
+// order name/modal + quantidade.
 function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival[][]; sim: SimArrival[][] }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex gap-px">
-        {cells.map((c, i) => {
-          const a = reg[i] ?? [];
-          return (
+    <div className="flex gap-0.5">
+      {cells.map((c, i) => {
+        const ra = reg[i] ?? [];
+        const sa = sim[i] ?? [];
+        const regDoh = ra.reduce((s, x) => s + x.doh, 0);
+        const simDoh = sa.reduce((s, x) => s + x.doh, 0);
+        return (
+          <div key={i} className="flex w-7 shrink-0 flex-col items-center gap-0.5">
             <span
-              key={i}
-              className="inline-flex w-3.5 justify-center text-sm leading-none text-[color:var(--color-alert-info)]"
+              className="flex h-3.5 items-center justify-center text-[9px] font-bold leading-none text-[color:var(--color-alert-info)]"
               title={
-                a.length
-                  ? a.map((x) => `Pedido ${x.name}: +${fmtInt(x.qty)} un · Sem ${i}${x.modal ? ` · ${x.modal}` : ''}`).join(' · ')
+                ra.length
+                  ? ra
+                      .map((x) => `Pedido ${x.name}: +${fmtInt(x.qty)} un (+${x.doh} DOH) Â· Sem ${i}${x.modal ? ` Â· ${x.modal}` : ''}`)
+                      .join(' Â· ')
                   : undefined
               }
             >
-              {a.length ? '▾' : ' '}
+              {ra.length ? `â¼${regDoh}` : ''}
             </span>
-          );
-        })}
-      </div>
-      <div
-        className="flex items-center gap-px"
-        title="Cobertura semanal com o pedido — verde: ok · amarelo: abaixo do piso · vermelho: ruptura"
-      >
-        {cells.map((c) => (
-          <span
-            key={c.weekIdx}
-            className={cn('inline-block h-5 w-3.5 rounded-[2px]', miniCellClass(c))}
-            title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
-          />
-        ))}
-      </div>
-      <div className="flex gap-px">
-        {cells.map((c, i) => {
-          const a = sim[i] ?? [];
-          return (
             <span
-              key={i}
-              className="inline-flex w-3.5 justify-center text-sm leading-none text-brand-600"
-              title={a.length ? a.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un · Sem ${i}`).join(' · ') : undefined}
+              className={cn(
+                'flex h-6 w-7 items-center justify-center rounded-[2px] text-[9px] font-semibold tabular-nums',
+                miniCellClass(c),
+              )}
+              title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} Â· ${fmtInt(c.stock)} un.`}
             >
-              {a.length ? '▴' : ' '}
+              {c.doh != null ? c.doh : 'â'}
             </span>
-          );
-        })}
-      </div>
+            <span
+              className="flex h-3.5 items-center justify-center text-[9px] font-bold leading-none text-brand-600"
+              title={sa.length ? sa.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un (+${x.doh} DOH) Â· Sem ${i}`).join(' Â· ') : undefined}
+            >
+              {sa.length ? `â²${simDoh}` : ''}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

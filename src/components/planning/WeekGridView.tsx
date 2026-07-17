@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { Recycle, Flag, Ship, Plane, Truck, Package, ArrowUpRight, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
-import type { HubId, ScenarioMeta, WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
+import type { ScenarioMeta, WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import type { ModalOption } from '@/lib/planning/supplierGroups';
@@ -17,14 +17,6 @@ import { InfoHint } from '@/components/planning/InfoHint';
 // scenario/scope/filter/unit toggles are instant client-side views. Only the horizon
 // reloads. Rows = SKUs, columns = Hoje..Wn. Scenarios are dynamic: baseline + one per
 // supplier modal (Courier/Aéreo/Marítimo…) + combined.
-
-type Scope = 'global' | HubId;
-const SCOPES: { id: Scope; label: string }[] = [
-  { id: 'global', label: 'Global' },
-  { id: 'osasco', label: 'Osasco' },
-  { id: 'mooca', label: 'Mooca' },
-  { id: 'sbc', label: 'SBC' },
-];
 
 const HORIZONS = [8, 12, 16, 20];
 
@@ -76,12 +68,10 @@ export function WeekGridView({
   const [navPending, startNav] = useTransition();
 
   const [scenario, setScenario] = useState<string>('baseline');
-  const [scope, setScope] = useState<Scope>('global');
   const [search, setSearch] = useState('');
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
   const [catFilter, setCatFilter] = useState<string>('all');
-  const [classFilter, setClassFilter] = useState<string>('all');
   const [weekFilter, setWeekFilter] = useState<number | null>(null);
   const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
@@ -146,14 +136,11 @@ export function WeekGridView({
     startNav(() => router.push(`${pathname}?${params.toString()}`));
   };
 
-  const allRows = scope === 'global' ? grid.global : grid.byHub[scope];
+  // Only the GLOBAL stock is shown (the hub/center scopes were removed per request).
+  const allRows = grid.global;
 
   const categories = useMemo(
     () => Array.from(new Set(allRows.map((r) => r.category).filter(Boolean))).sort() as string[],
-    [allRows],
-  );
-  const classes = useMemo(
-    () => Array.from(new Set(allRows.map((r) => r.abcClass).filter(Boolean))).sort() as string[],
     [allRows],
   );
 
@@ -164,16 +151,15 @@ export function WeekGridView({
       if (heat === 'critico' && !r.cells.some((c) => c.isOut)) return false;
       if (heat === 'baixo' && !r.cells.some((c) => c.isLow)) return false;
       if (catFilter !== 'all' && r.category !== catFilter) return false;
-      if (classFilter !== 'all' && r.abcClass !== classFilter) return false;
       if (weekFilter != null && r.cells.findIndex((c) => c.isOut) !== weekFilter) return false;
       return true;
     });
-  }, [allRows, search, heat, catFilter, classFilter, weekFilter]);
+  }, [allRows, search, heat, catFilter, weekFilter]);
 
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_ROWS);
-  }, [scenario, scope, search, heat, catFilter, classFilter, weekFilter]);
+  }, [scenario, search, heat, catFilter, weekFilter]);
   const visibleRows = rows.length > visibleCount ? rows.slice(0, visibleCount) : rows;
 
   const summary = useMemo(() => {
@@ -211,13 +197,8 @@ export function WeekGridView({
 
   return (
     <div className={cn('rounded-xl bg-card p-4 ring-1 ring-foreground/10', navPending && 'opacity-60')}>
-      {/* Row 1: scope + search + export + units */}
+      {/* Row 1: search + export + units (só estoque Global) */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          {SCOPES.map((s) => (
-            <Toggle key={s.id} active={scope === s.id} onClick={() => setScope(s.id)}>{s.label}</Toggle>
-          ))}
-        </div>
         <input
           type="search"
           placeholder="Buscar SKU…"
@@ -296,16 +277,6 @@ export function WeekGridView({
             <Chip active={catFilter === 'all'} onClick={() => setCatFilter('all')}>Todas</Chip>
             {categories.map((c) => (
               <Chip key={c} active={catFilter === c} onClick={() => setCatFilter(c)}>{c}</Chip>
-            ))}
-          </>
-        )}
-        {classes.length > 1 && (
-          <>
-            <span className="mx-1 h-4 w-px bg-border" />
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Classe</span>
-            <Chip active={classFilter === 'all'} onClick={() => setClassFilter('all')}>ABC</Chip>
-            {classes.map((c) => (
-              <Chip key={c} active={classFilter === c} onClick={() => setClassFilter(c)}>{c}</Chip>
             ))}
           </>
         )}

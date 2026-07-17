@@ -298,7 +298,7 @@ export async function safeComputeSnapshot(
 // ─── Elaboration rows for the Compras page (sub-project B7) ───────────────────
 
 /** Weeks of mini-heatmap the builder projects per SKU (matches Projeção Global default). */
-const MINI_HORIZON_WEEKS = 16;
+const MINI_HORIZON_WEEKS = 20;
 const OPEN_PO_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
 
 export interface ElaborationRow {

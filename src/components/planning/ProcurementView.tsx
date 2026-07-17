@@ -20,7 +20,7 @@ type ModalFilter = 'all' | 'air' | 'sea';
 
 // Weeks shown in the per-SKU mini-heatmap strip (kept fixed/compact so the column stays
 // narrow regardless of the coverage-filter horizon).
-const STRIP_WEEKS = 12;
+const STRIP_WEEKS = 20;
 const STRIP_OFFSETS = Array.from({ length: STRIP_WEEKS }, (_, i) => i * 7);
 
 interface SupplierOption {
@@ -920,7 +920,7 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
           return (
             <span
               key={i}
-              className="inline-flex w-1.5 justify-center text-[8px] leading-none text-[color:var(--color-alert-info)]"
+              className="inline-flex w-3.5 justify-center text-sm leading-none text-[color:var(--color-alert-info)]"
               title={
                 a.length
                   ? a.map((x) => `Pedido ${x.name}: +${fmtInt(x.qty)} un · Sem ${i}${x.modal ? ` · ${x.modal}` : ''}`).join(' · ')
@@ -939,7 +939,7 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
         {cells.map((c) => (
           <span
             key={c.weekIdx}
-            className={cn('inline-block h-4 w-1.5 rounded-[1px]', miniCellClass(c))}
+            className={cn('inline-block h-5 w-3.5 rounded-[2px]', miniCellClass(c))}
             title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
           />
         ))}
@@ -950,7 +950,7 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
           return (
             <span
               key={i}
-              className="inline-flex w-1.5 justify-center text-[8px] leading-none text-brand-600"
+              className="inline-flex w-3.5 justify-center text-sm leading-none text-brand-600"
               title={a.length ? a.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un · Sem ${i}`).join(' · ') : undefined}
             >
               {a.length ? '▴' : ' '}

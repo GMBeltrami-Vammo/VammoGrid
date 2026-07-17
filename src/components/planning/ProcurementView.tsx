@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Check, Download, Package, Plane, Ship, Truck, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
+import { Download, Package, Plane, Ship, Truck, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
 import type { OrderType, SupplierModal } from '@/types';
 import { suggestQuantities, type ModalPlan, type OrderRules } from '@/lib/planning/elaboration';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido, type NewPedidoLine } from '@/app/dashboard/pedidos/actions';
 import { modalsForSupplier, type ModalOption } from '@/lib/planning/supplierGroups';
-import { minDohWithin, projectFromSeed, sampleMiniStrip, type MiniCell } from '@/lib/planning/miniStrip';
+import { projectFromSeed, sampleMiniStrip, type MiniCell } from '@/lib/planning/miniStrip';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -73,10 +73,6 @@ export function ProcurementView({
   const pathname = usePathname();
   const [search, setSearch] = useState('');
   const [modalFilter, setModalFilter] = useState<ModalFilter>('all');
-  // DOH filter reorganizado: (1) cobertura = horizonte que o filtro enxerga; (2) estoque
-  // mínimo DOH — o SKU aparece se ALGUM dia dentro da cobertura tiver DOH < esse valor.
-  const [covWeeks, setCovWeeks] = useState(16);
-  const [minDohFilter, setMinDohFilter] = useState('');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [pedidoName, setPedidoName] = useState('');
 
@@ -200,7 +196,7 @@ export function ProcurementView({
   );
 
   // Baseline (registered-orders-only) projection per SKU, re-projected client-side from
-  // the seed — powers the DOH-over-horizon filter and each row's mini-heatmap "sem" base.
+  // the seed — the base the N-modal qty engine (suggestQuantities) plans on top of.
   const baselineBySku = useMemo(() => {
     const m = new Map<string, ReturnType<typeof projectFromSeed>>();
     for (const r of rows) m.set(r.suggestion.skuBase, projectFromSeed(r.miniSeed, [], today));
@@ -268,21 +264,14 @@ export function ProcurementView({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const minDoh = minDohFilter.trim() ? Number(minDohFilter) : null;
-    const covDays = covWeeks * 7;
     return rows.filter((r) => {
       const s = r.suggestion;
       if (supplierSkuSet && !supplierSkuSet.has(s.skuBase)) return false;
       if (q && !s.skuBase.toLowerCase().includes(q) && !(s.skuName ?? '').toLowerCase().includes(q)) return false;
       if (modalFilter !== 'all' && s.suggestedModal !== modalFilter) return false;
-      if (minDoh != null && Number.isFinite(minDoh)) {
-        const proj = baselineBySku.get(s.skuBase);
-        const lowest = proj ? minDohWithin(proj, covDays) : null;
-        if (lowest == null || lowest >= minDoh) return false;
-      }
       return true;
     });
-  }, [rows, search, modalFilter, minDohFilter, covWeeks, supplierSkuSet, baselineBySku]);
+  }, [rows, search, modalFilter, supplierSkuSet]);
 
   // Default inclusion: every row, unless the deep link named a specific SKU set (then only
   // those, intersected with what actually needs an order).
@@ -343,69 +332,55 @@ export function ProcurementView({
     })),
   };
 
-  // "Criar pedido" → ONE pedido (VO) PER MODAL: group the selected SKU lines by modal and
-  // create a separate pedido for each (courier / aéreo / marítimo), each with its lines.
-  const criarPedido = () => {
+  // Units the given modal would order across the selected SKUs (drives the button label + gate).
+  const unitsForModal = (m: ModalOption) =>
+    selectedRows.reduce((s, r) => s + qtyFor(r.suggestion.skuBase, m.id), 0);
+
+  // "Criar pedido (modal)" → ONE pedido (VO) for a SINGLE modal: its lines across the
+  // selected SKUs (create one modal at a time).
+  const criarPedidoModal = (m: ModalOption) => {
     setError(null);
     setCreatedVos([]);
     if (!selectedSupplier) {
       setError('Selecione um fornecedor para o pedido.');
       return;
     }
-    if (enabledModalOptions.length === 0) {
-      setError('Selecione ao menos um modal para o pedido.');
-      return;
-    }
-    const byModal = new Map<string, NewPedidoLine[]>();
+    const lines: NewPedidoLine[] = [];
     for (const r of selectedRows) {
-      for (const m of enabledModalOptions) {
-        const qty = qtyFor(r.suggestion.skuBase, m.id);
-        if (qty <= 0) continue;
-        const arr = byModal.get(m.name) ?? [];
-        arr.push({
-          skuBase: r.suggestion.skuBase,
-          skuName: r.suggestion.skuName,
-          qty,
-          leadDays: m.leadDays,
-          modal: m.name,
-          suggestedQty: suggestedFor(r.suggestion.skuBase, m.id),
-          suggestedModal: m.name,
-        });
-        byModal.set(m.name, arr);
-      }
+      const qty = qtyFor(r.suggestion.skuBase, m.id);
+      if (qty <= 0) continue;
+      lines.push({
+        skuBase: r.suggestion.skuBase,
+        skuName: r.suggestion.skuName,
+        qty,
+        leadDays: m.leadDays,
+        modal: m.name,
+        suggestedQty: suggestedFor(r.suggestion.skuBase, m.id),
+        suggestedModal: m.name,
+      });
     }
-    // Keep the modais' slow→fast order for deterministic pedido creation.
-    const groups = enabledModalOptions
-      .map((m) => ({ modal: m.name, lines: byModal.get(m.name) ?? [] }))
-      .filter((g) => g.lines.length > 0);
-    if (groups.length === 0) {
-      setError('Nenhuma linha com quantidade maior que zero.');
+    if (lines.length === 0) {
+      setError(`Nenhum SKU com quantidade maior que zero no modal ${m.name}.`);
       return;
     }
     const sup = selectedSupplier;
     startTransition(async () => {
-      const created: string[] = [];
-      for (const g of groups) {
-        const res = await createPedido({
-          modal: g.modal,
-          orderDate,
-          pedidoName: pedidoName ? `${pedidoName} · ${g.modal}` : g.modal,
-          orderType,
-          supplierId: sup.supplierId,
-          supplierName: sup.name,
-          lines: g.lines,
-          audit: auditObj,
-        });
-        if (!res.ok) {
-          setError(`Erro no modal ${g.modal}: ${res.error ?? 'falha'} (${created.length} pedido(s) criado(s) antes).`);
-          setCreatedVos(created);
-          router.refresh();
-          return;
-        }
-        if (res.vo) created.push(res.vo);
+      const res = await createPedido({
+        modal: m.name,
+        orderDate,
+        pedidoName: pedidoName ? `${pedidoName} · ${m.name}` : m.name,
+        orderType,
+        supplierId: sup.supplierId,
+        supplierName: sup.name,
+        lines,
+        audit: auditObj,
+      });
+      if (res.ok) {
+        setCreatedVos(res.vo ? [res.vo] : []);
+        router.refresh();
+      } else {
+        setError(res.error ?? `Erro ao criar pedido ${m.name}.`);
       }
-      setCreatedVos(created);
-      router.refresh();
     });
   };
 
@@ -486,20 +461,26 @@ export function ProcurementView({
             className="mt-1 h-8 w-48 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
           />
         </div>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <span className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{selectedCount}</span> SKUs · {fmtInt(selectedUnits)} un.
           </span>
-          {isHead && (
-            <button
-              onClick={criarPedido}
-              disabled={pending || selectedCount === 0 || !supplierId || enabledModalOptions.length === 0}
-              title={!supplierId ? 'Selecione um fornecedor' : undefined}
-              className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
-            >
-              <Check size={15} /> {pending ? 'Criando…' : 'Criar pedido'}
-            </button>
-          )}
+          {/* One "Criar pedido (modal)" button per enabled modal — creates that modal's pedido only. */}
+          {isHead &&
+            enabledModalOptions.map((m) => {
+              const units = unitsForModal(m);
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => criarPedidoModal(m)}
+                  disabled={pending || units <= 0 || !supplierId}
+                  title={!supplierId ? 'Selecione um fornecedor' : `Cria só o pedido ${m.name}`}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-400 disabled:opacity-50"
+                >
+                  <ModalIcon m={m} sm /> Criar ({m.name}) · {fmtInt(units)} un.
+                </button>
+              );
+            })}
         </div>
       </div>
 
@@ -723,32 +704,6 @@ export function ProcurementView({
             {label}
           </button>
         ))}
-
-        {/* DOH filter: cobertura (horizonte) + estoque mínimo DOH */}
-        <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-          Cobertura
-          <select
-            value={covWeeks}
-            onChange={(e) => setCovWeeks(Number(e.target.value))}
-            className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500"
-          >
-            {[4, 8, 12, 16, 20].map((w) => (
-              <option key={w} value={w}>{w} sem</option>
-            ))}
-          </select>
-        </label>
-        <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-          Estoque mín. DOH &lt;
-          <input
-            type="number"
-            min={0}
-            value={minDohFilter}
-            onChange={(e) => setMinDohFilter(e.target.value)}
-            placeholder="—"
-            title="Mostra o SKU se algum dia dentro da cobertura tiver DOH abaixo deste valor"
-            className="h-8 w-16 rounded-md border border-border bg-card px-2 text-right text-xs tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-          />
-        </label>
 
         <span className="mx-0.5 h-4 w-px bg-border" />
 

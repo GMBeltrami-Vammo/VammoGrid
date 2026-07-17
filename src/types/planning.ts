@@ -133,6 +133,8 @@ export interface OpenPurchaseOrder {
   /** App-generated UUID (ClickHouse has no sequences). */
   id: string;
   vo: string | null;
+  /** Human pedido name (pedido_name), when present — shown in the mini-heatmap arrow. */
+  pedidoName?: string | null;
   skuCode: string;
   skuBase: string;
   skuName: string | null;

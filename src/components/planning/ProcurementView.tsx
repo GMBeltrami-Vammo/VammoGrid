@@ -249,6 +249,23 @@ export function ProcurementView({
     return sampleMiniStrip(proj, STRIP_OFFSETS, criteria.dohThreshold);
   };
 
+  // Which strip cell (week) a day-offset lands in (0 = today/overdue; else ceil(days/7)).
+  const weekOf = (offset: number) => (offset <= 0 ? 0 : Math.min(STRIP_WEEKS - 1, Math.ceil(offset / 7)));
+
+  // Per-week arrival markers for the mini-heatmap: REGISTERED orders (from r.openPos) above
+  // the bars, and the SIMULATED order being built (enabled modais × qty) below.
+  const stripArrivals = (r: ElaborationRow): { reg: RegArrival[][]; sim: SimArrival[][] } => {
+    const sku = r.suggestion.skuBase;
+    const reg: RegArrival[][] = Array.from({ length: STRIP_WEEKS }, () => []);
+    for (const p of r.openPos) reg[weekOf(p.dayOffset)].push({ name: p.name || p.vo || 'pedido', qty: p.qty, modal: p.modal });
+    const sim: SimArrival[][] = Array.from({ length: STRIP_WEEKS }, () => []);
+    for (const m of enabledModalOptions) {
+      const qty = qtyFor(sku, m.id);
+      if (qty > 0) sim[weekOf(m.leadDays)].push({ modal: m.name, qty });
+    }
+    return { reg, sim };
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const minDoh = minDohFilter.trim() ? Number(minDohFilter) : null;
@@ -890,18 +907,7 @@ export function ProcurementView({
                       )}
                     </td>
                     <td className="px-3 py-2 align-top">
-                      <div
-                        className="flex items-center gap-px"
-                        title="Cobertura semanal com o pedido — verde: ok · amarelo: abaixo do piso · vermelho: ruptura"
-                      >
-                        {stripFor(r).map((c) => (
-                          <span
-                            key={c.weekIdx}
-                            className={cn('inline-block h-4 w-1.5 rounded-[1px]', miniCellClass(c))}
-                            title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
-                          />
-                        ))}
-                      </div>
+                      <CoverageStrip cells={stripFor(r)} {...stripArrivals(r)} />
                     </td>
                   </tr>
                 );
@@ -910,6 +916,12 @@ export function ProcurementView({
           </tbody>
         </table>
       </div>
+
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Cobertura c/ pedido: <span className="text-[color:var(--color-alert-info)]">▾</span> chegada de pedido já
+        registrado · <span className="text-brand-600">▴</span> chegada do pedido simulado (em construção). Passe o
+        mouse no marcador pra ver o pedido, a semana e a quantidade.
+      </p>
     </div>
   );
 }
@@ -929,6 +941,70 @@ function miniCellClass(c: MiniCell): string {
   if (c.isLow) return 'bg-alert-warning';
   if (c.doh == null) return 'bg-muted';
   return 'bg-alert-success/70';
+}
+
+interface RegArrival {
+  name: string;
+  qty: number;
+  modal: string | null;
+}
+interface SimArrival {
+  modal: string;
+  qty: number;
+}
+
+// The "Cobertura c/ pedido" mini-heatmap: weekly coverage bars, with a ▾ above each week a
+// REGISTERED order arrives (blue) and a ▴ below each week the SIMULATED order (being built)
+// would arrive (brand). Hover any marker for the order name/modal, week and quantity.
+function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival[][]; sim: SimArrival[][] }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex gap-px">
+        {cells.map((c, i) => {
+          const a = reg[i] ?? [];
+          return (
+            <span
+              key={i}
+              className="inline-flex w-1.5 justify-center text-[8px] leading-none text-[color:var(--color-alert-info)]"
+              title={
+                a.length
+                  ? a.map((x) => `Pedido ${x.name}: +${fmtInt(x.qty)} un · Sem ${i}${x.modal ? ` · ${x.modal}` : ''}`).join(' · ')
+                  : undefined
+              }
+            >
+              {a.length ? '▾' : ' '}
+            </span>
+          );
+        })}
+      </div>
+      <div
+        className="flex items-center gap-px"
+        title="Cobertura semanal com o pedido — verde: ok · amarelo: abaixo do piso · vermelho: ruptura"
+      >
+        {cells.map((c) => (
+          <span
+            key={c.weekIdx}
+            className={cn('inline-block h-4 w-1.5 rounded-[1px]', miniCellClass(c))}
+            title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
+          />
+        ))}
+      </div>
+      <div className="flex gap-px">
+        {cells.map((c, i) => {
+          const a = sim[i] ?? [];
+          return (
+            <span
+              key={i}
+              className="inline-flex w-1.5 justify-center text-[8px] leading-none text-brand-600"
+              title={a.length ? a.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un · Sem ${i}`).join(' · ') : undefined}
+            >
+              {a.length ? '▴' : ' '}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // Modal glyph by lead/name: courier/express → Truck, aéreo → Plane, marítimo → Ship.

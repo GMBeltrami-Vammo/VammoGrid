@@ -17,7 +17,8 @@ import { findElaborationTrigger, floorAtFactory, suggestModalQuantities, type Or
 import { DEFAULT_PURCHASE_CRITERIA, type PurchaseCriteria } from './constants';
 import { activeBackendKind } from '@/lib/clickhouse/reader';
 import { resolveShares } from './allocation';
-import { todayUtc } from './dates';
+import { todayUtc, addDays, diffDays } from './dates';
+import { countsAsInbound } from '@/types/planning';
 import { applySupplierLeadTimes, buildPolicies, defaultPolicyFor, type SupplierLead } from './policy';
 import { modalsForSupplier, preferredSupplierBySku } from './supplierGroups';
 import { projectGlobal, projectSku, type SkuProjections } from './projection';
@@ -298,6 +299,7 @@ export async function safeComputeSnapshot(
 
 /** Weeks of mini-heatmap the builder projects per SKU (matches Projeção Global default). */
 const MINI_HORIZON_WEEKS = 16;
+const OPEN_PO_STATUSES = new Set(['ordered', 'in_transit', 'customs']);
 
 export interface ElaborationRow {
   suggestion: ElaborationSuggestion;
@@ -317,6 +319,9 @@ export interface ElaborationRow {
   /** Minimal projection input so the builder can re-project this SKU live in the browser
    *  (mini-heatmap com/sem + DOH-over-horizon filter) using the real engine (F5). */
   miniSeed: MiniProjSeed;
+  /** Registered open orders arriving for this SKU (countsAsInbound), for the mini-heatmap
+   *  arrival markers — day offset from today, qty, modal, and the order name/VO. */
+  openPos: { vo: string | null; name: string | null; dayOffset: number; qty: number; modal: string | null }[];
 }
 
 export interface ElaborationResult {
@@ -423,6 +428,17 @@ export async function computeElaborations(
         horizon: H,
       };
 
+      // Registered open orders arriving within the mini-heatmap window (same inbound rule
+      // as the projection) — the arrival markers in the "Cobertura c/ pedido" strip.
+      const openPos = orders
+        .filter((o) => OPEN_PO_STATUSES.has(o.status) && countsAsInbound(o.prepStatus))
+        .map((o) => {
+          const eta = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
+          const dayOffset = eta ? diffDays(inp.today, eta) : -1;
+          return { vo: o.vo, name: o.pedidoName ?? null, dayOffset, qty: o.qty, modal: o.modal };
+        })
+        .filter((o) => o.dayOffset >= 0 && o.dayOffset <= H);
+
       rows.push({
         suggestion,
         suggestedQty,
@@ -434,6 +450,7 @@ export async function computeElaborations(
         isNational: policy.leadTimeSource === 'national-file',
         category: stock.category,
         miniSeed,
+        openPos,
       });
     }
 

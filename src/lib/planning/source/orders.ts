@@ -18,6 +18,7 @@ import { toSkuBase } from '../sku';
 export interface PoRow {
   id: string;
   vo: string | null;
+  pedido_name: string | null;
   sku: string;
   sku_name: string | null;
   qty_ordered: number;
@@ -56,6 +57,7 @@ export async function fetchOpenOrders(): Promise<OpenPurchaseOrder[]> {
     return data.map((r) => ({
       id: r.id,
       vo: r.vo,
+      pedidoName: r.pedido_name ?? null,
       skuCode: r.sku,
       skuBase: toSkuBase(r.sku),
       skuName: r.sku_name,

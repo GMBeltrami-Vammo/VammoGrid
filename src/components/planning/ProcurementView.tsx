@@ -972,7 +972,7 @@ interface SimArrival {
 
 // The "Cobertura c/ pedido" mini-heatmap: one column per week. The coverage cell shows its
 // DOH inside; a triangle above marks a REGISTERED order arriving (azul) and below marks the
-// SIMULATED order (em construÃ§Ã£o, brand), each labeled with the DOH it ADDS. Hover for the
+// SIMULATED order (em construção, brand), each labeled with the DOH it ADDS. Hover for the
 // order name/modal + quantidade.
 function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival[][]; sim: SimArrival[][] }) {
   return (
@@ -989,8 +989,8 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
               title={
                 ra.length
                   ? ra
-                      .map((x) => `Pedido ${x.name}: +${fmtInt(x.qty)} un (+${x.doh} DOH) Â· Sem ${i}${x.modal ? ` Â· ${x.modal}` : ''}`)
-                      .join(' Â· ')
+                      .map((x) => `Pedido ${x.name}: +${fmtInt(x.qty)} un (+${x.doh} DOH) · Sem ${i}${x.modal ? ` · ${x.modal}` : ''}`)
+                      .join(' · ')
                   : undefined
               }
             >
@@ -1001,13 +1001,13 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
                 'flex h-6 w-7 items-center justify-center rounded-[2px] text-[9px] font-semibold tabular-nums',
                 miniCellClass(c),
               )}
-              title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} Â· ${fmtInt(c.stock)} un.`}
+              title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
             >
-              {c.doh != null ? c.doh : 'â'}
+              {c.doh != null ? c.doh : '—'}
             </span>
             <span
               className="flex h-3.5 items-center justify-center text-[9px] font-bold leading-none text-brand-600"
-              title={sa.length ? sa.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un (+${x.doh} DOH) Â· Sem ${i}`).join(' Â· ') : undefined}
+              title={sa.length ? sa.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un (+${x.doh} DOH) · Sem ${i}`).join(' · ') : undefined}
             >
               {sa.length ? `â²${simDoh}` : ''}
             </span>

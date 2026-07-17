@@ -286,7 +286,7 @@ export function WeekGridView({
         </span>
       </div>
 
-      {/* Config por modal â compartilhada com o Novo Pedido via cookie de sessÃ£o */}
+      {/* Config por modal — compartilhada com o Novo Pedido via cookie de sessão */}
       {simSuppliers.length > 0 && (
         <div className="mb-3 rounded-xl bg-card ring-1 ring-foreground/10">
           <button
@@ -294,7 +294,7 @@ export function WeekGridView({
             className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium hover:bg-muted/30"
           >
             <FlaskConical size={14} className="text-muted-foreground" />
-            Config por modal (simulaÃ§Ã£o)
+            Config por modal (simulação)
             {hasCfg && (
               <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-600">ativa</span>
             )}
@@ -303,8 +303,8 @@ export function WeekGridView({
           {simOpen && (
             <div className="space-y-3 border-t border-border/60 px-4 py-3">
               <p className="text-[11px] text-muted-foreground">
-                Por fornecedor Ã modal: lead (sÃ³ simulaÃ§Ã£o â nÃ£o muda a ETA real), piso (DOH mÃ­n) e cadÃªncia
-                (sÃ³ o mais lento). Compartilhado com o Novo Pedido; os cenÃ¡rios abaixo jÃ¡ refletem isso. Clique em Aplicar apÃ³s editar.
+                Por fornecedor × modal: lead (só simulação — não muda a ETA real), piso (DOH mín) e cadência
+                (só o mais lento). Compartilhado com o Novo Pedido; os cenários abaixo já refletem isso. Clique em Aplicar após editar.
               </p>
               <div className="space-y-2">
                 {simSuppliers.map((s) => (
@@ -347,7 +347,7 @@ export function WeekGridView({
                             </label>
                             {isSlow ? (
                               <label className="inline-flex items-center gap-1">
-                                cadÃªncia
+                                cadência
                                 <input
                                   type="number"
                                   min={1}
@@ -358,7 +358,7 @@ export function WeekGridView({
                                 />
                               </label>
                             ) : (
-                              <span className="text-[10px] italic opacity-70">uma vez sÃ³</span>
+                              <span className="text-[10px] italic opacity-70">uma vez só</span>
                             )}
                           </div>
                         );
@@ -373,7 +373,7 @@ export function WeekGridView({
                   disabled={applyPending}
                   className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-400 disabled:opacity-50"
                 >
-                  {applyPending ? 'Aplicandoâ¦' : 'Aplicar'}
+                  {applyPending ? 'Aplicando…' : 'Aplicar'}
                 </button>
                 {hasCfg && (
                   <button

@@ -8,7 +8,7 @@ import type { ScenarioMeta, WeekCell, WeekGridRow, WeekMeta } from '@/types/plan
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import type { ModalOption } from '@/lib/planning/supplierGroups';
-import { simulateWeekGrids } from '@/app/dashboard/semanas/actions';
+import { readModalCfgClient, setModalCfgEntry, writeModalCfgClient, type ModalCfg } from '@/lib/planning/modalConfig';
 import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -75,56 +75,52 @@ export function WeekGridView({
   const [weekFilter, setWeekFilter] = useState<number | null>(null);
   const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
-  // Ephemeral N-modal simulation: recompute the suggestion scenarios with hypothetical
-  // leads (per supplier × modal) + coverage floors (per modal). Never persisted.
+  // Shared per-modal config (piso/cadência/lead) — the SAME session cookie Novo Pedido uses.
+  // Editing it here + "Aplicar" rebuilds the page's grids from the cookie, so the scenarios
+  // match the Novo Pedido suggestion. Loaded on mount; not persisted to the DB.
   const [simOpen, setSimOpen] = useState(false);
-  const [simLeads, setSimLeads] = useState<Record<string, Record<string, string>>>({});
-  // Per-modal-name coverage override (global across suppliers): piso (DOH mín) + cadência (dias).
-  const [simPlans, setSimPlans] = useState<Record<string, { piso: string; cadencia: string }>>({});
-  const [simResult, setSimResult] = useState<{ scenarios: ScenarioMeta[]; grids: Record<string, WeekGrid> } | null>(null);
-  const [simError, setSimError] = useState<string | null>(null);
-  const [simPending, startSim] = useTransition();
+  const [cfg, setCfg] = useState<ModalCfg>({});
+  const [applyPending, startApply] = useTransition();
   useEffect(() => {
-    setSimResult(null);
-  }, [grids]);
-
-  const allModalNames = useMemo(
-    () => [...new Set(simSuppliers.flatMap((s) => s.modais.map((m) => m.name)))].sort(),
-    [simSuppliers],
-  );
-
-  const runSim = () => {
-    setSimError(null);
-    const leadBySupplierModal: Record<string, Record<string, number>> = {};
-    for (const [sid, byModal] of Object.entries(simLeads)) {
-      for (const [name, val] of Object.entries(byModal)) {
-        const n = val.trim() ? Number(val) : null;
-        if (n && n > 0) (leadBySupplierModal[sid] ??= {})[name] = Math.round(n);
-      }
-    }
-    const planByModal: Record<string, { minDoh?: number; cadenceDays?: number }> = {};
-    for (const [name, v] of Object.entries(simPlans)) {
-      const piso = v.piso.trim() ? Number(v.piso) : null;
-      const cad = v.cadencia.trim() ? Number(v.cadencia) : null;
-      const entry: { minDoh?: number; cadenceDays?: number } = {};
-      if (piso && piso > 0) entry.minDoh = Math.round(piso);
-      if (cad && cad > 0) entry.cadenceDays = Math.round(cad);
-      if (entry.minDoh != null || entry.cadenceDays != null) planByModal[name] = entry;
-    }
-    startSim(async () => {
-      const res = await simulateWeekGrids({ weeks, leadBySupplierModal, planByModal });
-      if (res.ok && res.grids && res.scenarios) setSimResult({ scenarios: res.scenarios, grids: res.grids });
-      else setSimError(res.error ?? 'Erro na simulação.');
+    setCfg(readModalCfgClient());
+  }, []);
+  const patchEntry = (supplierId: string, modalName: string, patch: { piso?: number | null; cad?: number | null; lead?: number | null }) => {
+    const next = setModalCfgEntry(cfg, supplierId, modalName, {
+      piso: patch.piso === null ? NaN : patch.piso,
+      cad: patch.cad === null ? NaN : patch.cad,
+      lead: patch.lead === null ? NaN : patch.lead,
     });
+    setCfg(next);
+    writeModalCfgClient(next);
   };
-  const clearSim = () => {
-    setSimResult(null);
-    setSimError(null);
+  const hasCfg = Object.values(cfg).some((byModal) => Object.values(byModal).some((e) => e.piso || e.cad || e.lead));
+  const applyCfg = () => startApply(() => router.refresh());
+  const clearCfg = () => {
+    setCfg({});
+    writeModalCfgClient({});
+    startApply(() => router.refresh());
   };
+  // Slowest modal per supplier (by sim lead) — only it gets a cadência input ("uma vez só" else).
+  const slowestBySupplier = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const s of simSuppliers) {
+      let name = '';
+      let max = -1;
+      for (const m of s.modais) {
+        const lead = cfg[s.supplierId]?.[m.name]?.lead ?? m.leadDays;
+        if (lead > max) {
+          max = lead;
+          name = m.name;
+        }
+      }
+      out[s.supplierId] = name;
+    }
+    return out;
+  }, [simSuppliers, cfg]);
 
-  const activeScenarios = simResult?.scenarios ?? scenarios;
-  const activeGrids = simResult?.grids ?? grids;
-  // Reset to baseline if the current scenario key isn't in the active set.
+  const activeScenarios = scenarios;
+  const activeGrids = grids;
+  // Reset to baseline if the current scenario key isn't in the set.
   useEffect(() => {
     if (!activeGrids[scenario]) setScenario('baseline');
   }, [activeGrids, scenario]);
@@ -290,7 +286,7 @@ export function WeekGridView({
         </span>
       </div>
 
-      {/* Ephemeral N-modal simulation (não salva) */}
+      {/* Config por modal â compartilhada com o Novo Pedido via cookie de sessÃ£o */}
       {simSuppliers.length > 0 && (
         <div className="mb-3 rounded-xl bg-card ring-1 ring-foreground/10">
           <button
@@ -298,8 +294,8 @@ export function WeekGridView({
             className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium hover:bg-muted/30"
           >
             <FlaskConical size={14} className="text-muted-foreground" />
-            Simulação (não salva)
-            {simResult && (
+            Config por modal (simulaÃ§Ã£o)
+            {hasCfg && (
               <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-600">ativa</span>
             )}
             <span className="ml-auto text-xs text-muted-foreground">{simOpen ? 'ocultar' : 'configurar'}</span>
@@ -307,110 +303,90 @@ export function WeekGridView({
           {simOpen && (
             <div className="space-y-3 border-t border-border/60 px-4 py-3">
               <p className="text-[11px] text-muted-foreground">
-                Recalcula só o &ldquo;com sugestão&rdquo; desta página com leads e pisos hipotéticos por modal
-                (inclui o Courier). Não afeta Novo Pedido nem Pedidos, e nada é salvo.
+                Por fornecedor Ã modal: lead (sÃ³ simulaÃ§Ã£o â nÃ£o muda a ETA real), piso (DOH mÃ­n) e cadÃªncia
+                (sÃ³ o mais lento). Compartilhado com o Novo Pedido; os cenÃ¡rios abaixo jÃ¡ refletem isso. Clique em Aplicar apÃ³s editar.
               </p>
               <div className="space-y-2">
                 {simSuppliers.map((s) => (
-                  <div key={s.supplierId} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-                    <span className="w-32 shrink-0 font-medium">{s.name}</span>
-                    {s.modais.length === 0 && (
-                      <span className="text-muted-foreground">sem modais cadastrados</span>
-                    )}
-                    {s.modais.map((m) => {
-                      const { Icon, className } = modalVisual(m.name);
-                      const val = simLeads[s.supplierId]?.[m.name] ?? '';
-                      return (
-                        <label key={m.id} className="inline-flex items-center gap-1 text-muted-foreground">
-                          <Icon className={cn('size-3', className)} /> {m.name}
-                          <input
-                            type="number"
-                            min={1}
-                            value={val}
-                            onChange={(e) =>
-                              setSimLeads((p) => ({
-                                ...p,
-                                [s.supplierId]: { ...p[s.supplierId], [m.name]: e.target.value },
-                              }))
-                            }
-                            placeholder={String(m.leadDays)}
-                            title={`Lead hipotético (dias) — real: ${m.leadDays}`}
-                            className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                          />
-                        </label>
-                      );
-                    })}
+                  <div key={s.supplierId} className="text-xs">
+                    <span className="font-medium">{s.name}</span>
+                    {s.modais.length === 0 && <span className="ml-2 text-muted-foreground">sem modais cadastrados</span>}
+                    <div className="mt-1 space-y-1">
+                      {s.modais.map((m) => {
+                        const { Icon, className } = modalVisual(m.name);
+                        const e = cfg[s.supplierId]?.[m.name] ?? {};
+                        const isSlow = slowestBySupplier[s.supplierId] === m.name;
+                        const numOr = (v: string) => (v.trim() === '' ? null : Number(v));
+                        return (
+                          <div key={m.id} className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                            <span className="inline-flex w-28 items-center gap-1">
+                              <Icon className={cn('size-3', className)} /> {m.name}
+                              <span className="opacity-60">+{m.leadDays}d</span>
+                            </span>
+                            <label className="inline-flex items-center gap-1">
+                              lead sim.
+                              <input
+                                type="number"
+                                min={1}
+                                value={e.lead ?? ''}
+                                onChange={(ev) => patchEntry(s.supplierId, m.name, { lead: numOr(ev.target.value) })}
+                                placeholder={String(m.leadDays)}
+                                className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                              />
+                            </label>
+                            <label className="inline-flex items-center gap-1">
+                              piso
+                              <input
+                                type="number"
+                                min={1}
+                                value={e.piso ?? ''}
+                                onChange={(ev) => patchEntry(s.supplierId, m.name, { piso: numOr(ev.target.value) })}
+                                placeholder={String(grid.criteria.dohThreshold)}
+                                className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                              />
+                            </label>
+                            {isSlow ? (
+                              <label className="inline-flex items-center gap-1">
+                                cadÃªncia
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={e.cad ?? ''}
+                                  onChange={(ev) => patchEntry(s.supplierId, m.name, { cad: numOr(ev.target.value) })}
+                                  placeholder="30"
+                                  className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                                />
+                              </label>
+                            ) : (
+                              <span className="text-[10px] italic opacity-70">uma vez sÃ³</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>
-              {allModalNames.length > 0 && (
-                <div className="space-y-1">
-                  <span className="text-xs font-medium">Cobertura por modal — piso (DOH mín) + cadência (dias):</span>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-                    {allModalNames.map((name) => {
-                      const { Icon, className } = modalVisual(name);
-                      const v = simPlans[name] ?? { piso: '', cadencia: '' };
-                      const setV = (patch: Partial<typeof v>) =>
-                        setSimPlans((p) => ({ ...p, [name]: { ...v, ...patch } }));
-                      return (
-                        <span key={name} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <Icon className={cn('size-3', className)} /> {name}
-                          <input
-                            type="number"
-                            min={1}
-                            value={v.piso}
-                            onChange={(e) => setV({ piso: e.target.value })}
-                            placeholder="piso"
-                            title="Piso de cobertura (DOH mín)"
-                            className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                          />
-                          <input
-                            type="number"
-                            min={1}
-                            value={v.cadencia}
-                            onChange={(e) => setV({ cadencia: e.target.value })}
-                            placeholder="cad."
-                            title="Cadência de reposição (dias) — quanto de cobertura extra cada pedido repõe"
-                            className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                          />
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {simError && <p className="text-[11px] text-alert-error">{simError}</p>}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={runSim}
-                  disabled={simPending}
+                  onClick={applyCfg}
+                  disabled={applyPending}
                   className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-400 disabled:opacity-50"
                 >
-                  {simPending ? 'Simulando…' : 'Simular'}
+                  {applyPending ? 'Aplicandoâ¦' : 'Aplicar'}
                 </button>
-                {simResult && (
+                {hasCfg && (
                   <button
-                    onClick={clearSim}
+                    onClick={clearCfg}
+                    disabled={applyPending}
                     className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
                   >
-                    Limpar simulação
+                    Limpar config
                   </button>
                 )}
-                <span className="text-[11px] text-muted-foreground">
-                  cada cenário &ldquo;X qdo necessário&rdquo; injeta no lead daquele modal; o combinado escolhe o mais lento que chega a tempo.
-                </span>
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {simResult && (
-        <div className="mb-3 rounded-md bg-brand-500/10 px-3 py-2 text-xs text-brand-600">
-          Simulação ativa — a grade abaixo usa leads/pisos hipotéticos (não salvos).{' '}
-          <button onClick={clearSim} className="font-medium underline">
-            Voltar ao real
-          </button>
         </div>
       )}
 

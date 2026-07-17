@@ -1,8 +1,10 @@
+import { cookies } from 'next/headers';
 import { safeComputeSnapshot } from '@/lib/planning/load';
-import { buildAllScenarioGrids } from '@/lib/planning/weekgrid';
+import { buildAllScenarioGrids, type PlanByModal } from '@/lib/planning/weekgrid';
 import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
 import { fetchSuppliers, fetchSkuSuppliers, fetchSupplierModals } from '@/lib/planning/source/suppliers';
 import { modalsForSupplier, preferredSupplierBySku, type ModalOption } from '@/lib/planning/supplierGroups';
+import { MODAL_CFG_COOKIE, parseModalCfg } from '@/lib/planning/modalConfig';
 import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { ScopeNotice } from '@/components/planning/ScopeNotice';
 import { WeekGridView } from '@/components/planning/WeekGridView';
@@ -19,13 +21,17 @@ export default async function SemanasPage({
   const sp = await searchParams;
   const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 16;
 
-  const [snap, criteria, suppliers, skuSuppliers, supplierModals] = await Promise.all([
+  const [snap, criteria, suppliers, skuSuppliers, supplierModals, cookieStore] = await Promise.all([
     safeComputeSnapshot(),
     fetchPurchaseCriteria(),
     fetchSuppliers(),
     fetchSkuSuppliers(),
     fetchSupplierModals(),
+    cookies(),
   ]);
+  // Shared per-modal config (same session cookie Novo Pedido writes) — drives the scenarios
+  // so "Courier/Aéreo/Marítimo qdo necessário" here match the Novo Pedido suggestion.
+  const cfg = parseModalCfg(cookieStore.get(MODAL_CFG_COOKIE)?.value);
 
   if (snap.stocks.length === 0) {
     return (
@@ -38,20 +44,37 @@ export default async function SemanasPage({
   }
 
   // Per-SKU transport modais (from the preferred supplier) — drives the N-modal scenarios.
+  // Lead is overridden by the shared config (sim lead) so the scenario timing matches Novo Pedido.
   const supplierById = new Map(suppliers.map((s) => [s.supplierId, s]));
   const prefMap = preferredSupplierBySku(skuSuppliers);
   const modalsBySku = new Map<string, ModalOption[]>();
   for (const [sku, sid] of prefMap) {
     const sup = supplierById.get(sid);
-    if (sup) modalsBySku.set(sku, modalsForSupplier(sup, supplierModals));
+    if (!sup) continue;
+    const modais = modalsForSupplier(sup, supplierModals).map((mo) => {
+      const lead = cfg[sid]?.[mo.name]?.lead;
+      return lead && lead > 0 ? { ...mo, leadDays: lead } : mo;
+    });
+    modalsBySku.set(sku, modais);
+  }
+  // Per-modal piso/cadência (by modal name, merged across suppliers) — the layered floors.
+  const planByModal: PlanByModal = {};
+  for (const byModal of Object.values(cfg)) {
+    for (const [name, e] of Object.entries(byModal)) {
+      const cur = planByModal[name] ?? {};
+      if (e.piso && e.piso > 0) cur.minDoh = e.piso;
+      if (e.cad && e.cad > 0) cur.cadenceDays = e.cad;
+      planByModal[name] = cur;
+    }
   }
 
-  // All scenarios computed once; the client toggles between them with no round-trip.
+  // All scenarios computed once (already reflecting the shared config); client toggles instantly.
   const { scenarios, grids } = buildAllScenarioGrids({
     inputs: { ...snap, modalsBySku },
     purchases: snap.purchases,
     weeks,
     criteria,
+    planByModal,
   });
 
   // Preferred supplier per SKU + names — powers "exportar sugestão → Novo Pedido".

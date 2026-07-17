@@ -102,12 +102,14 @@ export function ProcurementView({
   );
   // Per-(sku × modalId) manual qty override; absent → the suggested qty is used.
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, Record<string, number>>>({});
-  // Sustaining cadence (periodicidade) for the slowest lane: null = one-time.
-  const [frequencyDays, setFrequencyDays] = useState<number | null>(30);
+  // Per-modal piso (DOH mín) + cadência (periodicidade, dias) — the layered floors
+  // (ex.: Courier 15 / Aéreo 30 / Marítimo 75 = a meta). Blank → global criteria piso + 30d.
+  const [modalParams, setModalParams] = useState<Record<string, { piso: string; cadencia: string }>>({});
   useEffect(() => {
     const opts = modalsForSupplier(supplierById.get(supplierId) ?? null, supplierModals);
     setEnabledModals(new Set(opts.map((m) => m.id)));
     setQtyOverrides({});
+    setModalParams({});
   }, [supplierId, supplierById, supplierModals]);
 
   const enabledModalOptions = useMemo(
@@ -117,17 +119,23 @@ export function ProcurementView({
   // Slowest enabled lane (modalOptions is DESC by lead) — the bulk lane, used for buy-by.
   const slowestLead = enabledModalOptions[0]?.leadDays ?? selectedSupplier?.leadTimeSeaDays ?? null;
 
-  // The plans the qty engine runs: every enabled lane targets the global min DOH; the
-  // cadence only bites on the slowest lane (suggestQuantities applies it there).
+  // The plans the qty engine runs: each lane holds ITS piso (DOH mín) + cadência. The
+  // faster lanes bridge the near-term gap holding their (lower) floors; the slowest sustains
+  // order-up-to (piso + cadência) — the layered-floor cascade the user asked for.
   const plans = useMemo<ModalPlan[]>(
     () =>
-      enabledModalOptions.map((m) => ({
-        modal: m,
-        minDoh: criteria.dohThreshold,
-        cadenceDays: frequencyDays,
-        enabled: true,
-      })),
-    [enabledModalOptions, criteria.dohThreshold, frequencyDays],
+      enabledModalOptions.map((m) => {
+        const p = modalParams[m.id];
+        const piso = p?.piso.trim() ? Number(p.piso) : NaN;
+        const cad = p?.cadencia.trim() ? Number(p.cadencia) : NaN;
+        return {
+          modal: m,
+          minDoh: Number.isFinite(piso) && piso > 0 ? piso : criteria.dohThreshold,
+          cadenceDays: Number.isFinite(cad) && cad > 0 ? cad : 30,
+          enabled: true,
+        };
+      }),
+    [enabledModalOptions, criteria.dohThreshold, modalParams],
   );
 
   const toggleModal = (id: string) =>
@@ -182,7 +190,7 @@ export function ProcurementView({
     router.push(pathname);
   };
   const [error, setError] = useState<string | null>(null);
-  const [createdVo, setCreatedVo] = useState<string | null>(null);
+  const [createdVos, setCreatedVos] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
 
   // When a supplier is chosen, the builder shows ONLY that supplier's linked SKUs.
@@ -303,33 +311,26 @@ export function ProcurementView({
     });
   const clearSelection = () => setIncluded(new Set());
 
-  // Frozen elaboration basis (item 8) — records the criteria + rules + the modal plan.
+  // Frozen elaboration basis (item 8) — records the criteria + rules + the per-modal plan
+  // (piso + cadência each), so previsão×realizado can reconstruct the layered floors later.
   const auditObj = {
     forecastAsOf,
     criteria: rules?.seaFloorDoh ? { ...criteria, dohThreshold: rules.seaFloorDoh } : criteria,
     rules: rules ?? undefined,
-    modalPlan: enabledModalOptions.map((m) => ({ id: m.id, name: m.name, leadDays: m.leadDays })),
-    frequencyDays,
+    modalPlan: plans.map((p) => ({
+      id: p.modal.id,
+      name: p.modal.name,
+      leadDays: p.modal.leadDays,
+      minDoh: p.minDoh,
+      cadenceDays: p.cadenceDays,
+    })),
   };
 
-  // One line per (SKU × enabled modal) with a positive qty — the engine treats each as
-  // its own synthetic receipt, so a courier + aéreo + marítimo split lands as three lines.
-  const linesFor = (r: ElaborationRow): NewPedidoLine[] =>
-    enabledModalOptions
-      .map((m) => ({
-        skuBase: r.suggestion.skuBase,
-        skuName: r.suggestion.skuName,
-        qty: qtyFor(r.suggestion.skuBase, m.id),
-        leadDays: m.leadDays,
-        modal: m.name,
-        suggestedQty: suggestedFor(r.suggestion.skuBase, m.id),
-        suggestedModal: m.name,
-      }))
-      .filter((l) => l.qty > 0);
-
+  // "Criar pedido" → ONE pedido (VO) PER MODAL: group the selected SKU lines by modal and
+  // create a separate pedido for each (courier / aéreo / marítimo), each with its lines.
   const criarPedido = () => {
     setError(null);
-    setCreatedVo(null);
+    setCreatedVos([]);
     if (!selectedSupplier) {
       setError('Selecione um fornecedor para o pedido.');
       return;
@@ -338,27 +339,56 @@ export function ProcurementView({
       setError('Selecione ao menos um modal para o pedido.');
       return;
     }
-    const lines = selectedRows.flatMap((r) => linesFor(r));
-    if (lines.length === 0) {
+    const byModal = new Map<string, NewPedidoLine[]>();
+    for (const r of selectedRows) {
+      for (const m of enabledModalOptions) {
+        const qty = qtyFor(r.suggestion.skuBase, m.id);
+        if (qty <= 0) continue;
+        const arr = byModal.get(m.name) ?? [];
+        arr.push({
+          skuBase: r.suggestion.skuBase,
+          skuName: r.suggestion.skuName,
+          qty,
+          leadDays: m.leadDays,
+          modal: m.name,
+          suggestedQty: suggestedFor(r.suggestion.skuBase, m.id),
+          suggestedModal: m.name,
+        });
+        byModal.set(m.name, arr);
+      }
+    }
+    // Keep the modais' slow→fast order for deterministic pedido creation.
+    const groups = enabledModalOptions
+      .map((m) => ({ modal: m.name, lines: byModal.get(m.name) ?? [] }))
+      .filter((g) => g.lines.length > 0);
+    if (groups.length === 0) {
       setError('Nenhuma linha com quantidade maior que zero.');
       return;
     }
+    const sup = selectedSupplier;
     startTransition(async () => {
-      const res = await createPedido({
-        orderDate,
-        pedidoName: pedidoName || null,
-        orderType,
-        supplierId: selectedSupplier.supplierId,
-        supplierName: selectedSupplier.name,
-        lines,
-        audit: auditObj,
-      });
-      if (res.ok) {
-        setCreatedVo(res.vo ?? null);
-        router.refresh();
-      } else {
-        setError(res.error ?? 'Erro ao criar pedido.');
+      const created: string[] = [];
+      for (const g of groups) {
+        const res = await createPedido({
+          modal: g.modal,
+          orderDate,
+          pedidoName: pedidoName ? `${pedidoName} · ${g.modal}` : g.modal,
+          orderType,
+          supplierId: sup.supplierId,
+          supplierName: sup.name,
+          lines: g.lines,
+          audit: auditObj,
+        });
+        if (!res.ok) {
+          setError(`Erro no modal ${g.modal}: ${res.error ?? 'falha'} (${created.length} pedido(s) criado(s) antes).`);
+          setCreatedVos(created);
+          router.refresh();
+          return;
+        }
+        if (res.vo) created.push(res.vo);
       }
+      setCreatedVos(created);
+      router.refresh();
     });
   };
 
@@ -456,41 +486,63 @@ export function ProcurementView({
         </div>
       </div>
 
-      {/* Modais deste pedido (N-modal) — the chosen supplier's transport lanes */}
+      {/* Modais deste pedido (N-modal) — cada modal com seu piso (DOH mín) + cadência */}
       {modalOptions.length > 0 ? (
         <div className="mb-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Modais deste pedido</span>
-            {modalOptions.map((m) => (
-              <label key={m.id} className="inline-flex cursor-pointer items-center gap-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={enabledModals.has(m.id)}
-                  onChange={() => toggleModal(m.id)}
-                  className="size-3.5 cursor-pointer accent-brand-500"
-                />
-                <ModalIcon m={m} />
-                {m.name}
-                <span className="text-xs text-muted-foreground">+{m.leadDays}d</span>
-              </label>
-            ))}
-            <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              Frequência (reposição)
-              <select
-                value={frequencyDays ?? 0}
-                onChange={(e) => setFrequencyDays(Number(e.target.value) || null)}
-                className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand-500"
-              >
-                <option value={0}>Único</option>
-                <option value={30}>30 dias</option>
-                <option value={60}>60 dias</option>
-                <option value={90}>90 dias</option>
-              </select>
-            </label>
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Modais deste pedido</span>
+          <div className="mt-2 space-y-1.5">
+            {modalOptions.map((m) => {
+              const on = enabledModals.has(m.id);
+              const p = modalParams[m.id] ?? { piso: '', cadencia: '' };
+              const setP = (patch: Partial<typeof p>) =>
+                setModalParams((prev) => ({ ...prev, [m.id]: { ...p, ...patch } }));
+              return (
+                <div key={m.id} className={cn('flex flex-wrap items-center gap-2 text-sm', !on && 'opacity-50')}>
+                  <label className="inline-flex w-40 cursor-pointer items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggleModal(m.id)}
+                      className="size-3.5 cursor-pointer accent-brand-500"
+                    />
+                    <ModalIcon m={m} />
+                    {m.name}
+                    <span className="text-xs text-muted-foreground">+{m.leadDays}d</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    Piso (DOH)
+                    <input
+                      type="number"
+                      min={1}
+                      value={p.piso}
+                      disabled={!on}
+                      onChange={(e) => setP({ piso: e.target.value })}
+                      placeholder={String(criteria.dohThreshold)}
+                      title="Piso de cobertura (DOH mín) que este modal segura"
+                      className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    Cadência (dias)
+                    <input
+                      type="number"
+                      min={1}
+                      value={p.cadencia}
+                      disabled={!on}
+                      onChange={(e) => setP({ cadencia: e.target.value })}
+                      placeholder="30"
+                      title="Periodicidade de reposição — quanto de cobertura extra o pedido repõe"
+                      className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                    />
+                  </label>
+                </div>
+              );
+            })}
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            O modal mais lento repõe até o piso ({criteria.dohThreshold} DOH) + a frequência; os mais rápidos cobrem os vãos
-            até a próxima chegada. Quantidades calculadas com o lead real do fornecedor.
+            Pisos em camadas (ex.: Courier 15 · Aéreo 30 · Marítimo 75 = a meta): o modal mais lento faz o volume até
+            piso + cadência; os mais rápidos só cobrem o vão que ele não alcança a tempo, segurando os pisos menores.
+            Cada modal vira <b>um pedido separado</b>. Quantidades com o lead real do fornecedor.
           </p>
         </div>
       ) : selectedSupplier ? (
@@ -611,12 +663,17 @@ export function ProcurementView({
       </div>
 
       {error && <p className="mb-3 rounded-md bg-alert-error/10 px-3 py-2 text-sm text-alert-error">{error}</p>}
-      {createdVo && (
+      {createdVos.length > 0 && (
         <p className="mb-3 rounded-md bg-alert-success/10 px-3 py-2 text-sm text-alert-success">
-          Pedido criado.{' '}
-          <Link href={`/dashboard/pedidos/${encodeURIComponent(createdVo)}`} className="font-medium hover:underline">
-            Ver {createdVo} →
-          </Link>
+          {createdVos.length === 1 ? 'Pedido criado.' : `${createdVos.length} pedidos criados (um por modal).`}{' '}
+          {createdVos.map((vo, i) => (
+            <span key={vo}>
+              {i > 0 && ' · '}
+              <Link href={`/dashboard/pedidos/${encodeURIComponent(vo)}`} className="font-medium hover:underline">
+                Ver {vo} →
+              </Link>
+            </span>
+          ))}
         </p>
       )}
 

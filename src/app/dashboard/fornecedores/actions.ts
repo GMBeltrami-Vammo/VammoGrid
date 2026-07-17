@@ -71,13 +71,15 @@ export async function updateSupplier(
       entityId: supplierId,
       current,
       next: {
+        // Lead times legados (sea/air) NÃO vêm mais do form (são por modal agora); o spread
+        // de `current` os preserva quando `input` não os envia, e sobrescreve só se enviados.
         ...current,
         name: input.name.trim(),
         kind: input.kind,
         contact: input.contact?.trim() || null,
         notes: input.notes?.trim() || null,
-        lead_time_sea_days: leadDays(input.leadTimeSeaDays),
-        lead_time_air_days: leadDays(input.leadTimeAirDays),
+        ...(input.leadTimeSeaDays !== undefined ? { lead_time_sea_days: leadDays(input.leadTimeSeaDays) } : {}),
+        ...(input.leadTimeAirDays !== undefined ? { lead_time_air_days: leadDays(input.leadTimeAirDays) } : {}),
         active: input.active ?? true,
         updated_by: email,
       },

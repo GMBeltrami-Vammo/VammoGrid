@@ -342,6 +342,27 @@ describe('N-modal scenarios — behavioral', () => {
     expect(firstSug('baseline', 'SKU-N')).toBeNull();
     expect(firstSug('baseline', 'SKU-M')).toBeNull();
   });
+
+  it('order size follows (piso + cadência) — grows with the cadence', () => {
+    const firstMaritimoSug = (plan: Record<string, { minDoh?: number; cadenceDays?: number }>): number => {
+      const { grids: g } = buildAllScenarioGrids({
+        inputs: nInputs,
+        purchases: nPurchases,
+        weeks: 20,
+        criteria: DOH,
+        planByModal: plan,
+      });
+      const row = g['Marítimo'].global.find((r) => r.skuBase === 'SKU-N');
+      for (const c of row?.cells ?? []) {
+        const a = c.arrivals.find((x) => x.modal === 'Marítimo' && x.sug > 0);
+        if (a) return a.sug;
+      }
+      return 0;
+    };
+    expect(firstMaritimoSug({ Marítimo: { cadenceDays: 90 } })).toBeGreaterThan(
+      firstMaritimoSug({ Marítimo: { cadenceDays: 10 } }),
+    );
+  });
 });
 
 // ── forwardAvgDemand property test (guards the upcoming O(1) fast path) ───────

@@ -220,6 +220,11 @@ function sampleCells(
 }
 
 const MAX_INJECTIONS = 6; // cap the when-needed reorder loop per SKU
+const DEFAULT_CADENCE_DAYS = 30; // days of cover beyond the piso an order tops up to
+
+/** Per-modal coverage override (ephemeral, from the Projeção Global simulation): the piso
+ *  (DOH floor) and the reorder cadence (days) for that modal name. Absent → global default. */
+export type PlanByModal = Record<string, { minDoh?: number; cadenceDays?: number }>;
 
 /** First day (offset 1..horizon) the projection breaches the active criteria; -1 if
  *  never. 'doh' → forward-7-day-avg DOH below `floor`; 'rop' → stock below the reorder
@@ -289,12 +294,16 @@ function scenariosFor(contexts: SkuWeekContext[]): ScenarioMeta[] {
 }
 
 /**
- * "Buy when needed" injection, generalized to N modais: repeatedly find the next day the
- * projection drops below the floor and inject an order that lands right when needed. The
- * per-breach lane comes from `pickLane`:
- *   • modal scenario → always that modal (skip the SKU if it doesn't offer it);
- *   • combined → the SLOWEST modal that still arrives ≤ breach, else the FASTEST (late).
- * Returns the injected orders + the per-modal, per-week suggested arrivals for the cells.
+ * "Buy when needed" cascade, generalized to N modais. Repeatedly finds the next day the
+ * projection drops below the coverage floor and injects an order-up-to `(piso + cadência)`
+ * of the chosen lane, landing right when needed. The per-breach lane is picked by preference:
+ *   • modal scenario → always that modal (skip the SKU if its supplier doesn't offer it);
+ *   • combined → the SLOWEST lane that still arrives ≤ breach (cheapest bulk), else the
+ *     FASTEST (emergency). That IS the cascade: the slow/cheap modal carries the far horizon,
+ *     faster modais only cover the near-term breaches it can't reach in time.
+ * Per-modal piso/cadência come from `planByModal` (the sim) or fall back to the global floor +
+ * DEFAULT_CADENCE_DAYS. Order size = order-up-to (piso + cadência) — the "frequency = cobertura"
+ * rule. Returns the injected orders + the per-modal, per-week suggested arrivals for the cells.
  */
 function whenNeededInjection(args: {
   scenario: ScenarioMeta;
@@ -308,25 +317,32 @@ function whenNeededInjection(args: {
   today: string;
   weeks: WeekMeta[];
   criteria: PurchaseCriteria;
-  floor: number;
+  planByModal: PlanByModal;
+  defaultMinDoh: number;
   rop: number;
   horizonDays: number;
   projectionHorizon: number;
 }): { injected: OpenPurchaseOrder[]; sugByModal: ModalWeek } {
   const { scenario, modais, stock, forecast, policy, baseOrders, baselineGlobal, today, weeks } = args;
-  const { criteria, floor, rop, horizonDays, projectionHorizon } = args;
+  const { criteria, planByModal, defaultMinDoh, rop, horizonDays, projectionHorizon } = args;
   const empty = { injected: [] as OpenPurchaseOrder[], sugByModal: new Map() as ModalWeek };
   if (scenario.kind === 'baseline') return empty;
 
-  // fastest→slowest
-  const lanes = [...modais].sort((a, b) => a.leadDays - b.leadDays);
-  if (lanes.length === 0) return empty;
+  const lanes = [...modais].sort((a, b) => a.leadDays - b.leadDays); // fastest→slowest
+  const enabled = scenario.kind === 'combined' ? lanes : lanes.filter((m) => m.name === scenario.key);
+  if (enabled.length === 0) return empty; // this SKU's supplier doesn't offer the scenario's modal
 
-  const pickLane = (bd: number): ModalOption | null => {
-    if (scenario.kind === 'modal') return lanes.find((m) => m.name === scenario.key) ?? null;
-    // combined: slowest lane arriving in time, else the fastest.
-    const inTime = lanes.filter((m) => m.leadDays <= bd);
-    return inTime.length > 0 ? inTime[inTime.length - 1] : lanes[0];
+  const planFor = (name: string) => ({
+    minDoh: planByModal[name]?.minDoh ?? defaultMinDoh,
+    cadence: planByModal[name]?.cadenceDays ?? DEFAULT_CADENCE_DAYS,
+  });
+  // Act when the most demanding enabled piso is breached.
+  const breachFloor = Math.max(...enabled.map((m) => planFor(m.name).minDoh));
+  const pickLane = (bd: number): ModalOption => {
+    if (scenario.kind === 'modal') return enabled[0];
+    // combined: preference = the SLOWEST lane arriving in time (cheapest bulk), else the fastest.
+    const inTime = enabled.filter((m) => m.leadDays <= bd);
+    return inTime.length > 0 ? inTime[inTime.length - 1] : enabled[0];
   };
 
   const injected: OpenPurchaseOrder[] = [];
@@ -338,15 +354,18 @@ function whenNeededInjection(args: {
       iter === 0
         ? baselineGlobal
         : projectGlobal({ stock, forecast, orders, policy, today, horizon: projectionHorizon });
-    const bd = firstBreachDay(proj, criteria, floor, rop, horizonDays);
+    const bd = firstBreachDay(proj, criteria, breachFloor, rop, horizonDays);
     if (bd < 0) break;
     const lane = pickLane(bd);
-    if (!lane) break; // this SKU's supplier doesn't offer the scenario's modal
-    const dailyDemand = proj.dailyDemand > 0 ? proj.dailyDemand : proj.timeline[bd]?.demand ?? 0;
-    if (dailyDemand <= 0) break;
-    const qty = Math.max(1, Math.round(dailyDemand * Math.max(policy.targetDoi, 30)));
     // Land at the breach if the lead allows, else as soon as the lead permits (late).
     const arrivalOffset = lane.leadDays <= bd ? bd : lane.leadDays;
+    if (arrivalOffset > horizonDays) break; // can't arrive within the window → no help here
+    const plan = planFor(lane.name);
+    const rate = forwardAvgDemand(proj.timeline, arrivalOffset, 7);
+    const stockAtArrival = proj.timeline[arrivalOffset]?.stock ?? 0;
+    // Order-up-to (piso + cadência) of cover at the arrival — "frequency = cobertura".
+    const qty = Math.round((plan.minDoh + plan.cadence) * rate - stockAtArrival);
+    if (qty < 1) break; // already at/above the target → nothing useful to add
     const ord: OpenPurchaseOrder = {
       id: `scn-${iter}`,
       vo: null,
@@ -357,8 +376,7 @@ function whenNeededInjection(args: {
       orderDate: addDays(today, Math.max(0, arrivalOffset - lane.leadDays)),
       eta: addDays(today, arrivalOffset),
       leadTimeDays: lane.leadDays,
-      // Kept as a coarse code for any legacy reader; the engine ignores it and the cell
-      // grouping uses the display name below.
+      // Coarse legacy code; the engine ignores it and the cell grouping uses the name below.
       modal: lane.leadDays >= 30 ? 'sea' : 'air',
       status: 'ordered',
       prepStatus: null, // a what-if arrival counts as inbound in the projection
@@ -546,12 +564,15 @@ function buildSharedContext(args: {
   return shared;
 }
 
-function buildGridForScenario(shared: SharedGridContext, scenario: ScenarioMeta, floor: number): WeekGrid {
+function buildGridForScenario(shared: SharedGridContext, scenario: ScenarioMeta, planByModal: PlanByModal): WeekGrid {
   const { weekCount, criteria, today, weeks, projectionHorizon } = shared;
   const global: WeekGridRow[] = [];
   const byHub: Record<HubId, WeekGridRow[]> = { osasco: [], mooca: [], sbc: [] };
-  // Baseline coloring always uses the global criteria floor; scenario floors (sim) recolor.
-  const cellFloor = scenario.kind === 'baseline' ? criteria.dohThreshold : floor;
+  const defaultMinDoh = criteria.dohThreshold;
+  // Cell coloring floor: a modal scenario colors with its own piso (sim can raise it);
+  // baseline + combined color with the global criteria floor.
+  const cellFloor =
+    scenario.kind === 'modal' ? planByModal[scenario.key]?.minDoh ?? defaultMinDoh : defaultMinDoh;
 
   for (const ctx of shared.contexts) {
     let rows = ctx.baselineRows;
@@ -567,7 +588,8 @@ function buildGridForScenario(shared: SharedGridContext, scenario: ScenarioMeta,
         today,
         weeks,
         criteria,
-        floor: cellFloor,
+        planByModal,
+        defaultMinDoh,
         rop: ctx.rop,
         horizonDays: weekCount * 7,
         projectionHorizon,
@@ -616,25 +638,24 @@ export function buildWeekGrid(args: {
   const shared = buildSharedContext(args);
   const key = args.scenario ?? 'baseline';
   const meta = shared.scenarios.find((s) => s.key === key) ?? shared.scenarios[0];
-  return buildGridForScenario(shared, meta, shared.criteria.dohThreshold);
+  return buildGridForScenario(shared, meta, {});
 }
 
 /** All scenarios in one pass (shared inputs) so the client toggles instantly. The
  *  scenario-invariant work is computed ONCE; scenarios only recompute the SKUs that
- *  actually inject orders. `floorByScenario` (sim) overrides the coloring/injection floor
- *  per scenario key (default = the global criteria threshold). */
+ *  actually inject orders. `planByModal` (sim) overrides the piso/cadência per modal name
+ *  (default = the global criteria threshold + DEFAULT_CADENCE_DAYS). */
 export function buildAllScenarioGrids(args: {
   inputs: WeekGridInputs;
   purchases: PurchaseSuggestion[];
   weeks?: number;
   criteria?: PurchaseCriteria;
-  floorByScenario?: Record<string, number>;
+  planByModal?: PlanByModal;
 }): ScenarioGrids {
   const shared = buildSharedContext(args);
   const grids: Record<string, WeekGrid> = {};
   for (const scenario of shared.scenarios) {
-    const floor = args.floorByScenario?.[scenario.key] ?? shared.criteria.dohThreshold;
-    grids[scenario.key] = buildGridForScenario(shared, scenario, floor);
+    grids[scenario.key] = buildGridForScenario(shared, scenario, args.planByModal ?? {});
   }
   return { scenarios: shared.scenarios, grids };
 }

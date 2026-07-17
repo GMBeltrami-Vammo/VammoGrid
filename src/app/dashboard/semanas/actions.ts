@@ -19,8 +19,8 @@ export interface SimInput {
   weeks: number;
   /** supplier_id → { modalName → hypothetical lead (days) }. */
   leadBySupplierModal: Record<string, Record<string, number>>;
-  /** modalName → hypothetical coverage floor (DOH) for that modal's scenario. */
-  floorByModal: Record<string, number>;
+  /** modalName → hypothetical coverage: piso (DOH mín) + cadência (dias). */
+  planByModal: Record<string, { minDoh?: number; cadenceDays?: number }>;
 }
 
 export async function simulateWeekGrids(
@@ -56,7 +56,7 @@ export async function simulateWeekGrids(
       purchases: snap.purchases,
       weeks: input.weeks,
       criteria,
-      floorByScenario: input.floorByModal, // keys are modal names = scenario keys
+      planByModal: input.planByModal, // keys are modal names
     });
     return { ok: true, scenarios, grids };
   } catch (e) {

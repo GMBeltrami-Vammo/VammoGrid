@@ -89,7 +89,8 @@ export function WeekGridView({
   // leads (per supplier × modal) + coverage floors (per modal). Never persisted.
   const [simOpen, setSimOpen] = useState(false);
   const [simLeads, setSimLeads] = useState<Record<string, Record<string, string>>>({});
-  const [simFloors, setSimFloors] = useState<Record<string, string>>({});
+  // Per-modal-name coverage override (global across suppliers): piso (DOH mín) + cadência (dias).
+  const [simPlans, setSimPlans] = useState<Record<string, { piso: string; cadencia: string }>>({});
   const [simResult, setSimResult] = useState<{ scenarios: ScenarioMeta[]; grids: Record<string, WeekGrid> } | null>(null);
   const [simError, setSimError] = useState<string | null>(null);
   const [simPending, startSim] = useTransition();
@@ -111,13 +112,17 @@ export function WeekGridView({
         if (n && n > 0) (leadBySupplierModal[sid] ??= {})[name] = Math.round(n);
       }
     }
-    const floorByModal: Record<string, number> = {};
-    for (const [name, val] of Object.entries(simFloors)) {
-      const n = val.trim() ? Number(val) : null;
-      if (n && n > 0) floorByModal[name] = Math.round(n);
+    const planByModal: Record<string, { minDoh?: number; cadenceDays?: number }> = {};
+    for (const [name, v] of Object.entries(simPlans)) {
+      const piso = v.piso.trim() ? Number(v.piso) : null;
+      const cad = v.cadencia.trim() ? Number(v.cadencia) : null;
+      const entry: { minDoh?: number; cadenceDays?: number } = {};
+      if (piso && piso > 0) entry.minDoh = Math.round(piso);
+      if (cad && cad > 0) entry.cadenceDays = Math.round(cad);
+      if (entry.minDoh != null || entry.cadenceDays != null) planByModal[name] = entry;
     }
     startSim(async () => {
-      const res = await simulateWeekGrids({ weeks, leadBySupplierModal, floorByModal });
+      const res = await simulateWeekGrids({ weeks, leadBySupplierModal, planByModal });
       if (res.ok && res.grids && res.scenarios) setSimResult({ scenarios: res.scenarios, grids: res.grids });
       else setSimError(res.error ?? 'Erro na simulação.');
     });
@@ -368,21 +373,39 @@ export function WeekGridView({
                 ))}
               </div>
               {allModalNames.length > 0 && (
-                <div className="flex flex-wrap items-center gap-3 text-xs">
-                  <span className="font-medium">Piso de cobertura (DOH) por modal:</span>
-                  {allModalNames.map((name) => (
-                    <label key={name} className="inline-flex items-center gap-1 text-muted-foreground">
-                      {name}
-                      <input
-                        type="number"
-                        min={1}
-                        value={simFloors[name] ?? ''}
-                        onChange={(e) => setSimFloors((p) => ({ ...p, [name]: e.target.value }))}
-                        placeholder="global"
-                        className="h-7 w-16 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                      />
-                    </label>
-                  ))}
+                <div className="space-y-1">
+                  <span className="text-xs font-medium">Cobertura por modal — piso (DOH mín) + cadência (dias):</span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                    {allModalNames.map((name) => {
+                      const { Icon, className } = modalVisual(name);
+                      const v = simPlans[name] ?? { piso: '', cadencia: '' };
+                      const setV = (patch: Partial<typeof v>) =>
+                        setSimPlans((p) => ({ ...p, [name]: { ...v, ...patch } }));
+                      return (
+                        <span key={name} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <Icon className={cn('size-3', className)} /> {name}
+                          <input
+                            type="number"
+                            min={1}
+                            value={v.piso}
+                            onChange={(e) => setV({ piso: e.target.value })}
+                            placeholder="piso"
+                            title="Piso de cobertura (DOH mín)"
+                            className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                          />
+                          <input
+                            type="number"
+                            min={1}
+                            value={v.cadencia}
+                            onChange={(e) => setV({ cadencia: e.target.value })}
+                            placeholder="cad."
+                            title="Cadência de reposição (dias) — quanto de cobertura extra cada pedido repõe"
+                            className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
+                          />
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
               {simError && <p className="text-[11px] text-alert-error">{simError}</p>}

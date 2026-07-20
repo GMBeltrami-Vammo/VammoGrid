@@ -279,41 +279,7 @@ export interface ModalQty {
   arrivalOffset: number;
 }
 
-export function suggestQuantities(args: { projection: StockProjection; plans: ModalPlan[] }): ModalQty[] {
-  const tl = args.projection.timeline;
-  const horizon = tl.length - 1;
-  const clamp = (d: number) => Math.max(0, Math.min(d, horizon));
-  const rateAt = (d: number) => forwardAvgDemand(tl, clamp(d), 7);
-  const stockAt = (d: number) => tl[clamp(d)]?.stock ?? 0;
-
-  const lanes = args.plans
-    .filter((p) => p.enabled && p.modal.leadDays >= 0)
-    .map((p) => ({ ...p, arrival: Math.max(0, Math.round(p.modal.leadDays)) }))
-    .sort((a, b) => a.arrival - b.arrival);
-  if (lanes.length === 0) return [];
-
-  return lanes.map((p, i) => {
-    const isSlowest = i === lanes.length - 1;
-    let qty: number;
-    if (!isSlowest) {
-      // Bridge [arrival_i, arrival_{i+1}]: deepest shortfall below this lane's floor.
-      const end = Math.min(lanes[i + 1].arrival, horizon);
-      let need = 0;
-      for (let d = p.arrival; d <= end; d++) {
-        const shortfall = p.minDoh * rateAt(d) - stockAt(d);
-        if (shortfall > need) need = shortfall;
-      }
-      qty = need;
-    } else {
-      // Sustaining lane: order-up-to (minDoh + cadence) of cover at its arrival.
-      const cadence = p.cadenceDays ?? 0;
-      qty = (p.minDoh + cadence) * rateAt(p.arrival) - stockAt(p.arrival);
-    }
-    return {
-      modalId: p.modal.id,
-      modalName: p.modal.name,
-      qty: Math.max(0, Math.round(qty)),
-      arrivalOffset: p.arrival,
-    };
-  });
-}
+// The N-modal quantity engine itself lives in `miniStrip.ts` as `suggestCascadeQuantities`
+// (seed-based): it RE-PROJECTS the floored walk after each lane, which a static-projection
+// version can't do — see the note there. `ModalPlan`/`ModalQty` are defined here (the engine's
+// vocabulary) and imported by the cascade.

@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Download, Package, Plane, Ship, Truck, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Package, Plane, Ship, Truck, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
 import type { OrderType, SupplierModal } from '@/types';
-import { suggestQuantities, type ModalPlan, type OrderRules } from '@/lib/planning/elaboration';
+import type { ModalPlan, OrderRules } from '@/lib/planning/elaboration';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import { createPedido, type NewPedidoLine } from '@/app/dashboard/pedidos/actions';
 import { modalsForSupplier, type ModalOption } from '@/lib/planning/supplierGroups';
@@ -17,7 +17,7 @@ import {
   writeModalCfgClient,
   type ModalCfg,
 } from '@/lib/planning/modalConfig';
-import { projectFromSeed, sampleMiniStrip, type MiniCell } from '@/lib/planning/miniStrip';
+import { projectFromSeed, sampleMiniStrip, suggestCascadeQuantities, type MiniCell } from '@/lib/planning/miniStrip';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -234,26 +234,18 @@ export function ProcurementView({
     [supplierId, skusBySupplier],
   );
 
-  // Baseline (registered-orders-only) projection per SKU, re-projected client-side from
-  // the seed — the base the N-modal qty engine (suggestQuantities) plans on top of.
-  const baselineBySku = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof projectFromSeed>>();
-    for (const r of rows) m.set(r.suggestion.skuBase, projectFromSeed(r.miniSeed, [], today));
-    return m;
-  }, [rows, today]);
-
-  // Suggested qty per (sku → modalId) from the N-modal engine, against each SKU's baseline.
+  // Suggested qty per (sku → modalId) from the N-modal CASCADE engine. It re-projects each
+  // SKU's seed after every lane (faster lanes bridge holding their piso to the next arrival;
+  // the slowest sustains order-up-to piso+cadência) so the floored/lost-sales walk is honoured.
   const suggestedByModal = useMemo(() => {
     const out = new Map<string, Map<string, number>>();
     if (plans.length === 0) return out;
     for (const r of rows) {
-      const proj = baselineBySku.get(r.suggestion.skuBase);
-      if (!proj) continue;
-      const qs = suggestQuantities({ projection: proj, plans });
+      const qs = suggestCascadeQuantities({ seed: r.miniSeed, plans, today });
       out.set(r.suggestion.skuBase, new Map(qs.map((q) => [q.modalId, q.qty])));
     }
     return out;
-  }, [rows, baselineBySku, plans]);
+  }, [rows, plans, today]);
 
   const suggestedFor = (sku: string, modalId: string) => suggestedByModal.get(sku)?.get(modalId) ?? 0;
   const qtyFor = (sku: string, modalId: string) => {
@@ -285,8 +277,10 @@ export function ProcurementView({
     return sampleMiniStrip(proj, STRIP_OFFSETS, criteria.dohThreshold);
   };
 
-  // Which strip cell (week) a day-offset lands in (0 = today/overdue; else ceil(days/7)).
-  const weekOf = (offset: number) => (offset <= 0 ? 0 : Math.min(STRIP_WEEKS - 1, Math.ceil(offset / 7)));
+  // Which strip cell (week) a day-offset lands in. Week columns are anchored at TODAY (col 0),
+  // 7-day steps — NOT a calendar/Sunday week. We round to the NEAREST week so an arrival lands in
+  // the week it actually falls in (a 45-day lead → week 6, ≈6.4 weeks — not ceil'd up to 7/8).
+  const weekOf = (offset: number) => (offset <= 0 ? 0 : Math.min(STRIP_WEEKS - 1, Math.round(offset / 7)));
 
   // Per-week arrival markers for the mini-heatmap: REGISTERED orders (from r.openPos) above the
   // bars, and the SIMULATED order being built below — each with the DOH it ADDS (qty ÷ consumo/dia).
@@ -820,13 +814,14 @@ export function ProcurementView({
               <th className="px-3 py-2.5 text-right font-medium">
                 <span className="inline-flex items-center justify-end gap-1">Quantidades por modal <InfoHint id="order-qty" /></span>
               </th>
+              <th className="px-3 py-2.5 font-medium">Pedidos</th>
               <th className="px-3 py-2.5 font-medium">Cobertura c/ pedido</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={9} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   {supplierId
                     ? 'Nenhum SKU deste fornecedor precisa de pedido no horizonte.'
                     : 'Selecione um fornecedor para ver os SKUs e as quantidades por modal.'}
@@ -922,6 +917,23 @@ export function ProcurementView({
                       )}
                     </td>
                     <td className="px-3 py-2 align-top">
+                      <OrdersCell
+                        reg={r.openPos.map((p) => ({
+                          vo: p.vo,
+                          modal: p.modal,
+                          qty: p.qty,
+                          eta: offsetToDate(p.dayOffset),
+                        }))}
+                        neu={enabledModalOptions
+                          .filter((m) => qtyFor(s.skuBase, m.id) > 0)
+                          .map((m) => ({
+                            modal: m.name,
+                            qty: qtyFor(s.skuBase, m.id),
+                            eta: signedAddDays(orderDate, m.leadDays),
+                          }))}
+                      />
+                    </td>
+                    <td className="px-3 py-2 align-top">
                       <CoverageStrip cells={stripFor(r)} {...stripArrivals(r)} />
                     </td>
                   </tr>
@@ -933,8 +945,9 @@ export function ProcurementView({
       </div>
 
       <p className="mt-2 text-[10px] text-muted-foreground">
-        Cobertura c/ pedido: o número em cada quadradinho é o DOH da semana. <span className="font-bold text-[color:var(--color-alert-info)]">▼N</span> = chegada de pedido JÁ REGISTRADO (N = DOH que ele adiciona);
-        <span className="font-bold text-brand-600">▲N</span> = chegada do pedido SIMULADO (em construção). Hover mostra pedido/modal + quantidade.
+        Cobertura c/ pedido: o número em cada quadradinho é o DOH da semana.{' '}
+        <span className="font-bold text-orange-500 dark:text-orange-400">▼ +N</span> = pedido JÁ REGISTRADO chegando (laranja, N = DOH que ele adiciona);{' '}
+        <span className="font-bold text-sky-500 dark:text-sky-400">▲ +N</span> = novo pedido em construção (azul). Mesma cor na coluna Pedidos; passe o mouse para pedido/modal + quantidade.
       </p>
     </div>
   );
@@ -948,13 +961,14 @@ function signedAddDays(iso: string | null, days: number): string | null {
   return d.toISOString().slice(0, 10);
 }
 
-// Mini-strip cell color — same precedence as the big heatmap (out > low > ok), solid so a
-// 6px cell reads at a glance.
+// Mini-strip cell color + readable text — same precedence as the big heatmap (out > low > ok).
+// The DOH sits INSIDE the tile, so each state needs a text color that reads on its background;
+// white on the amber "low" tile was unreadable → black there.
 function miniCellClass(c: MiniCell): string {
-  if (c.isOut) return 'bg-alert-error';
-  if (c.isLow) return 'bg-alert-warning';
-  if (c.doh == null) return 'bg-muted';
-  return 'bg-alert-success/70';
+  if (c.isOut) return 'bg-alert-error text-white';
+  if (c.isLow) return 'bg-alert-warning text-neutral-900'; // black on amber — legible
+  if (c.doh == null) return 'bg-muted text-muted-foreground';
+  return 'bg-alert-success/80 text-white';
 }
 
 interface RegArrival {
@@ -970,10 +984,10 @@ interface SimArrival {
   doh: number;
 }
 
-// The "Cobertura c/ pedido" mini-heatmap: one column per week. The coverage cell shows its
-// DOH inside; a triangle above marks a REGISTERED order arriving (azul) and below marks the
-// SIMULATED order (em construção, brand), each labeled with the DOH it ADDS. Hover for the
-// order name/modal + quantidade.
+// The "Cobertura c/ pedido" mini-heatmap: one column per week (anchored at today). The coverage
+// cell shows its DOH inside; a chevron ABOVE (orange) marks a REGISTERED order arriving and BELOW
+// (blue) the NEW order being built — each labeled with the DOH it ADDS (qty ÷ consumo/dia), no
+// hover needed. Same orange/blue coding as the Pedidos column. Hover for pedido name/modal + qty.
 function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival[][]; sim: SimArrival[][] }) {
   return (
     <div className="flex gap-0.5">
@@ -983,9 +997,9 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
         const regDoh = ra.reduce((s, x) => s + x.doh, 0);
         const simDoh = sa.reduce((s, x) => s + x.doh, 0);
         return (
-          <div key={i} className="flex w-7 shrink-0 flex-col items-center gap-0.5">
+          <div key={i} className="flex w-8 shrink-0 flex-col items-center gap-0.5">
             <span
-              className="flex h-3.5 items-center justify-center text-[9px] font-bold leading-none text-[color:var(--color-alert-info)]"
+              className="flex h-4 items-center justify-center gap-px text-[10px] font-bold leading-none text-orange-500 dark:text-orange-400"
               title={
                 ra.length
                   ? ra
@@ -994,11 +1008,15 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
                   : undefined
               }
             >
-              {ra.length ? `â¼${regDoh}` : ''}
+              {ra.length ? (
+                <>
+                  <ChevronDown size={11} strokeWidth={3} />+{regDoh}
+                </>
+              ) : null}
             </span>
             <span
               className={cn(
-                'flex h-6 w-7 items-center justify-center rounded-[2px] text-[9px] font-semibold tabular-nums',
+                'flex h-6 w-8 items-center justify-center rounded-[2px] text-[10px] font-semibold tabular-nums',
                 miniCellClass(c),
               )}
               title={`Sem ${c.weekIdx}: ${c.doh != null ? `${c.doh} DOH` : 's/ demanda'} · ${fmtInt(c.stock)} un.`}
@@ -1006,14 +1024,65 @@ function CoverageStrip({ cells, reg, sim }: { cells: MiniCell[]; reg: RegArrival
               {c.doh != null ? c.doh : '—'}
             </span>
             <span
-              className="flex h-3.5 items-center justify-center text-[9px] font-bold leading-none text-brand-600"
-              title={sa.length ? sa.map((x) => `Sugerido ${x.modal}: +${fmtInt(x.qty)} un (+${x.doh} DOH) · Sem ${i}`).join(' · ') : undefined}
+              className="flex h-4 items-center justify-center gap-px text-[10px] font-bold leading-none text-sky-500 dark:text-sky-400"
+              title={sa.length ? sa.map((x) => `Novo pedido ${x.modal}: +${fmtInt(x.qty)} un (+${x.doh} DOH) · Sem ${i}`).join(' · ') : undefined}
             >
-              {sa.length ? `â²${simDoh}` : ''}
+              {sa.length ? (
+                <>
+                  <ChevronUp size={11} strokeWidth={3} />+{simDoh}
+                </>
+              ) : null}
             </span>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// The "Pedidos" column: registered orders (orange, already placed — links to the pedido) and
+// the new order being built (blue), each with modal · ETA (dd-mm-YYYY) · quantidade.
+interface RegOrder {
+  vo: string | null;
+  modal: string | null;
+  qty: number;
+  eta: string | null;
+}
+interface NewOrderLine {
+  modal: string;
+  qty: number;
+  eta: string | null;
+}
+
+function OrdersCell({ reg, neu }: { reg: RegOrder[]; neu: NewOrderLine[] }) {
+  if (reg.length === 0 && neu.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-col gap-1">
+      {reg.map((o, i) => {
+        const chip = (
+          <span className="inline-flex items-center gap-1 rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 ring-1 ring-orange-500/30 dark:text-orange-400">
+            <ChevronDown size={10} strokeWidth={3} />
+            {o.modal ? `${o.modal} · ` : ''}
+            {fmtDate(o.eta)} · {fmtInt(o.qty)} un.
+          </span>
+        );
+        return o.vo ? (
+          <Link key={`r${i}`} prefetch={false} href={`/dashboard/pedidos/${encodeURIComponent(o.vo)}`} className="hover:opacity-80">
+            {chip}
+          </Link>
+        ) : (
+          <span key={`r${i}`}>{chip}</span>
+        );
+      })}
+      {neu.map((o, i) => (
+        <span
+          key={`n${i}`}
+          className="inline-flex items-center gap-1 rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-sky-500/30 dark:text-sky-400"
+        >
+          <ChevronUp size={10} strokeWidth={3} />
+          {o.modal} · {fmtDate(o.eta)} · {fmtInt(o.qty)} un.
+        </span>
+      ))}
     </div>
   );
 }

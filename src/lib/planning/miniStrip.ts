@@ -1,5 +1,6 @@
 import type { StockProjection } from '@/types/planning';
 import { forwardAvgDemand, projectStream } from './projection';
+import type { ModalPlan, ModalQty } from './elaboration';
 
 // Client-safe engine reuse for the Novo Pedido builder (F5). The projection engine is
 // modal-agnostic — a receipt is just (dayOffset, qty), timing comes 100% from eta/lead —
@@ -104,4 +105,73 @@ export function minDohWithin(proj: StockProjection, horizonDays: number): number
     if (min == null || doh < min) min = doh;
   }
   return min;
+}
+
+// ─── One-shot N-modal cascade (Novo Pedido builder) ────────────────────────────
+// The quantity engine, RE-PROJECTING after every lane so the floored (lost-sales) walk
+// is honoured. This replaces the old projection-based `suggestQuantities`, which sized each
+// lane against ONE static baseline projection: a bridging lane whose window sat past the
+// stockout read a baseline floored at 0 and, sized by deepest-shortfall-at-one-point,
+// depleted across its window instead of holding its floor to the end (aéreo showed ~34 DOH
+// where 75 was expected). Re-projecting each cumulative injection fixes that at the root.
+//
+// Cascade preference = fastest→slowest:
+//   • each FASTER lane sustains its own piso (minDoh) from its arrival until the NEXT lane's
+//     arrival — coverage lands at its piso exactly when the next lane comes in;
+//   • the SLOWEST lane order-up-to (piso + cadência) at its arrival (the volume/sustainer).
+// Each lane is sized against a fresh re-projection that already includes the faster lanes'
+// injected units, via a fixed-point that fills the deepest DOH shortfall in the lane's window
+// (robust to intermediate stockout flooring — a low-piso faster lane may re-floor mid-window).
+
+const CASCADE_MAX_ITERS = 8;
+
+export function suggestCascadeQuantities(args: {
+  seed: MiniProjSeed;
+  plans: ModalPlan[];
+  today: string;
+}): ModalQty[] {
+  const lanes = args.plans
+    .filter((p) => p.enabled && p.modal.leadDays >= 0)
+    .map((p) => ({ ...p, arrival: Math.max(0, Math.round(p.modal.leadDays)) }))
+    .sort((a, b) => a.arrival - b.arrival); // fastest first
+  if (lanes.length === 0) return [];
+
+  const H = args.seed.horizon;
+  const clampDay = (d: number) => Math.max(0, Math.min(d, H));
+  const injected: InjectedReceipt[] = [];
+  const out: ModalQty[] = [];
+
+  lanes.forEach((lane, i) => {
+    const isSlowest = i === lanes.length - 1;
+    const a = clampDay(lane.arrival);
+    // Bridging lane holds its piso across [arrival, next arrival]; the slowest lane targets
+    // just its arrival day, order-up-to (piso + cadência).
+    const windowEnd = isSlowest ? a : clampDay(lanes[i + 1].arrival);
+    const level = lane.minDoh + (isSlowest ? lane.cadenceDays ?? 0 : 0);
+
+    // Fixed-point on the re-projection: measure the deepest unit shortfall below the target
+    // over the window (on the floored walk that already carries the faster lanes + this lane's
+    // running qty), add it, repeat. Converges monotonically from below (no overshoot).
+    let qty = 0;
+    for (let iter = 0; iter < CASCADE_MAX_ITERS; iter++) {
+      const proj = projectFromSeed(
+        args.seed,
+        qty > 0 ? [...injected, { offset: a, qty }] : injected,
+        args.today,
+      );
+      let worst = 0;
+      for (let d = a; d <= windowEnd; d++) {
+        const rate = forwardAvgDemand(proj.timeline, d, 7);
+        if (rate <= 0) continue;
+        const need = level * rate - (proj.timeline[d]?.stock ?? 0);
+        if (need > worst) worst = need;
+      }
+      if (worst <= 0.5) break;
+      qty += worst;
+    }
+    qty = Math.max(0, Math.round(qty));
+    if (qty > 0) injected.push({ offset: a, qty });
+    out.push({ modalId: lane.modal.id, modalName: lane.modal.name, qty, arrivalOffset: a });
+  });
+  return out;
 }

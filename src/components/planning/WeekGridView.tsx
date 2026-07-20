@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { Recycle, Flag, Ship, Plane, Truck, Package, ArrowUpRight, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
+import { Recycle, Flag, Ship, Plane, Truck, Package, ArrowUpRight, ChevronDown, ChevronUp, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
 import type { WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
@@ -465,6 +465,7 @@ export function WeekGridView({
             <tr className="bg-muted/50 text-left text-[11px] uppercase tracking-wide text-muted-foreground">
               <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2 font-medium">SKU</th>
               <th className="border-l border-foreground/5 px-2 py-2 text-right font-medium">Consumo/dia</th>
+              <th className="border-l border-foreground/5 px-2 py-2 font-medium">Pedidos</th>
               {grid.weeks.map((w) => (
                 <th key={w.idx} className="border-l border-foreground/5 px-2 py-2 text-center font-medium">
                   <span className="block">{w.idx === 0 ? 'Hoje' : `Sem ${w.idx}`}</span>
@@ -476,7 +477,7 @@ export function WeekGridView({
           <tbody className="divide-y divide-foreground/5">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={grid.weeks.length + 2} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={grid.weeks.length + 3} className="px-3 py-8 text-center text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -607,24 +608,50 @@ function cellTip(row: WeekGridRow, cell: WeekCell, week: WeekMeta, criteria: Pur
   );
 }
 
-// The left-column "N pedidos" hover: each registered open PO feeding this SKU.
-function posTip(row: WeekGridRow) {
+/** Legacy PO modal codes → display names (same rule as the engine's normalizeModal). */
+function normalizeModalLabel(m: string | null): string {
+  if (!m) return 'Marítimo';
+  const s = m.toLowerCase();
+  if (s === 'sea') return 'Marítimo';
+  if (s === 'air') return 'Aéreo';
+  return m;
+}
+
+// The "Pedidos" column (same as Novo Pedido): REGISTERED open POs as orange chips (modal · ETA
+// · qty, linked to the pedido) and, in the "com sugestão" view, the scenario's SUGGESTED
+// arrivals aggregated per modal as blue chips. Empty → em dash.
+function PedidosCell({ row }: { row: WeekGridRow }) {
+  const sugByModal = new Map<string, number>();
+  for (const c of row.cells) for (const a of c.arrivals) if (a.sug > 0) sugByModal.set(a.modal, (sugByModal.get(a.modal) ?? 0) + a.sug);
+  const sug = [...sugByModal.entries()];
+  if (row.openPos.length === 0 && sug.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
   return (
-    <div className="space-y-0.5">
-      <div className="font-semibold text-foreground">
-        {row.skuBase} · {row.openPos.length} pedido{row.openPos.length > 1 ? 's' : ''} em aberto
-      </div>
-      {row.openPos.map((p) => (
-        <div key={p.id} className="flex items-center justify-between gap-2 text-muted-foreground">
-          <span className="text-brand-600">{p.vo ?? '—'}</span>
-          <span>{fmtDate(p.eta)}</span>
-          <span className="tabular-nums">
-            +{fmtInt(p.qty)}
-            {p.modal ? ` ${p.modal === 'air' ? '✈' : p.modal === 'sea' ? '🚢' : p.modal}` : ''}
+    <div className="flex flex-col gap-1">
+      {row.openPos.map((p) => {
+        const chip = (
+          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 ring-1 ring-orange-500/30 dark:text-orange-400">
+            <ChevronDown size={10} strokeWidth={3} />
+            {normalizeModalLabel(p.modal)} · {fmtDate(p.eta)} · {fmtInt(p.qty)}
           </span>
-        </div>
+        );
+        return p.vo ? (
+          <Link key={p.id} prefetch={false} href={`/dashboard/pedidos/${encodeURIComponent(p.vo)}`} className="hover:opacity-80">
+            {chip}
+          </Link>
+        ) : (
+          <span key={p.id}>{chip}</span>
+        );
+      })}
+      {sug.map(([modal, qty]) => (
+        <span
+          key={modal}
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-sky-500/30 dark:text-sky-400"
+          title="Sugestão do cenário — ainda não é um pedido"
+        >
+          <ChevronUp size={10} strokeWidth={3} />
+          {modal} · +{fmtInt(qty)} sug.
+        </span>
       ))}
-      <div className="text-brand-600">clique para abrir →</div>
     </div>
   );
 }
@@ -659,18 +686,6 @@ function GridRow({
         <span className="block max-w-[180px] truncate text-[11px] text-muted-foreground" title={row.skuName}>
           {row.skuName}
         </span>
-        {row.openPos.length > 0 && (
-          <button
-            type="button"
-            onMouseEnter={(e) => onHover(e, posTip(row))}
-            onMouseMove={(e) => onHover(e, posTip(row))}
-            onMouseLeave={onLeave}
-            onClick={() => onOpenPedido(row.openPos.map((p) => p.vo).filter(Boolean) as string[])}
-            className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-500/10 px-1.5 py-0.5 text-[9px] font-medium text-brand-600 hover:bg-brand-500/20"
-          >
-            <Truck className="size-2.5" /> {row.openPos.length} pedido{row.openPos.length > 1 ? 's' : ''}
-          </button>
-        )}
       </td>
       <td className="border-l border-foreground/5 px-2 py-1.5 text-right align-middle tabular-nums text-xs text-muted-foreground">
         <span className="block">
@@ -681,6 +696,9 @@ function GridRow({
             <Recycle className="size-2.5" /> {Math.round(row.recoveryRate * 100)}% · {row.recoveryTurnaroundDays}d
           </span>
         )}
+      </td>
+      <td className="border-l border-foreground/5 px-2 py-1.5 align-middle">
+        <PedidosCell row={row} />
       </td>
       {row.cells.map((c, i) => {
         const isBuyBy = row.buyByWeekIdx === weeks[i].idx;

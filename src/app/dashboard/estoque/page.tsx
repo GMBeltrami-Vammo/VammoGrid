@@ -1,16 +1,22 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { auth } from '@/auth';
 import { loadSkuView, projectOneCompare } from '@/lib/planning/load';
 import { computeArrivals, projectSku, type SkuProjections } from '@/lib/planning/projection';
-import { suggestModalQuantities } from '@/lib/planning/elaboration';
+import { suggestModalQuantities, type ModalPlan } from '@/lib/planning/elaboration';
+import { suggestCascadeQuantities, type MiniProjSeed } from '@/lib/planning/miniStrip';
+import { modalsForSupplier } from '@/lib/planning/supplierGroups';
+import { MODAL_CFG_COOKIE, parseModalCfg } from '@/lib/planning/modalConfig';
+import { HORIZON_DAYS } from '@/lib/planning/constants';
+import { buildDailyDemand } from '@/lib/planning/forecast';
 import { purchaseForSku } from '@/lib/planning/purchase';
 import { fetchStockHistory } from '@/lib/planning/source/history';
 import { fetchHubMaxStock } from '@/lib/planning/source/hubMaxStock';
-import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
+import { fetchSuppliers, fetchSkuSuppliers, fetchSupplierModals } from '@/lib/planning/source/suppliers';
 import { fetchPurchaseCriteria } from '@/lib/planning/source/globalSettings';
 import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { addDays } from '@/lib/planning/dates';
-import type { OpenPurchaseOrder, TransportModal } from '@/types/planning';
+import type { OpenPurchaseOrder } from '@/types/planning';
 import { HubMaxStockPanel } from '@/components/planning/HubMaxStockPanel';
 import { resolveShares } from '@/lib/planning/allocation';
 import { defaultPolicyFor } from '@/lib/planning/policy';
@@ -27,6 +33,7 @@ import {
 } from '@/components/planning/ui';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { EstoqueView } from '@/components/planning/EstoqueView';
+import { SkuSuggestionControls } from '@/components/planning/SkuSuggestionControls';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 import { LeadTimePanel } from '@/components/planning/LeadTimePanel';
 import { SupplierLinksPanel } from '@/components/suppliers/SupplierLinksPanel';
@@ -43,7 +50,7 @@ export const dynamic = 'force-dynamic';
 export default async function EstoquePage({
   searchParams,
 }: {
-  searchParams: Promise<{ sku?: string }>;
+  searchParams: Promise<{ sku?: string; forn?: string; modais?: string }>;
 }) {
   const sp = await searchParams;
   // Single-SKU fast path: builds only the selected SKU's forecast + policy (not the
@@ -73,7 +80,7 @@ export default async function EstoquePage({
     defaultPolicyFor(selected, selStock, forecast?.abcClass ?? 'C', inputs.today);
   const shares = resolveShares(selStock, inputs.shares.get(selected));
 
-  const [compare, history, recoveryRefreshedAt, hubMaxStock, criteria, suppliers, skuSuppliers, session] = await Promise.all([
+  const [compare, history, recoveryRefreshedAt, hubMaxStock, criteria, suppliers, skuSuppliers, supplierModals, cookieStore, session] = await Promise.all([
     projectOneCompare(selected, inputs), // reuse inputs — avoids a 2nd full load
     fetchStockHistory(selStock.skuBase, selStock.byHub, 30),
     fetchRecoveryRefreshedAt(),
@@ -81,6 +88,8 @@ export default async function EstoquePage({
     fetchPurchaseCriteria(),
     fetchSuppliers(),
     fetchSkuSuppliers(),
+    fetchSupplierModals(),
+    cookies(),
     auth(),
   ]);
   const skuLinks = skuSuppliers.filter((l) => l.skuBase === selected);
@@ -94,28 +103,79 @@ export default async function EstoquePage({
   const baseline = compare?.baseline ?? null;
   const arrivals = computeArrivals(orders, inputs.today);
 
-  // Combined suggested-order plan (air bridge + sea bulk) → a yellow "with suggestion"
-  // projection overlaid on the charts, so the effect on coverage is visible.
+  // ── Interactive suggested-order simulation (the yellow overlay), driven by a supplier + modal
+  //    panel LOCKED to the suppliers that carry THIS SKU. Supplier + enabled modais come from the
+  //    URL (?forn/?modais → server recompute); piso/cadência/lead from the shared vg:modalcfg cookie.
+  const cfg = parseModalCfg(cookieStore.get(MODAL_CFG_COOKIE)?.value);
+  const supplierById = new Map(suppliers.map((s) => [s.supplierId, s]));
+  const linkedSupplierIds = [...new Set(skuLinks.map((l) => l.supplierId))].filter((id) => supplierById.has(id));
+  const lockedSuppliers = linkedSupplierIds.map((id) => ({ supplierId: id, name: supplierById.get(id)!.name }));
+  const selectedSupplierId =
+    (sp.forn && linkedSupplierIds.includes(sp.forn) ? sp.forn : '') ||
+    (preferredLink && linkedSupplierIds.includes(preferredLink.supplierId) ? preferredLink.supplierId : '') ||
+    linkedSupplierIds[0] ||
+    '';
+  const selModais = selectedSupplierId ? modalsForSupplier(supplierById.get(selectedSupplierId) ?? null, supplierModals) : [];
+  const selNames = selModais.map((m) => m.name);
+  const enabledModais =
+    sp.modais === undefined ? selNames : sp.modais.split(',').map((s) => s.trim()).filter((n) => selNames.includes(n));
+
+  // Synthetic suggested order (the engine ignores modal; timing = eta). modal is coarse
+  // 'sea'/'air' by arrival (only to satisfy the type — not shown on the overlay line).
+  const mkSugOrder = (key: string, qty: number, arrivalOffset: number): OpenPurchaseOrder => {
+    const off = Math.max(0, Math.round(arrivalOffset));
+    return {
+      id: `sug-${key}`, vo: null, skuCode: selected, skuBase: selected, skuName: selStock.skuName,
+      qty, orderDate: inputs.today, eta: addDays(inputs.today, off), leadTimeDays: off,
+      modal: off >= 30 ? 'sea' : 'air', status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'scenario', orderType: null,
+    };
+  };
+
+  // Yellow "com pedido sugerido" overlay: the N-modal cascade for the selected supplier's enabled
+  // modais (sim lead/piso/cadência from the cookie). Falls back to the SKU's policy 2-modal plan
+  // when no supplier/modal applies, so the overlay never silently disappears.
   let suggestion: SkuProjections | null = null;
   if (projections) {
-    const mq = suggestModalQuantities({
-      projection: projections.global,
-      policy,
-      today: inputs.today,
-      dohThreshold: criteria.dohThreshold,
-    });
-    const mkOrder = (m: TransportModal, qty: number, arrivalOffset: number): OpenPurchaseOrder => {
-      const lead = Math.max(0, Math.round((m === 'sea' ? policy.leadTimeSeaDays : policy.leadTimeAirDays) ?? policy.leadTimeDays));
-      const off = Math.max(0, Math.round(arrivalOffset));
-      return {
-        id: `sug-${m}`, vo: null, skuCode: selected, skuBase: selected, skuName: selStock.skuName,
-        qty, orderDate: addDays(inputs.today, Math.max(0, off - lead)), eta: addDays(inputs.today, off),
-        leadTimeDays: lead, modal: m, status: 'ordered', prepStatus: null, hubId: 'osasco', source: 'scenario', orderType: null,
-      };
-    };
     const sugOrders: OpenPurchaseOrder[] = [];
-    if (mq.airQty > 0) sugOrders.push(mkOrder('air', mq.airQty, mq.airArrival));
-    if (mq.seaQty > 0) sugOrders.push(mkOrder('sea', mq.seaQty, mq.seaArrival));
+    const enabledOpts = selModais.filter((m) => enabledModais.includes(m.name));
+    if (enabledOpts.length > 0) {
+      const H = HORIZON_DAYS;
+      const fleet = buildDailyDemand(forecast, H);
+      const receipts: Record<number, number> = {};
+      for (const p of projections.global.timeline) if (p.day <= H && p.inbound > 0) receipts[p.day] = p.inbound;
+      const seed: MiniProjSeed = {
+        startStock: selStock.total,
+        demandYhat: fleet.yhat,
+        modelHorizon: forecast?.horizonDays ?? H,
+        receipts,
+        recoveryRate: policy.recoveryRate,
+        recoveryTurnaround: policy.recoveryTurnaroundDays,
+        isRepairable: policy.isRepairable,
+        horizon: H,
+      };
+      const cfgSup = cfg[selectedSupplierId] ?? {};
+      const slowId = [...enabledOpts]
+        .sort((a, b) => (cfgSup[a.name]?.lead ?? a.leadDays) - (cfgSup[b.name]?.lead ?? b.leadDays))
+        .at(-1)?.id;
+      const plans: ModalPlan[] = enabledOpts.map((m) => {
+        const e = cfgSup[m.name] ?? {};
+        const lead = e.lead && e.lead > 0 ? e.lead : m.leadDays;
+        return {
+          modal: { ...m, leadDays: lead }, // sim lead — planning only
+          minDoh: e.piso && e.piso > 0 ? e.piso : criteria.dohThreshold,
+          cadenceDays: m.id === slowId ? (e.cad && e.cad > 0 ? e.cad : 30) : 0,
+          enabled: true,
+        };
+      });
+      for (const q of suggestCascadeQuantities({ seed, plans, today: inputs.today })) {
+        if (q.qty > 0) sugOrders.push(mkSugOrder(q.modalName, q.qty, q.arrivalOffset));
+      }
+    } else {
+      // Fallback: policy-based air/sea (no linked supplier or no modal enabled).
+      const mq = suggestModalQuantities({ projection: projections.global, policy, today: inputs.today, dohThreshold: criteria.dohThreshold });
+      if (mq.airQty > 0) sugOrders.push(mkSugOrder('air', mq.airQty, mq.airArrival));
+      if (mq.seaQty > 0) sugOrders.push(mkSugOrder('sea', mq.seaQty, mq.seaArrival));
+    }
     if (sugOrders.length > 0) {
       suggestion = projectSku({ stock: selStock, forecast, orders: [...orders, ...sugOrders], policy, shares, today: inputs.today });
     }
@@ -149,6 +209,17 @@ export default async function EstoquePage({
         subtitle={selStock.isRepairable ? 'Peça recuperável (reconditioning)' : 'Peça não recuperável'}
       />
       <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
+
+      {/* Pedido sugerido (simulação) — fornecedor + modais deste SKU alimentam a linha amarela */}
+      <div className="mb-4">
+        <SkuSuggestionControls
+          suppliers={lockedSuppliers}
+          selectedSupplierId={selectedSupplierId}
+          modais={selModais}
+          enabledModais={enabledModais}
+          dohThreshold={criteria.dohThreshold}
+        />
+      </div>
 
       {/* SKU selector + scope toggle + D-30→D+30 and D0→D+150 charts */}
       <EstoqueView

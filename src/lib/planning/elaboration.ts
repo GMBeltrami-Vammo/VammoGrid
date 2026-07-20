@@ -11,7 +11,7 @@ import {
   type PurchaseCriteria,
 } from './constants';
 import { addDays, diffDays, nextFirstOfMonth } from './dates';
-import { forwardAvgDemand } from './projection';
+import { buildDohContext, consumptionOver } from './doh';
 import type { ModalOption } from './supplierGroups';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,7 +224,9 @@ export function suggestModalQuantities(args: {
   const seaDays = Math.max(0, Math.round(policy.leadTimeSeaDays ?? DEFAULT_LEAD_TIME_DAYS));
   const airDays = Math.max(0, Math.round(policy.leadTimeAirDays ?? INTERNATIONAL_AIR_LEAD_DAYS));
 
-  const rateAt = (d: number) => forwardAvgDemand(tl, Math.max(0, Math.min(d, horizon)), 7);
+  // "Hold N DOH at day d" = stock(d) ≥ the INTEGRATED consumption over the next N days (runway
+  // definition — same as the cascade), not N × a 7-day rate.
+  const ctx = buildDohContext(tl);
   const stockAt = (d: number) => tl[Math.max(0, Math.min(d, horizon))]?.stock ?? 0;
 
   const airArrival = airDays;
@@ -236,14 +238,14 @@ export function suggestModalQuantities(args: {
   const bridgeEnd = Math.min(seaArrival, horizon);
   for (let d = airArrival; d <= bridgeEnd; d++) {
     const floor = args.airFloorAt ? args.airFloorAt(d) : dohThreshold;
-    const need = floor * rateAt(d) - stockAt(d);
+    const need = consumptionOver(ctx, d, floor) - stockAt(d);
     if (need > airQty) airQty = need;
   }
   airQty = Math.max(0, Math.round(airQty));
 
-  // Sea bulk: order-up-to (threshold + cadence) of cover at the sea arrival, so DOH
+  // Sea bulk: order-up-to (threshold + cadence) DAYS of cover at the sea arrival, so DOH
   // stays ≥ threshold across the cadence until the next monthly order.
-  const seaLevel = (dohThreshold + seaCadence) * rateAt(seaArrival);
+  const seaLevel = consumptionOver(ctx, seaArrival, dohThreshold + seaCadence);
   const seaQty = Math.max(0, Math.round(seaLevel - stockAt(seaArrival)));
 
   return { airQty, seaQty, airArrival, seaArrival };

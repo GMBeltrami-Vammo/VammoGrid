@@ -16,7 +16,7 @@ const HORIZONS = [8, 12, 16, 20];
 export default async function SemanasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sem?: string }>;
+  searchParams: Promise<{ sem?: string; forn?: string; modais?: string }>;
 }) {
   const sp = await searchParams;
   const weeks = HORIZONS.includes(Number(sp.sem)) ? Number(sp.sem) : 16;
@@ -29,8 +29,7 @@ export default async function SemanasPage({
     fetchSupplierModals(),
     cookies(),
   ]);
-  // Shared per-modal config (same session cookie Novo Pedido writes) — drives the scenarios
-  // so "Courier/Aéreo/Marítimo qdo necessário" here match the Novo Pedido suggestion.
+  // Shared per-modal config (piso/cadência/lead) — the SAME session cookie Novo Pedido writes.
   const cfg = parseModalCfg(cookieStore.get(MODAL_CFG_COOKIE)?.value);
 
   if (snap.stocks.length === 0) {
@@ -43,32 +42,42 @@ export default async function SemanasPage({
     );
   }
 
-  // Per-SKU transport modais (from the preferred supplier) — drives the N-modal scenarios.
-  // Lead is overridden by the shared config (sim lead) so the scenario timing matches Novo Pedido.
+  // Simulation lens: ONE supplier drives the modais/leads for ALL shown SKUs (picked in the
+  // dropdown). Default = the first active supplier; `forn` (URL) overrides it; `modais` (URL,
+  // comma list) is the enabled subset — absent = all of the supplier's modais, "" = none.
+  const activeSuppliers = suppliers.filter((s) => s.active);
   const supplierById = new Map(suppliers.map((s) => [s.supplierId, s]));
-  const prefMap = preferredSupplierBySku(skuSuppliers);
-  const modalsBySku = new Map<string, ModalOption[]>();
-  for (const [sku, sid] of prefMap) {
-    const sup = supplierById.get(sid);
-    if (!sup) continue;
-    const modais = modalsForSupplier(sup, supplierModals).map((mo) => {
-      const lead = cfg[sid]?.[mo.name]?.lead;
-      return lead && lead > 0 ? { ...mo, leadDays: lead } : mo;
+  const selectedSupplierId =
+    (sp.forn && supplierById.has(sp.forn) ? sp.forn : '') || activeSuppliers[0]?.supplierId || '';
+  const selectedSupplier = supplierById.get(selectedSupplierId) ?? null;
+  const selModais = modalsForSupplier(selectedSupplier, supplierModals);
+  const selNames = selModais.map((m) => m.name);
+  const enabledModais =
+    sp.modais === undefined
+      ? selNames
+      : sp.modais.split(',').map((s) => s.trim()).filter((n) => selNames.includes(n));
+
+  // The selected supplier's ENABLED modais (with sim-lead overrides) — applied to EVERY shown
+  // SKU, so the heatmap is a complete "what-if via this supplier" vision.
+  const enabledWithLead: ModalOption[] = selModais
+    .filter((m) => enabledModais.includes(m.name))
+    .map((m) => {
+      const lead = cfg[selectedSupplierId]?.[m.name]?.lead;
+      return lead && lead > 0 ? { ...m, leadDays: lead } : m;
     });
-    modalsBySku.set(sku, modais);
-  }
-  // Per-modal piso/cadência (by modal name, merged across suppliers) — the layered floors.
+  const modalsBySku = new Map<string, ModalOption[]>();
+  for (const s of snap.stocks) modalsBySku.set(s.skuBase, enabledWithLead);
+
+  // Per-modal piso/cadência (from the SELECTED supplier's config) — the layered floors.
   const planByModal: PlanByModal = {};
-  for (const byModal of Object.values(cfg)) {
-    for (const [name, e] of Object.entries(byModal)) {
-      const cur = planByModal[name] ?? {};
-      if (e.piso && e.piso > 0) cur.minDoh = e.piso;
-      if (e.cad && e.cad > 0) cur.cadenceDays = e.cad;
-      planByModal[name] = cur;
-    }
+  for (const [name, e] of Object.entries(cfg[selectedSupplierId] ?? {})) {
+    const cur: { minDoh?: number; cadenceDays?: number } = {};
+    if (e.piso && e.piso > 0) cur.minDoh = e.piso;
+    if (e.cad && e.cad > 0) cur.cadenceDays = e.cad;
+    if (Object.keys(cur).length) planByModal[name] = cur;
   }
 
-  // All scenarios computed once (already reflecting the shared config); client toggles instantly.
+  // All scenarios computed once (reflecting the lens); the client flips Base ↔ Com-sugestão.
   const { scenarios, grids } = buildAllScenarioGrids({
     inputs: { ...snap, modalsBySku },
     purchases: snap.purchases,
@@ -77,31 +86,39 @@ export default async function SemanasPage({
     planByModal,
   });
 
-  // Preferred supplier per SKU + names — powers "exportar sugestão → Novo Pedido".
+  // "Com sugestão" grid: the combined cascade (>1 modal), else the single modal's when-needed,
+  // else baseline (no modal enabled).
+  const suggestedKey =
+    scenarios.find((s) => s.kind === 'combined')?.key ??
+    scenarios.find((s) => s.kind === 'modal')?.key ??
+    'baseline';
+
+  // Export → Novo Pedido groups at-risk SKUs by their REAL preferred supplier (independent of
+  // the simulation lens) so the created order goes to the right place.
+  const prefMap = preferredSupplierBySku(skuSuppliers);
   const prefBySku = Object.fromEntries(prefMap);
   const supplierNames = Object.fromEntries(suppliers.map((s) => [s.supplierId, s.name]));
-  // Active suppliers with their modais — the ephemeral simulation panel's per-modal knobs.
-  const simSuppliers = suppliers
-    .filter((s) => s.active)
-    .map((s) => ({ supplierId: s.supplierId, name: s.name, modais: modalsForSupplier(s, supplierModals) }));
 
   return (
     <div>
       <PageHeader
         eyebrow="Projeção Global"
         title="Projeção Global"
-        subtitle="Estoque projetado por SKU e semana. Base = só pedidos já registrados; os cenários simulam comprar QUANDO NECESSÁRIO por cada modal do fornecedor (Courier/Aéreo/Marítimo…) ou pelo combinado."
+        subtitle="Estoque projetado por SKU e semana. Base = só pedidos já registrados; “com sugestão” simula comprar QUANDO NECESSÁRIO pelos modais habilitados do fornecedor escolhido (só simulação, aplicado a todos os SKUs)."
       />
       <FreshnessBanner asOfDate={snap.asOfDate} backend={snap.backend} />
       <ScopeNotice shown={snap.stocks.length} total={snap.catalogSize} />
 
       <WeekGridView
-        scenarios={scenarios}
         grids={grids}
         weeks={weeks}
+        suggestedKey={suggestedKey}
+        suppliers={activeSuppliers.map((s) => ({ supplierId: s.supplierId, name: s.name }))}
+        selectedSupplierId={selectedSupplierId}
+        modais={selModais}
+        enabledModais={enabledModais}
         prefBySku={prefBySku}
         supplierNames={supplierNames}
-        simSuppliers={simSuppliers}
       />
     </div>
   );

@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Recycle, Flag, Ship, Plane, Truck, Package, ArrowUpRight, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
-import type { ScenarioMeta, WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
+import type { WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
 import type { WeekGrid } from '@/lib/planning/weekgrid';
 import type { PurchaseCriteria } from '@/lib/planning/constants';
 import type { ModalOption } from '@/lib/planning/supplierGroups';
@@ -13,10 +13,11 @@ import { fmtDate, fmtInt, weekCellClass } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 import { InfoHint } from '@/components/planning/InfoHint';
 
-// Weekly stockout heatmap (N-modal). All scenarios are precomputed server-side; the
-// scenario/scope/filter/unit toggles are instant client-side views. Only the horizon
-// reloads. Rows = SKUs, columns = Hoje..Wn. Scenarios are dynamic: baseline + one per
-// supplier modal (Courier/Aéreo/Marítimo…) + combined.
+// Weekly stockout heatmap (N-modal). Rows = SKUs, columns = Hoje..Wn. A supplier DROPDOWN is
+// the simulation lens: its modais/leads apply to ALL shown SKUs, and per-modal CHECKBOXES pick
+// which lanes feed the "com sugestão" cascade (unchecking all = baseline). Base ↔ Com-sugestão
+// is an instant client swap of two server-precomputed grids; changing the supplier/modais/leads
+// re-runs the server (URL + the shared vg:modalcfg cookie). Only-Global stock (no hub scopes).
 
 const HORIZONS = [8, 12, 16, 20];
 
@@ -26,10 +27,9 @@ const INITIAL_VISIBLE_ROWS = 300;
 type HeatFilter = 'all' | 'critico' | 'baixo';
 type Unit = 'units' | 'doh';
 
-interface SimSupplier {
+interface SupplierOpt {
   supplierId: string;
   name: string;
-  modais: ModalOption[];
 }
 
 function criteriaLabel(c: PurchaseCriteria): string {
@@ -46,28 +46,39 @@ function modalVisual(name: string): { Icon: LucideIcon; className: string } {
 }
 
 export function WeekGridView({
-  scenarios,
   grids,
   weeks,
+  suggestedKey,
+  suppliers = [],
+  selectedSupplierId,
+  modais = [],
+  enabledModais = [],
   prefBySku,
   supplierNames,
-  simSuppliers = [],
 }: {
-  scenarios: ScenarioMeta[];
   grids: Record<string, WeekGrid>;
   weeks: number;
+  /** Grid key for the "com sugestão" view: combined if >1 modal, else the single modal, else baseline. */
+  suggestedKey: string;
+  /** Active suppliers — the simulation-lens dropdown. */
+  suppliers?: SupplierOpt[];
+  /** The supplier whose modais drive the simulation (applied to ALL shown SKUs). */
+  selectedSupplierId: string;
+  /** The selected supplier's full modais — the toggle checkboxes + per-modal config. */
+  modais?: ModalOption[];
+  /** Which modal names are currently enabled (checked). */
+  enabledModais?: string[];
   /** skuBase → preferred supplier_id — groups the "exportar → Novo Pedido" suggestion. */
   prefBySku?: Record<string, string>;
   /** supplier_id → display name, for the export menu labels. */
   supplierNames?: Record<string, string>;
-  /** Active suppliers with their modais — the ephemeral simulation panel's per-modal knobs. */
-  simSuppliers?: SimSupplier[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [navPending, startNav] = useTransition();
 
-  const [scenario, setScenario] = useState<string>('baseline');
+  const [view, setView] = useState<'base' | 'sug'>('base');
   const [search, setSearch] = useState('');
   const [heat, setHeat] = useState<HeatFilter>('all');
   const [unit, setUnit] = useState<Unit>('units');
@@ -75,17 +86,29 @@ export function WeekGridView({
   const [weekFilter, setWeekFilter] = useState<number | null>(null);
   const [tip, setTip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
 
-  // Shared per-modal config (piso/cadência/lead) — the SAME session cookie Novo Pedido uses.
-  // Editing it here + "Aplicar" rebuilds the page's grids from the cookie, so the scenarios
-  // match the Novo Pedido suggestion. Loaded on mount; not persisted to the DB.
-  const [simOpen, setSimOpen] = useState(false);
+  // URL-param helper — preserves the other params (sem/forn/modais) on each change.
+  const setParams = (updates: Record<string, string | null>) => {
+    const p = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null) p.delete(k);
+      else p.set(k, v);
+    }
+    const qs = p.toString();
+    startNav(() => router.push(qs ? `${pathname}?${qs}` : pathname));
+  };
+  const goHorizon = (sem: number) => setParams({ sem: String(sem) });
+
+  // Shared per-modal config (piso/cadência/lead) — the SAME session cookie Novo Pedido uses,
+  // scoped here to the SELECTED supplier. Number edits rewrite the cookie and refresh on blur
+  // (the server recomputes the grids); the modal checkboxes + supplier live in the URL.
   const [cfg, setCfg] = useState<ModalCfg>({});
   const [applyPending, startApply] = useTransition();
   useEffect(() => {
     setCfg(readModalCfgClient());
   }, []);
-  const patchEntry = (supplierId: string, modalName: string, patch: { piso?: number | null; cad?: number | null; lead?: number | null }) => {
-    const next = setModalCfgEntry(cfg, supplierId, modalName, {
+  const entryFor = (name: string) => cfg[selectedSupplierId]?.[name] ?? {};
+  const patchEntry = (modalName: string, patch: { piso?: number | null; cad?: number | null; lead?: number | null }) => {
+    const next = setModalCfgEntry(cfg, selectedSupplierId, modalName, {
       piso: patch.piso === null ? NaN : patch.piso,
       cad: patch.cad === null ? NaN : patch.cad,
       lead: patch.lead === null ? NaN : patch.lead,
@@ -93,44 +116,43 @@ export function WeekGridView({
     setCfg(next);
     writeModalCfgClient(next);
   };
-  const hasCfg = Object.values(cfg).some((byModal) => Object.values(byModal).some((e) => e.piso || e.cad || e.lead));
-  const applyCfg = () => startApply(() => router.refresh());
+  const commitCfg = () => startApply(() => router.refresh());
+  const hasCfg = Object.values(cfg[selectedSupplierId] ?? {}).some((e) => e.piso || e.cad || e.lead);
   const clearCfg = () => {
-    setCfg({});
-    writeModalCfgClient({});
+    const next = { ...cfg };
+    delete next[selectedSupplierId];
+    setCfg(next);
+    writeModalCfgClient(next);
     startApply(() => router.refresh());
   };
-  // Slowest modal per supplier (by sim lead) — only it gets a cadência input ("uma vez só" else).
-  const slowestBySupplier = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const s of simSuppliers) {
-      let name = '';
-      let max = -1;
-      for (const m of s.modais) {
-        const lead = cfg[s.supplierId]?.[m.name]?.lead ?? m.leadDays;
-        if (lead > max) {
-          max = lead;
-          name = m.name;
-        }
-      }
-      out[s.supplierId] = name;
-    }
-    return out;
-  }, [simSuppliers, cfg]);
 
-  const activeScenarios = scenarios;
-  const activeGrids = grids;
-  // Reset to baseline if the current scenario key isn't in the set.
-  useEffect(() => {
-    if (!activeGrids[scenario]) setScenario('baseline');
-  }, [activeGrids, scenario]);
-  const grid = activeGrids[scenario] ?? activeGrids.baseline ?? Object.values(activeGrids)[0];
-
-  const goHorizon = (sem: number) => {
-    const params = new URLSearchParams();
-    params.set('sem', String(sem));
-    startNav(() => router.push(`${pathname}?${params.toString()}`));
+  const enabledSet = useMemo(() => new Set(enabledModais), [enabledModais]);
+  const toggleModal = (name: string) => {
+    const next = new Set(enabledSet);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    const ordered = modais.filter((m) => next.has(m.name)).map((m) => m.name);
+    setParams({ modais: ordered.join(',') }); // "" = none enabled → baseline
   };
+  // Slowest ENABLED modal by sim lead — only it carries a cadência ("uma vez só" for the rest).
+  const slowestName = useMemo(() => {
+    const on = modais.filter((m) => enabledSet.has(m.name));
+    if (on.length === 0) return '';
+    const sorted = [...on].sort((a, b) => {
+      const la = cfg[selectedSupplierId]?.[a.name]?.lead ?? a.leadDays;
+      const lb = cfg[selectedSupplierId]?.[b.name]?.lead ?? b.leadDays;
+      return la - lb;
+    });
+    return sorted[sorted.length - 1].name;
+  }, [modais, enabledSet, cfg, selectedSupplierId]);
+
+  // Base = só pedidos registrados; Com sugestão = a cascata dos modais habilitados (precomputada
+  // no servidor). Trocar entre elas é instantâneo (sem ida ao servidor).
+  const hasSuggestion = !!grids[suggestedKey] && suggestedKey !== 'baseline';
+  const grid = (view === 'sug' ? grids[suggestedKey] : grids.baseline) ?? grids.baseline ?? Object.values(grids)[0];
+  useEffect(() => {
+    if (view === 'sug' && !hasSuggestion) setView('base');
+  }, [view, hasSuggestion]);
 
   // Only the GLOBAL stock is shown (the hub/center scopes were removed per request).
   const allRows = grid.global;
@@ -155,7 +177,7 @@ export function WeekGridView({
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_ROWS);
-  }, [scenario, search, heat, catFilter, weekFilter]);
+  }, [view, search, heat, catFilter, weekFilter]);
   const visibleRows = rows.length > visibleCount ? rows.slice(0, visibleCount) : rows;
 
   const summary = useMemo(() => {
@@ -191,9 +213,11 @@ export function WeekGridView({
     return { groups, noSupplier };
   }, [rows, prefBySku, supplierNames]);
 
+  const selectedSupplier = suppliers.find((s) => s.supplierId === selectedSupplierId) ?? null;
+
   return (
-    <div className={cn('rounded-xl bg-card p-4 ring-1 ring-foreground/10', navPending && 'opacity-60')}>
-      {/* Row 1: search + export + units (só estoque Global) */}
+    <div className={cn('rounded-xl bg-card p-4 ring-1 ring-foreground/10', (navPending || applyPending) && 'opacity-60')}>
+      {/* Row 1: search + export + units */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <input
           type="search"
@@ -246,12 +270,30 @@ export function WeekGridView({
         </div>
       </div>
 
-      {/* Row 2: scenario (dynamic per modal) + horizon + filters */}
+      {/* Row 2: fornecedor (lens) + Base/Com-sugestão + horizon + filters */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Cenário</span>
-        {activeScenarios.map((s) => (
-          <Chip key={s.key} active={scenario === s.key} onClick={() => setScenario(s.key)}>{s.label}</Chip>
-        ))}
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Fornecedor</span>
+        {suppliers.length > 0 ? (
+          <select
+            value={selectedSupplierId}
+            onChange={(e) => setParams({ forn: e.target.value, modais: null })}
+            title="Fornecedor cujos modais alimentam a simulação (aplicado a todos os SKUs)"
+            className="h-8 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-brand-500"
+          >
+            {suppliers.map((s) => (
+              <option key={s.supplierId} value={s.supplierId}>{s.name}</option>
+            ))}
+          </select>
+        ) : (
+          <Link href="/dashboard/fornecedores" className="text-xs text-brand-600 underline">cadastre um fornecedor</Link>
+        )}
+
+        <span className="mx-1 h-4 w-px bg-border" />
+        <Chip active={view === 'base'} onClick={() => setView('base')}>Base</Chip>
+        <Chip active={view === 'sug'} onClick={() => hasSuggestion && setView('sug')}>
+          <span className={!hasSuggestion ? 'opacity-40' : undefined}>Com sugestão</span>
+        </Chip>
+
         <span className="mx-1 h-4 w-px bg-border" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">Semanas</span>
         {HORIZONS.map((h) => (
@@ -286,107 +328,102 @@ export function WeekGridView({
         </span>
       </div>
 
-      {/* Config por modal — compartilhada com o Novo Pedido via cookie de sessão */}
-      {simSuppliers.length > 0 && (
+      {/* Modais do fornecedor (simulação) — checkboxes + piso/cadência/lead; alimentam "com sugestão" */}
+      {selectedSupplier && (
         <div className="mb-3 rounded-xl bg-card ring-1 ring-foreground/10">
-          <button
-            onClick={() => setSimOpen((o) => !o)}
-            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium hover:bg-muted/30"
-          >
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2.5 text-sm">
             <FlaskConical size={14} className="text-muted-foreground" />
-            Config por modal (simulação)
+            <span className="font-medium">Modais de {selectedSupplier.name} (simulação)</span>
+            {hasCfg && <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-600">config ativa</span>}
+            <span className="text-[11px] text-muted-foreground">
+              marque/desmarque para incluir no “com sugestão”; edite piso/cadência/lead (só simulação)
+            </span>
             {hasCfg && (
-              <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-600">ativa</span>
+              <button
+                onClick={clearCfg}
+                disabled={applyPending}
+                className="ml-auto rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 disabled:opacity-50"
+              >
+                Limpar config
+              </button>
             )}
-            <span className="ml-auto text-xs text-muted-foreground">{simOpen ? 'ocultar' : 'configurar'}</span>
-          </button>
-          {simOpen && (
-            <div className="space-y-3 border-t border-border/60 px-4 py-3">
-              <p className="text-[11px] text-muted-foreground">
-                Por fornecedor × modal: lead (só simulação — não muda a ETA real), piso (DOH mín) e cadência
-                (só o mais lento). Compartilhado com o Novo Pedido; os cenários abaixo já refletem isso. Clique em Aplicar após editar.
+          </div>
+          <div className="space-y-1.5 px-4 py-3">
+            {modais.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Este fornecedor não tem modais cadastrados.{' '}
+                <Link href="/dashboard/fornecedores" className="underline">Cadastrar modais</Link>.
               </p>
-              <div className="space-y-2">
-                {simSuppliers.map((s) => (
-                  <div key={s.supplierId} className="text-xs">
-                    <span className="font-medium">{s.name}</span>
-                    {s.modais.length === 0 && <span className="ml-2 text-muted-foreground">sem modais cadastrados</span>}
-                    <div className="mt-1 space-y-1">
-                      {s.modais.map((m) => {
-                        const { Icon, className } = modalVisual(m.name);
-                        const e = cfg[s.supplierId]?.[m.name] ?? {};
-                        const isSlow = slowestBySupplier[s.supplierId] === m.name;
-                        const numOr = (v: string) => (v.trim() === '' ? null : Number(v));
-                        return (
-                          <div key={m.id} className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                            <span className="inline-flex w-28 items-center gap-1">
-                              <Icon className={cn('size-3', className)} /> {m.name}
-                              <span className="opacity-60">+{m.leadDays}d</span>
-                            </span>
-                            <label className="inline-flex items-center gap-1">
-                              lead sim.
-                              <input
-                                type="number"
-                                min={1}
-                                value={e.lead ?? ''}
-                                onChange={(ev) => patchEntry(s.supplierId, m.name, { lead: numOr(ev.target.value) })}
-                                placeholder={String(m.leadDays)}
-                                className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                              />
-                            </label>
-                            <label className="inline-flex items-center gap-1">
-                              piso
-                              <input
-                                type="number"
-                                min={1}
-                                value={e.piso ?? ''}
-                                onChange={(ev) => patchEntry(s.supplierId, m.name, { piso: numOr(ev.target.value) })}
-                                placeholder={String(grid.criteria.dohThreshold)}
-                                className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                              />
-                            </label>
-                            {isSlow ? (
-                              <label className="inline-flex items-center gap-1">
-                                cadência
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={e.cad ?? ''}
-                                  onChange={(ev) => patchEntry(s.supplierId, m.name, { cad: numOr(ev.target.value) })}
-                                  placeholder="30"
-                                  className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40"
-                                />
-                              </label>
-                            ) : (
-                              <span className="text-[10px] italic opacity-70">uma vez só</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
+            ) : (
+              modais.map((m) => {
+                const { Icon, className } = modalVisual(m.name);
+                const on = enabledSet.has(m.name);
+                const e = entryFor(m.name);
+                const isSlow = slowestName === m.name;
+                const numOr = (v: string) => (v.trim() === '' ? null : Number(v));
+                return (
+                  <div key={m.id} className={cn('flex flex-wrap items-center gap-2 text-xs', !on && 'opacity-50')}>
+                    <label className="inline-flex w-40 cursor-pointer items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleModal(m.name)}
+                        className="size-3.5 cursor-pointer accent-brand-500"
+                      />
+                      <Icon className={cn('size-3', className)} /> {m.name}
+                      <span className="text-muted-foreground">+{m.leadDays}d</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-muted-foreground">
+                      lead sim.
+                      <input
+                        type="number"
+                        min={1}
+                        value={e.lead ?? ''}
+                        disabled={!on}
+                        onChange={(ev) => patchEntry(m.name, { lead: numOr(ev.target.value) })}
+                        onBlur={commitCfg}
+                        placeholder={String(m.leadDays)}
+                        title="Lead hipotético (dias) — só simulação; não muda a ETA real"
+                        className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                      />
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-muted-foreground">
+                      piso
+                      <input
+                        type="number"
+                        min={1}
+                        value={e.piso ?? ''}
+                        disabled={!on}
+                        onChange={(ev) => patchEntry(m.name, { piso: numOr(ev.target.value) })}
+                        onBlur={commitCfg}
+                        placeholder={String(grid.criteria.dohThreshold)}
+                        title="Piso de cobertura (DOH mín) que este modal segura"
+                        className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                      />
+                    </label>
+                    {isSlow ? (
+                      <label className="inline-flex items-center gap-1 text-muted-foreground">
+                        cadência
+                        <input
+                          type="number"
+                          min={1}
+                          value={e.cad ?? ''}
+                          disabled={!on}
+                          onChange={(ev) => patchEntry(m.name, { cad: numOr(ev.target.value) })}
+                          onBlur={commitCfg}
+                          placeholder="30"
+                          title="Periodicidade de reposição do modal mais lento"
+                          className="h-7 w-14 rounded border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500 placeholder:text-muted-foreground/40 disabled:opacity-50"
+                        />
+                      </label>
+                    ) : (
+                      on && <span className="text-[10px] italic text-muted-foreground/70">uma vez só</span>
+                    )}
                   </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={applyCfg}
-                  disabled={applyPending}
-                  className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-400 disabled:opacity-50"
-                >
-                  {applyPending ? 'Aplicando…' : 'Aplicar'}
-                </button>
-                {hasCfg && (
-                  <button
-                    onClick={clearCfg}
-                    disabled={applyPending}
-                    className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
-                  >
-                    Limpar config
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 

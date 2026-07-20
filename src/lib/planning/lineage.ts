@@ -554,8 +554,8 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         name: 'Recorte app-wide (seleção de SKUs)',
         source: 'cookies vg:skus0..7 (chunked)',
         formula:
-          'ignoreFilter → catálogo inteiro; seleção presente → exatamente ela; senão → escopo padrão (dev.fleet_sku_scope, fail-open)',
-        notes: 'A seleção (aba SKUs) é a ÚNICA fonte do recorte — os filtros da aba SKUs são locais e viram seleção via "selecionar visíveis". O antigo vg:filter (models/categoria/q/previsão) foi removido.',
+          'seleção presente → exatamente ela; senão (ou ignoreFilter) → catálogo inteiro (o escopo padrão dev.fleet_sku_scope foi removido)',
+        notes: 'A seleção (aba SKUs) é a ÚNICA fonte do recorte — filtros por coluna são locais e viram seleção via "Aplicar seleção ao app". Sem seleção = catálogo inteiro.',
         ref: 'src/lib/planning/load.ts',
       },
       {

@@ -1,6 +1,5 @@
 import { auth } from '@/auth';
 import { safeComputeSnapshot } from '@/lib/planning/load';
-import { fetchActiveScope } from '@/lib/planning/source/scope';
 import { fetchSkuPolicies } from '@/lib/planning/source/policies';
 import { fetchSuppliers, fetchSkuSuppliers } from '@/lib/planning/source/suppliers';
 import { fetchFilterPresets } from '@/lib/planning/source/filterPresets';
@@ -15,9 +14,8 @@ export default async function SkusPage() {
   // the app's single control center: the local filters below narrow the visible list,
   // and the checkbox selection ("selecionar visíveis") is THE recorte every other page
   // sees. No top-bar filter exists anymore.
-  const [snap, scopeSet, policies, suppliers, skuSuppliers, presets, session] = await Promise.all([
+  const [snap, policies, suppliers, skuSuppliers, presets, session] = await Promise.all([
     safeComputeSnapshot(true, true),
-    fetchActiveScope(),
     fetchSkuPolicies(),
     fetchSuppliers(),
     fetchSkuSuppliers(),
@@ -120,7 +118,6 @@ export default async function SkusPage() {
         <SkuTable
           rows={rows}
           initialSelection={snap.filter.skus}
-          scopeSkus={[...scopeSet]}
           suppliers={suppliers}
           presets={presets}
           isHead={isHead}

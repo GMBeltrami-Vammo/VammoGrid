@@ -34,7 +34,6 @@ import { fetchRecoveryRates } from './source/recovery';
 import { fetchHubShares } from './source/shares';
 import { fetchStockStates } from './source/stock';
 import { fetchCompatModels } from './source/compat';
-import { fetchActiveScope } from './source/scope';
 import { fetchSuppliers, fetchSkuSuppliers, fetchSupplierModals } from './source/suppliers';
 import { fetchServiceLevelZ, fetchPurchaseCriteria } from './source/globalSettings';
 import type { Supplier, SkuSupplier, SupplierModal } from '@/types';
@@ -140,7 +139,7 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
   // instead of throwing (keeps the app building + usable before secrets are set).
   if (activeBackendKind() === 'none') return { ...emptyInputs(today), filter };
 
-  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, scopeSet, serviceLevelZ, suppliers, skuSuppliers, supplierModals] =
+  const [allStocks, forecastBundle, shares, rawOrders, alerts, compatModels, policyOverrides, recoveryRates, serviceLevelZ, suppliers, skuSuppliers, supplierModals] =
     await Promise.all([
       fetchStockStates(nowIso),
       fetchForecasts(),
@@ -150,42 +149,23 @@ export const loadPlanningInputs = cache(async (ignoreSkuSelection = false, ignor
       fetchCompatModels(),
       fetchSkuPolicies(),
       fetchRecoveryRates(),
-      fetchActiveScope(),
       fetchServiceLevelZ(),
       fetchSuppliers(),
       fetchSkuSuppliers(),
       fetchSupplierModals(),
     ]);
 
-  // Default SKU-universe scope (sub-project A): narrow to the active-scope set
-  // BEFORE the user's ad-hoc cookie filter, so every analysis defaults to the
-  // reference universe. ignoreSkuSelection bypasses it (the "Lista completa" tab
-  // and single-SKU deep links must still see every SKU). Fail-open: an empty
-  // scope set means "no scope defined" → show all (never hide the whole catalog).
-  let scopedStocks = allStocks;
-  if (!ignoreSkuSelection && scopeSet.size > 0) {
-    const narrowed = allStocks.filter((s) => scopeSet.has(s.skuBase));
-    // Fail-open: a scope that matches NOTHING (stale or format-mismatched sku_bases)
-    // must not silently hide the whole catalog — fall back to all stocks. Only narrow
-    // when the scope actually selects something.
-    if (narrowed.length > 0) scopedStocks = narrowed;
-  }
-
-  // Which SKUs the analyses see. Two modes (the old top-bar filter narrowing was
-  // removed — filtering lives on the SKUs page and materializes into the selection):
+  // Which SKUs the analyses see (the default-universe "escopo" was removed):
   //   • ignoreFilter → the full catalog (SKUs page: every SKU always listed).
-  //   • a hand-picked selection is present → EXACTLY that selection, from the full
-  //     catalog, OVERRIDING the default scope. The SKUs-page checkbox is the single
-  //     "visible to the analyses" control: checked ⟺ visible.
-  //   • otherwise → the default scope.
+  //   • a hand-picked selection is present → EXACTLY that selection (the SKUs-page
+  //     checkbox, materialized via "Aplicar seleção ao app" into the vg:skus* cookies).
+  //   • otherwise → the full catalog (no selection = everything).
   let stocks: StockState[];
-  if (ignoreFilter) {
-    stocks = allStocks;
-  } else if (!ignoreSkuSelection && filter.skus.length > 0) {
+  if (!ignoreFilter && !ignoreSkuSelection && filter.skus.length > 0) {
     const sel = new Set(filter.skus);
     stocks = allStocks.filter((s) => sel.has(s.skuBase));
   } else {
-    stocks = scopedStocks;
+    stocks = allStocks;
   }
 
   // (The global what-if scenario — demand ±% / delay-all-POs — was removed; order
@@ -570,7 +550,7 @@ export const loadSkuView = cache(
     }
 
     // Cheap, cross-request-cached sources only (no per-SKU heavy materialization).
-    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, scopeSet, serviceLevelZ, suppliers, skuSuppliers, supplierModals] =
+    const [allStocks, shares, rawOrders, policyOverrides, recoveryRates, compatModels, fcMeta, serviceLevelZ, suppliers, skuSuppliers, supplierModals] =
       await Promise.all([
         fetchStockStates(nowIso),
         fetchHubShares(),
@@ -579,30 +559,15 @@ export const loadSkuView = cache(
         fetchRecoveryRates(),
         fetchCompatModels(),
         fetchForecastMeta(),
-        fetchActiveScope(),
         fetchServiceLevelZ(),
         fetchSuppliers(),
         fetchSkuSuppliers(),
         fetchSupplierModals(),
       ]);
 
-    // Default SKU-universe scope (sub-project A): the selector lists only in-scope
-    // SKUs by default. Fail-open when the scope is empty. A deep-linked out-of-scope
-    // SKU is still resolved below (Pedidos etc. link to any SKU), it just isn't in
-    // the default selector list.
-    const inScope = scopeSet.size > 0 ? allStocks.filter((s) => scopeSet.has(s.skuBase)) : allStocks;
-
-    // Selector = the default scope (the hand-picked selection is NOT applied here —
-    // a single-SKU view resolves any SKU, same as ignoreSkuSelection).
-    let stocks = inScope.slice().sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
-
-    // Honor a deep link to an out-of-scope SKU: if the requested SKU exists in the
-    // full catalog but isn't in the scoped selector list, add it so it resolves +
-    // renders (the view still defaults its selector to the scoped set).
-    if (requestedSku && !stocks.some((s) => s.skuBase === requestedSku)) {
-      const extra = allStocks.find((s) => s.skuBase === requestedSku);
-      if (extra) stocks = [extra, ...stocks];
-    }
+    // Selector = the full catalog (the default-universe "escopo" was removed; a single-SKU
+    // view resolves any SKU regardless of the app-wide selection).
+    const stocks = allStocks.slice().sort((a, b) => a.skuName.localeCompare(b.skuName, 'pt-BR'));
 
     if (stocks.length === 0) {
       return {

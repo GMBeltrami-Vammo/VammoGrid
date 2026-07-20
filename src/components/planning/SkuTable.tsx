@@ -3,15 +3,13 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Check, Download, Link2, Plus, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Download, Filter, Link2, ListChecks, Plus, X } from 'lucide-react';
 import type { PurchaseStatus, TransportModal } from '@/types/planning';
 import type { FilterPreset, Supplier } from '@/types';
 import { deletePreset, savePreset } from '@/app/dashboard/skus/presetActions';
-import { BIKE_MODELS } from '@/types';
-import { MODEL_LABELS } from '@/constants/models';
 import { MAX_SELECTED_SKUS } from '@/lib/planning/filter';
 import { writeSkusCookies } from '@/lib/planning/applyFilter';
-import { createSku, setSkuScope } from '@/app/dashboard/skus/actions';
+import { createSku } from '@/app/dashboard/skus/actions';
 import { updateRecoveryPolicy } from '@/app/dashboard/sku/[sku]/actions';
 import { linkSkusToSupplier } from '@/app/dashboard/fornecedores/actions';
 import { cn } from '@/lib/utils';
@@ -24,7 +22,7 @@ export interface SkuRow {
   category: string | null;
   abcClass: string;
   onHand: number;
-  /** On-hand per hub (review item 6: visão global E por hub na mesma tabela). */
+  /** On-hand per hub (visão global E por hub na mesma tabela). */
   byHub: { osasco: number; mooca: number; sbc: number };
   /** Average daily consumption (un/dia) — the engine's lead-time mean. */
   dailyDemand: number;
@@ -32,11 +30,11 @@ export interface SkuRow {
   status: PurchaseStatus;
   stockoutDate: string | null;
   isLate: boolean;
-  /** Compatible bike models (cpx/comfort) — the local Modelos filter. */
+  /** Compatible bike models (cpx/comfort). */
   models: string[];
-  /** Has a demand forecast — the local "Com previsão" filter. */
+  /** Has a demand forecast. */
   hasForecast: boolean;
-  /** National vs international sourcing — local filter + display. */
+  /** National vs international sourcing. */
   isNational: boolean;
   isRepairable: boolean;
   /** Recovery rate (fraction 0–1) — the inline-editable Recuperação column. */
@@ -47,44 +45,13 @@ export interface SkuRow {
   supplierName: string | null;
 }
 
-// Sortable columns (review item 6). 'status' sorts by severity (CRITICAL first).
-type SortKey =
-  | 'skuName'
-  | 'onHand'
-  | 'osasco'
-  | 'mooca'
-  | 'sbc'
-  | 'dailyDemand'
-  | 'dohDays'
-  | 'recovery'
-  | 'status'
-  | 'supplierName';
-type SortDir = 'asc' | 'desc';
-
-const STATUS_RANK: Record<PurchaseStatus, number> = { CRITICAL: 0, REORDER: 1, OK: 2 };
-
-function sortValue(r: SkuRow, key: SortKey): number | string {
-  switch (key) {
-    case 'skuName': return r.skuName;
-    case 'onHand': return r.onHand;
-    case 'osasco': return r.byHub.osasco;
-    case 'mooca': return r.byHub.mooca;
-    case 'sbc': return r.byHub.sbc;
-    case 'dailyDemand': return r.dailyDemand;
-    // null coverage (sem demanda) sorts last regardless of direction intent → +∞.
-    case 'dohDays': return r.dohDays ?? Number.POSITIVE_INFINITY;
-    // Non-repairable SKUs (no recovery) sort below any repairable rate.
-    case 'recovery': return r.isRepairable ? r.recoveryRate : -1;
-    case 'status': return STATUS_RANK[r.status];
-    case 'supplierName': return r.supplierName ?? '￿'; // no supplier sorts last
-  }
-}
-
 const STATUS_LABEL: Record<PurchaseStatus, string> = {
   CRITICAL: 'Crítico',
   REORDER: 'Recompra',
   OK: 'OK',
 };
+
+const STATUS_RANK: Record<PurchaseStatus, number> = { CRITICAL: 0, REORDER: 1, OK: 2 };
 
 const STATUS_CLASS: Record<PurchaseStatus, string> = {
   CRITICAL: 'bg-alert-error/15 text-alert-error',
@@ -101,97 +68,136 @@ const ABC_CLASS: Record<string, string> = {
 /** Rows rendered before "Mostrar mais" — keeps the DOM small on the full catalog. */
 const INITIAL_VISIBLE_ROWS = 300;
 
-// App-wide category options — same set + values as the top FilterBar, so the two
-// controls drive the one shared `vg:filter` cookie and stay in sync.
-const CATEGORIES: { v: string | null; label: string }[] = [
-  { v: null, label: 'Tudo' },
-  { v: 'BIKE', label: 'Moto' },
-  { v: 'BATTERY', label: 'Bateria' },
+// ── Column model: each column carries its spreadsheet-style autofilter (sort + type-aware
+// filter). The row CELLS are still bespoke (SKU link, hub numbers, recovery editor, badges);
+// this config drives only the header filters + the filtering/sorting math. ────────────────
+type ColType = 'text' | 'enum' | 'num';
+interface ColDef {
+  key: string;
+  label: string;
+  type: ColType;
+  /** Value used for filtering (and sorting, unless sortGet overrides). */
+  get: (r: SkuRow) => string | number;
+  /** Value used for sorting when it must differ from the filter value (e.g. status severity). */
+  sortGet?: (r: SkuRow) => string | number;
+}
+
+const COLUMNS: ColDef[] = [
+  { key: 'skuBase', label: 'SKU', type: 'text', get: (r) => r.skuBase },
+  { key: 'skuName', label: 'Nome', type: 'text', get: (r) => r.skuName },
+  { key: 'abcClass', label: 'Classe', type: 'enum', get: (r) => r.abcClass },
+  { key: 'onHand', label: 'Estoque', type: 'num', get: (r) => r.onHand },
+  { key: 'osasco', label: 'OSA', type: 'num', get: (r) => r.byHub.osasco },
+  { key: 'mooca', label: 'MOO', type: 'num', get: (r) => r.byHub.mooca },
+  { key: 'sbc', label: 'SBC', type: 'num', get: (r) => r.byHub.sbc },
+  { key: 'dailyDemand', label: 'Consumo/dia', type: 'num', get: (r) => r.dailyDemand },
+  { key: 'recovery', label: 'Recuperação', type: 'enum', get: (r) => (r.isRepairable ? 'Sim' : 'Não') },
+  { key: 'supplierName', label: 'Fornecedor', type: 'enum', get: (r) => r.supplierName ?? '— sem —' },
+  {
+    key: 'status',
+    label: 'Status',
+    type: 'enum',
+    get: (r) => STATUS_LABEL[r.status],
+    sortGet: (r) => STATUS_RANK[r.status],
+  },
+  {
+    key: 'ruptura',
+    label: 'Ruptura',
+    type: 'enum',
+    get: (r) => (r.stockoutDate ? 'Com ruptura' : 'Sem ruptura'),
+    sortGet: (r) => r.stockoutDate ?? '￿',
+  },
 ];
+
+interface ColFilter {
+  /** text: substring match. */
+  search?: string;
+  /** enum: the ALLOWED values (undefined = all allowed). */
+  checked?: string[];
+  /** num: inclusive bounds. */
+  min?: number | null;
+  max?: number | null;
+}
+
+type SortState = { key: string; dir: 'asc' | 'desc' } | null;
+
+function filterActive(col: ColDef, f: ColFilter | undefined): boolean {
+  if (!f) return false;
+  if (col.type === 'text') return !!f.search;
+  if (col.type === 'enum') return f.checked != null;
+  return f.min != null || f.max != null;
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
 
 export function SkuTable({
   rows,
   initialSelection,
-  scopeSkus,
   suppliers = [],
   presets = [],
   isHead = false,
 }: {
   rows: SkuRow[];
-  /** The current hand-picked selection (from the chunked cookies) — seeds the checkboxes. */
+  /** The last-applied hand-picked selection (from the chunked cookies) — the staged baseline. */
   initialSelection: string[];
-  /** sku_bases in the active default universe (sub-project A). Undefined = no scope defined. */
-  scopeSkus?: string[];
-  /** Suppliers for the bulk "link selected SKUs to a supplier" action + the supplier filter. */
+  /** Suppliers for the bulk "link selected SKUs to a supplier" action. */
   suppliers?: Supplier[];
   /** Named selection presets — apply/save/delete. */
   presets?: FilterPreset[];
-  /** Only Heads may edit the scope. */
   isHead?: boolean;
 }) {
   const router = useRouter();
-  const [search, setSearch] = useState('');
-  const [abcFilter, setAbcFilter] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<PurchaseStatus | null>(null);
-  // All-local filter dimensions (nothing writes cookies anymore — the SELECTION is the
-  // only thing the analyses read; these just narrow the visible list).
-  const [category, setCategory] = useState<string | null>(null);
-  const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [forecastFilter, setForecastFilter] = useState(false);
-  const [natFilter, setNatFilter] = useState<'all' | 'nac' | 'int'>('all');
-  const [supplierFilter, setSupplierFilter] = useState<string>(''); // supplier name; '' = todos
-  const [repairFilter, setRepairFilter] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState('');
   const [addingSku, setAddingSku] = useState(false);
-  // Column sorting: asc → desc → cleared (back to the default CRITICAL-first order).
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
-  const toggleSort = (key: SortKey) =>
-    setSort((s) => (s?.key !== key ? { key, dir: 'asc' } : s.dir === 'asc' ? { key, dir: 'desc' } : null));
 
-  // Local mirror of the active-scope set so toggles feel instant; the Server Action
-  // persists to dev.fleet_sku_scope + busts the 'sku-scope' cache tag underneath.
-  const hasScope = scopeSkus !== undefined;
-  const [scope, setScope] = useState<Set<string>>(() => new Set(scopeSkus ?? []));
-  const [scopeFilter, setScopeFilter] = useState<'all' | 'in' | 'out'>('all');
-  const [scopePending, startScope] = useTransition();
-  const [scopeError, setScopeError] = useState<string | null>(null);
+  // Per-column autofilters + a single active sort.
+  const [colFilters, setColFilters] = useState<Record<string, ColFilter>>({});
+  const [sort, setSort] = useState<SortState>(null);
+  const [openCol, setOpenCol] = useState<{ key: string; x: number; y: number } | null>(null);
 
-  const toggleScope = (skuBase: string) => {
-    const active = !scope.has(skuBase);
-    const next = new Set(scope);
-    if (active) next.add(skuBase);
-    else next.delete(skuBase);
-    setScope(next); // optimistic
-    setScopeError(null);
-    startScope(async () => {
-      const res = await setSkuScope(skuBase, active);
-      if (!res.ok) {
-        // revert on failure
-        const reverted = new Set(next);
-        if (active) reverted.delete(skuBase);
-        else reverted.add(skuBase);
-        setScope(reverted);
-        setScopeError(res.error ?? 'Erro ao salvar escopo.');
+  const patchFilter = (key: string, patch: Partial<ColFilter> | null) =>
+    setColFilters((prev) => {
+      if (patch === null) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
       }
+      return { ...prev, [key]: { ...prev[key], ...patch } };
     });
-  };
 
-  // Hand-picked focus set — THE recorte every other analysis reads. Lives in the
-  // chunked vg:skus* cookies. This page is exempt from the narrowing (it's the
-  // manager), so toggling only writes the cookies + updates local state — no server
-  // refresh needed, keeping checkboxes instant.
+  // Distinct values per column (for the enum checklists) — from ALL rows.
+  const distinctByCol = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const col of COLUMNS) {
+      if (col.type !== 'enum') continue;
+      out[col.key] = [...new Set(rows.map((r) => String(col.get(r))))].sort((a, b) =>
+        a.localeCompare(b, 'pt-BR'),
+      );
+    }
+    return out;
+  }, [rows]);
+
+  // ── Staged selection: checkbox edits are local; "Aplicar seleção ao app" writes the
+  // vg:skus* cookies so every analysis narrows to it (no selection = full catalog). A dirty
+  // indicator shows unapplied changes. ────────────────────────────────────────────────────
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelection));
+  const [applied, setApplied] = useState<Set<string>>(() => new Set(initialSelection));
   const [capHit, setCapHit] = useState(false);
+  const [applyMsg, setApplyMsg] = useState<string | null>(null);
+  const dirty = !setsEqual(selected, applied);
 
-  const persist = (next: Set<string>) => {
+  const stage = (next: Set<string>) => {
     setSelected(next);
-    writeSkusCookies([...next]);
+    setApplyMsg(null);
   };
-
   const toggle = (skuBase: string) => {
     const next = new Set(selected);
-    if (next.has(skuBase)) {
-      next.delete(skuBase);
-    } else {
+    if (next.has(skuBase)) next.delete(skuBase);
+    else {
       if (next.size >= MAX_SELECTED_SKUS) {
         setCapHit(true);
         return;
@@ -199,52 +205,73 @@ export function SkuTable({
       next.add(skuBase);
     }
     setCapHit(false);
-    persist(next);
+    stage(next);
   };
 
-  // Every filter is LOCAL — they narrow the visible list only; "selecionar visíveis"
-  // materializes the result into the selection (the app-wide recorte).
+  const applySelection = () => {
+    writeSkusCookies([...selected]);
+    setApplied(new Set(selected));
+    setApplyMsg(
+      selected.size === 0
+        ? 'Seleção limpa — as análises mostram o catálogo inteiro.'
+        : `Seleção aplicada — ${selected.size} SKU${selected.size > 1 ? 's' : ''} nas análises.`,
+    );
+  };
+  const revertSelection = () => {
+    setSelected(new Set(applied));
+    setCapHit(false);
+    setApplyMsg(null);
+  };
+
+  // Filtering + sorting (spreadsheet autofilter).
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = globalSearch.trim().toLowerCase();
     const out = rows.filter((r) => {
-      if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q))
-        return false;
-      if (category && r.category !== category) return false;
-      if (abcFilter && r.abcClass !== abcFilter) return false;
-      if (statusFilter && r.status !== statusFilter) return false;
-      if (modelFilter && !r.models.includes(modelFilter)) return false;
-      if (forecastFilter && !r.hasForecast) return false;
-      if (natFilter === 'nac' && !r.isNational) return false;
-      if (natFilter === 'int' && r.isNational) return false;
-      if (supplierFilter === ' none' && r.supplierName != null) return false;
-      if (supplierFilter && supplierFilter !== ' none' && r.supplierName !== supplierFilter) return false;
-      if (repairFilter && !r.isRepairable) return false;
-      if (scopeFilter === 'in' && !scope.has(r.skuBase)) return false;
-      if (scopeFilter === 'out' && scope.has(r.skuBase)) return false;
+      if (q && !r.skuName.toLowerCase().includes(q) && !r.skuBase.toLowerCase().includes(q)) return false;
+      for (const col of COLUMNS) {
+        const f = colFilters[col.key];
+        if (!f) continue;
+        if (col.type === 'text') {
+          if (f.search && !String(col.get(r)).toLowerCase().includes(f.search.toLowerCase())) return false;
+        } else if (col.type === 'enum') {
+          if (f.checked != null && !f.checked.includes(String(col.get(r)))) return false;
+        } else {
+          const n = Number(col.get(r));
+          if (f.min != null && n < f.min) return false;
+          if (f.max != null && n > f.max) return false;
+        }
+      }
       return true;
     });
     if (sort) {
-      const mul = sort.dir === 'asc' ? 1 : -1;
-      out.sort((a, b) => {
-        const va = sortValue(a, sort.key);
-        const vb = sortValue(b, sort.key);
-        if (typeof va === 'string' || typeof vb === 'string') {
+      const col = COLUMNS.find((c) => c.key === sort.key);
+      if (col) {
+        const val = col.sortGet ?? col.get;
+        const mul = sort.dir === 'asc' ? 1 : -1;
+        out.sort((a, b) => {
+          const va = val(a);
+          const vb = val(b);
+          if (typeof va === 'number' && typeof vb === 'number') return mul * (va - vb);
           return mul * String(va).localeCompare(String(vb), 'pt-BR');
-        }
-        return mul * (va - vb);
-      });
+        });
+      }
     }
     return out;
-  }, [rows, search, category, abcFilter, statusFilter, modelFilter, forecastFilter, natFilter, supplierFilter, repairFilter, scopeFilter, scope, sort]);
+  }, [rows, globalSearch, colFilters, sort]);
 
-  // DOM relief: render at most `visibleCount` rows (the full catalog can exceed 1000
-  // <tr>s) with a "Mostrar mais" escape hatch. IMPORTANT: selection/bulk actions and
-  // the counters keep operating on `filtered` (ALL matching rows), never the slice —
-  // the in-table search/filters are the supported way to find a row (not ctrl+F).
+  const anyFilter = globalSearch || Object.keys(colFilters).length > 0 || sort != null;
+  const clearAllFilters = () => {
+    setGlobalSearch('');
+    setColFilters({});
+    setSort(null);
+  };
+
+  // DOM relief: render at most `visibleCount` rows. Selection/bulk/counters operate on the
+  // full `filtered` set, never the slice.
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_ROWS);
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_ROWS);
-  }, [search, category, abcFilter, statusFilter, modelFilter, forecastFilter, natFilter, supplierFilter, repairFilter, scopeFilter]);
+  }, [globalSearch, colFilters, sort]);
   const visibleRows = filtered.length > visibleCount ? filtered.slice(0, visibleCount) : filtered;
 
   const allVisibleSelected = filtered.length > 0 && filtered.every((r) => selected.has(r.skuBase));
@@ -261,17 +288,15 @@ export function SkuTable({
         next.add(r.skuBase);
       }
     }
-    persist(next);
+    stage(next);
   };
-
   const clearSelection = () => {
     setCapHit(false);
-    persist(new Set());
+    stage(new Set());
   };
 
-  // Named presets: apply loads the saved list into the selection; save snapshots the
-  // current selection under a name (Head). Applying is instant/local (persist writes
-  // the cookies); other pages read it on their next render.
+  // Presets: apply loads into the STAGED selection (commit via Aplicar); save snapshots the
+  // staged selection under a name (Head).
   const [presetId, setPresetId] = useState('');
   const [presetName, setPresetName] = useState('');
   const [presetPending, startPreset] = useTransition();
@@ -282,10 +307,9 @@ export function SkuTable({
     const p = presets.find((x) => x.presetId === id);
     if (!p) return;
     setCapHit(false);
-    persist(new Set(p.skus.slice(0, MAX_SELECTED_SKUS)));
-    setPresetMsg({ tone: 'ok', text: `Preset “${p.name}” aplicado (${p.skus.length} SKUs).` });
+    stage(new Set(p.skus.slice(0, MAX_SELECTED_SKUS)));
+    setPresetMsg({ tone: 'ok', text: `Preset “${p.name}” carregado (${p.skus.length}). Clique em Aplicar.` });
   };
-
   const saveCurrentAsPreset = () => {
     if (!presetName.trim() || selected.size === 0) return;
     setPresetMsg(null);
@@ -300,7 +324,6 @@ export function SkuTable({
       }
     });
   };
-
   const removePreset = () => {
     if (!presetId) return;
     const p = presets.find((x) => x.presetId === presetId);
@@ -317,13 +340,12 @@ export function SkuTable({
     });
   };
 
-  // Bulk-link the current selection to one supplier (from the selection banner).
+  // Bulk-link the staged selection to one supplier.
   const activeSuppliers = useMemo(() => suppliers.filter((s) => s.active), [suppliers]);
   const [bulkSupplierId, setBulkSupplierId] = useState('');
   const [bulkPreferred, setBulkPreferred] = useState(false);
   const [bulkPending, startBulk] = useTransition();
   const [bulkMsg, setBulkMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null);
-
   const bulkLink = () => {
     if (!bulkSupplierId || selected.size === 0) return;
     setBulkMsg(null);
@@ -340,35 +362,17 @@ export function SkuTable({
     });
   };
 
-  const localActive =
-    abcFilter || statusFilter || search || category || modelFilter || forecastFilter ||
-    natFilter !== 'all' || supplierFilter || repairFilter;
-  const clearAll = () => {
-    setAbcFilter(null);
-    setStatusFilter(null);
-    setSearch('');
-    setCategory(null);
-    setModelFilter(null);
-    setForecastFilter(false);
-    setNatFilter('all');
-    setSupplierFilter('');
-    setRepairFilter(false);
-  };
-
-  // "Relatório semanal de estoque" (review item 1/6): the FULL filtered set (not the
-  // rendered slice), with every column, as CSV.
+  // CSV = the FULL filtered set, every remaining column.
   const exportCsv = () => {
     const header = [
-      'sku', 'nome', 'categoria', 'classe', 'status', 'estoque_total',
-      'osasco', 'mooca', 'sbc', 'consumo_dia', 'cobertura_dias', 'ruptura',
-      'recuperavel', 'taxa_recuperacao_pct', 'turnaround_dias',
-      'fornecedor', 'origem', 'em_escopo', 'selecionado',
+      'sku', 'nome', 'classe', 'status', 'estoque_total', 'osasco', 'mooca', 'sbc',
+      'consumo_dia', 'recuperavel', 'taxa_recuperacao_pct', 'turnaround_dias',
+      'fornecedor', 'origem', 'ruptura', 'selecionado',
     ];
     const lines = filtered.map((r) =>
       [
         r.skuBase,
         `"${r.skuName.replace(/"/g, '""')}"`,
-        r.category ?? '',
         r.abcClass,
         r.status,
         r.onHand,
@@ -376,20 +380,16 @@ export function SkuTable({
         r.byHub.mooca,
         r.byHub.sbc,
         r.dailyDemand.toFixed(2),
-        r.dohDays ?? '',
-        r.stockoutDate ?? '',
         r.isRepairable ? 'sim' : 'nao',
         r.isRepairable ? Math.round(r.recoveryRate * 100) : '',
         r.isRepairable ? r.recoveryTurnaroundDays : '',
         r.supplierName ? `"${r.supplierName.replace(/"/g, '""')}"` : '',
         r.isNational ? 'nacional' : 'internacional',
-        scope.has(r.skuBase) ? 'sim' : 'nao',
+        r.stockoutDate ?? '',
         selected.has(r.skuBase) ? 'sim' : 'nao',
       ].join(','),
     );
-    const blob = new Blob([`﻿${[header.join(','), ...lines].join('\n')}`], {
-      type: 'text/csv;charset=utf-8;',
-    });
+    const blob = new Blob([`﻿${[header.join(','), ...lines].join('\n')}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -397,6 +397,8 @@ export function SkuTable({
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const openColDef = openCol ? COLUMNS.find((c) => c.key === openCol.key) ?? null : null;
 
   return (
     <div>
@@ -423,146 +425,65 @@ export function SkuTable({
         />
       )}
 
-      {/* Filters — ALL local: they narrow the visible list; "selecionar visíveis"
-          materializes the result into the app-wide selection. */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+      {/* Toolbar: global search + apply-selection + CSV + counts */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           type="search"
           placeholder="Buscar SKU…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={globalSearch}
+          onChange={(e) => setGlobalSearch(e.target.value)}
           className="h-8 w-48 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
-
-        <Chip label="Categoria" />
-        {CATEGORIES.map((c) => (
-          <FilterChip key={c.label} active={category === c.v} onClick={() => setCategory(c.v)}>
-            {c.label}
-          </FilterChip>
-        ))}
-
-        <span className="mx-1 h-4 w-px bg-border" />
-        <Chip label="Modelo" />
-        <FilterChip active={modelFilter === null} onClick={() => setModelFilter(null)}>Todos</FilterChip>
-        {BIKE_MODELS.map((m) => (
-          <FilterChip key={m} active={modelFilter === m} onClick={() => setModelFilter(modelFilter === m ? null : m)}>
-            {MODEL_LABELS[m] ?? m.toUpperCase()}
-          </FilterChip>
-        ))}
-
-        <span className="mx-1 h-4 w-px bg-border" />
-        {['A', 'B', 'C'].map((cls) => (
-          <FilterChip key={cls} active={abcFilter === cls} onClick={() => setAbcFilter(abcFilter === cls ? null : cls)}>
-            Classe {cls}
-          </FilterChip>
-        ))}
-
-        {(['CRITICAL', 'REORDER', 'OK'] as PurchaseStatus[]).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(statusFilter === s ? null : s)}
-            className={cn(
-              'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-              statusFilter === s ? STATUS_CLASS[s] : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-            )}
-          >
-            {STATUS_LABEL[s]}
-          </button>
-        ))}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterChip active={forecastFilter} onClick={() => setForecastFilter((v) => !v)}>
-          Com previsão
-        </FilterChip>
-
-        <span className="mx-1 h-4 w-px bg-border" />
-        <Chip label="Origem" />
-        {([
-          ['all', 'Tudo'],
-          ['nac', 'Nacional'],
-          ['int', 'Internacional'],
-        ] as const).map(([v, label]) => (
-          <FilterChip key={v} active={natFilter === v} onClick={() => setNatFilter(v)}>
-            {label}
-          </FilterChip>
-        ))}
-
-        <FilterChip active={repairFilter} onClick={() => setRepairFilter((v) => !v)}>
-          Recuperável
-        </FilterChip>
-
-        <span className="mx-1 h-4 w-px bg-border" />
-        <select
-          value={supplierFilter}
-          onChange={(e) => setSupplierFilter(e.target.value)}
-          className="h-7 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500"
-          title="Filtrar por fornecedor preferido"
-        >
-          <option value="">Fornecedor: todos</option>
-          {activeSuppliers.map((s) => (
-            <option key={s.supplierId} value={s.name}>
-              {s.name}
-            </option>
-          ))}
-          <option value=" none">— sem fornecedor —</option>
-        </select>
-
-        {localActive && (
-          <button
-            onClick={clearAll}
-            className="text-[11px] text-muted-foreground hover:text-foreground"
-          >
+        {anyFilter && (
+          <button onClick={clearAllFilters} className="text-[11px] text-muted-foreground hover:text-foreground">
             Limpar filtros
           </button>
         )}
 
-        {hasScope && (
-          <>
-            <span className="mx-1 h-4 w-px bg-border" />
-            <Chip label="Escopo" />
-            {([
-              ['all', 'Tudo'],
-              ['in', 'Em escopo'],
-              ['out', 'Fora'],
-            ] as const).map(([v, label]) => (
-              <button
-                key={v}
-                onClick={() => setScopeFilter(v)}
-                className={cn(
-                  'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-                  scopeFilter === v
-                    ? 'bg-alert-success/20 text-alert-success'
-                    : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </>
+        <span className="mx-1 h-4 w-px bg-border" />
+
+        {/* Apply selection to the engine (app-wide) */}
+        <button
+          onClick={applySelection}
+          disabled={!dirty}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+            dirty ? 'bg-brand-500 text-white hover:bg-brand-400' : 'bg-muted/60 text-muted-foreground',
+          )}
+          title="Grava a seleção atual para todas as análises (Estoque, Projeção Global, Novo Pedido…)"
+        >
+          <ListChecks size={14} /> Aplicar seleção ao app
+        </button>
+        {dirty && (
+          <span className="text-[11px] font-medium text-amber-600 dark:text-alert-warning">
+            {selected.size} selec. — alterações não aplicadas
+            <button onClick={revertSelection} className="ml-1 underline hover:text-foreground">reverter</button>
+          </span>
+        )}
+        {!dirty && applyMsg && <span className="text-[11px] text-alert-success">{applyMsg}</span>}
+        {!dirty && !applyMsg && (
+          <span className="text-[11px] text-muted-foreground">
+            {applied.size > 0 ? `${applied.size} SKU(s) aplicados às análises` : 'Sem seleção — análises usam o catálogo inteiro'}
+          </span>
         )}
 
         <button
           onClick={exportCsv}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
-          title="Exportar o conjunto filtrado completo (relatório de estoque)"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+          title="Exportar o conjunto filtrado completo"
         >
           <Download size={13} /> Exportar CSV
         </button>
-
-        <span className="ml-auto text-[11px] text-muted-foreground">
-          {hasScope && <span className="mr-2">{scope.size} em escopo</span>}
-          {filtered.length} / {rows.length} SKUs
-        </span>
+        <span className="text-[11px] text-muted-foreground">{filtered.length} / {rows.length} SKUs</span>
       </div>
 
-      {scopeError && (
-        <p className="mb-3 rounded-lg bg-alert-error/10 px-3 py-1.5 text-xs text-alert-error ring-1 ring-alert-error/30">
-          {scopeError}
+      {capHit && (
+        <p className="mb-3 rounded-lg bg-alert-warning/10 px-3 py-1.5 text-xs text-[color:var(--color-alert-warning)] ring-1 ring-alert-warning/30">
+          Limite de {MAX_SELECTED_SKUS} SKUs selecionados. Use os filtros de coluna para conjuntos maiores.
         </p>
       )}
 
-      {/* Presets nomeados — aplicar/salvar/excluir a seleção como custom filter */}
+      {/* Presets */}
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs">
         <Chip label="Presets" />
         <select
@@ -570,7 +491,7 @@ export function SkuTable({
           onChange={(e) => applyPreset(e.target.value)}
           className="h-7 rounded-md border border-border bg-card px-2 text-xs outline-none focus:border-brand-500"
         >
-          <option value="">Aplicar preset…</option>
+          <option value="">Carregar preset…</option>
           {presets.map((p) => (
             <option key={p.presetId} value={p.presetId}>
               {p.name} ({p.skus.length})
@@ -605,15 +526,12 @@ export function SkuTable({
         )}
       </div>
 
-      {/* Selection summary — the hand-picked set that focuses every other analysis */}
+      {/* Selection summary + bulk-link */}
       {selected.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand-500/10 px-3 py-2 text-xs ring-1 ring-brand-500/20">
           <Check size={14} className="text-brand-600" />
           <span className="font-medium text-brand-600">
-            {selected.size} SKU{selected.size > 1 ? 's' : ''} selecionado{selected.size > 1 ? 's' : ''} — análises focadas neste conjunto
-          </span>
-          <span className="text-muted-foreground">
-            (Estoque, Semanas, Compras, Transferências, Alertas)
+            {selected.size} SKU{selected.size > 1 ? 's' : ''} selecionado{selected.size > 1 ? 's' : ''}
           </span>
           <button
             onClick={clearSelection}
@@ -621,17 +539,12 @@ export function SkuTable({
           >
             Limpar seleção
           </button>
-
-          {/* Bulk-link the selection to a supplier */}
           {isHead && (
             <div className="flex w-full flex-wrap items-center gap-2 border-t border-brand-500/20 pt-2">
               <Link2 size={13} className="text-brand-600" />
               <span className="font-medium text-foreground">Vincular seleção a fornecedor:</span>
               {activeSuppliers.length === 0 ? (
-                <Link
-                  href="/dashboard/fornecedores"
-                  className="text-brand-600 underline hover:text-brand-500"
-                >
+                <Link href="/dashboard/fornecedores" className="text-brand-600 underline hover:text-brand-500">
                   cadastre um fornecedor primeiro
                 </Link>
               ) : (
@@ -665,20 +578,13 @@ export function SkuTable({
                     {bulkPending ? 'Vinculando…' : `Vincular ${selected.size}`}
                   </button>
                   {bulkMsg && (
-                    <span className={bulkMsg.tone === 'ok' ? 'text-alert-success' : 'text-alert-error'}>
-                      {bulkMsg.text}
-                    </span>
+                    <span className={bulkMsg.tone === 'ok' ? 'text-alert-success' : 'text-alert-error'}>{bulkMsg.text}</span>
                   )}
                 </>
               )}
             </div>
           )}
         </div>
-      )}
-      {capHit && (
-        <p className="mb-3 rounded-lg bg-alert-warning/10 px-3 py-1.5 text-xs text-[color:var(--color-alert-warning)] ring-1 ring-alert-warning/30">
-          Limite de {MAX_SELECTED_SKUS} SKUs selecionados. Use os filtros de categoria/classe para conjuntos maiores.
-        </p>
       )}
 
       {/* Table */}
@@ -695,51 +601,22 @@ export function SkuTable({
                   className="size-3.5 cursor-pointer accent-brand-500 align-middle"
                 />
               </th>
-              <th className="px-3 py-2.5 font-medium">SKU</th>
-              {hasScope && <th className="px-3 py-2.5 font-medium">Escopo</th>}
-              <th className="px-3 py-2.5 font-medium">
-                <SortHeader label="Nome" k="skuName" sort={sort} onSort={toggleSort} />
-              </th>
-              <th className="px-3 py-2.5 font-medium">Categ.</th>
-              <th className="px-3 py-2.5 font-medium">
-                <span className="inline-flex items-center gap-1">Classe <InfoHint id="abc-class" /></span>
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                <SortHeader label="Estoque" k="onHand" sort={sort} onSort={toggleSort} hint={<InfoHint id="onhand" />} />
-              </th>
-              <th className="px-2 py-2.5 text-right font-medium">
-                <SortHeader label="OSA" k="osasco" sort={sort} onSort={toggleSort} />
-              </th>
-              <th className="px-2 py-2.5 text-right font-medium">
-                <SortHeader label="MOO" k="mooca" sort={sort} onSort={toggleSort} />
-              </th>
-              <th className="px-2 py-2.5 text-right font-medium">
-                <SortHeader label="SBC" k="sbc" sort={sort} onSort={toggleSort} />
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                <SortHeader label="Consumo/dia" k="dailyDemand" sort={sort} onSort={toggleSort} hint={<InfoHint id="daily-demand" />} />
-              </th>
-              <th className="px-3 py-2.5 text-right font-medium">
-                <SortHeader label="Cobertura" k="dohDays" sort={sort} onSort={toggleSort} hint={<InfoHint id="sku-doh" />} />
-              </th>
-              <th className="px-3 py-2.5 font-medium">
-                <SortHeader label="Recuperação" k="recovery" sort={sort} onSort={toggleSort} hint={<InfoHint id="recovery-rate" />} />
-              </th>
-              <th className="px-3 py-2.5 font-medium">
-                <SortHeader label="Fornecedor" k="supplierName" sort={sort} onSort={toggleSort} />
-              </th>
-              <th className="px-3 py-2.5 font-medium">
-                <SortHeader label="Status" k="status" sort={sort} onSort={toggleSort} hint={<InfoHint id="purchase-status" />} />
-              </th>
-              <th className="px-3 py-2.5 font-medium">
-                <span className="inline-flex items-center gap-1">Ruptura <InfoHint id="stockout-date" /></span>
-              </th>
+              {COLUMNS.map((col) => (
+                <ColHeader
+                  key={col.key}
+                  col={col}
+                  active={filterActive(col, colFilters[col.key]) || sort?.key === col.key}
+                  sortDir={sort?.key === col.key ? sort.dir : null}
+                  onOpen={(x, y) => setOpenCol({ key: col.key, x, y })}
+                  numeric={col.type === 'num'}
+                />
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={hasScope ? 16 : 15} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={COLUMNS.length + 1} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -769,37 +646,6 @@ export function SkuTable({
                         {r.skuBase}
                       </Link>
                     </td>
-                    {hasScope && (
-                      <td className="px-3 py-2">
-                        {isHead ? (
-                          <button
-                            onClick={() => toggleScope(r.skuBase)}
-                            disabled={scopePending}
-                            aria-pressed={scope.has(r.skuBase)}
-                            className={cn(
-                              'rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50',
-                              scope.has(r.skuBase)
-                                ? 'bg-alert-success/15 text-alert-success hover:bg-alert-success/25'
-                                : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-                            )}
-                            title={scope.has(r.skuBase) ? 'Remover do escopo padrão' : 'Adicionar ao escopo padrão'}
-                          >
-                            {scope.has(r.skuBase) ? 'Em escopo' : 'Fora'}
-                          </button>
-                        ) : (
-                          <span
-                            className={cn(
-                              'rounded-full px-2 py-0.5 text-[11px] font-medium',
-                              scope.has(r.skuBase)
-                                ? 'bg-alert-success/15 text-alert-success'
-                                : 'text-muted-foreground',
-                            )}
-                          >
-                            {scope.has(r.skuBase) ? 'Em escopo' : 'Fora'}
-                          </span>
-                        )}
-                      </td>
-                    )}
                     <td className="px-3 py-2 max-w-[200px]">
                       <Link
                         prefetch={false}
@@ -809,14 +655,8 @@ export function SkuTable({
                         {r.skuName}
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">{r.category ?? '—'}</td>
                     <td className="px-3 py-2">
-                      <span
-                        className={cn(
-                          'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                          ABC_CLASS[r.abcClass] ?? 'text-muted-foreground',
-                        )}
-                      >
+                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', ABC_CLASS[r.abcClass] ?? 'text-muted-foreground')}>
                         {r.abcClass}
                       </span>
                     </td>
@@ -827,9 +667,6 @@ export function SkuTable({
                     <td className="px-3 py-2 text-right tabular-nums text-xs text-muted-foreground">
                       {r.dailyDemand > 0 ? r.dailyDemand.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—'}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {r.dohDays != null ? `${fmtInt(r.dohDays)}d` : '—'}
-                    </td>
                     <td className="px-3 py-2">
                       <RecoveryCell row={r} editable={isHead} />
                     </td>
@@ -837,12 +674,7 @@ export function SkuTable({
                       {r.supplierName ?? '—'}
                     </td>
                     <td className="px-3 py-2">
-                      <span
-                        className={cn(
-                          'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                          STATUS_CLASS[r.status],
-                        )}
-                      >
+                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_CLASS[r.status])}>
                         {STATUS_LABEL[r.status]}
                         {r.isLate && ' ⚠'}
                       </span>
@@ -872,6 +704,300 @@ export function SkuTable({
           </button>
         </div>
       )}
+
+      {/* Column autofilter popover (fixed-positioned so the table's overflow can't clip it) */}
+      {openCol && openColDef && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpenCol(null)} />
+          <ColumnFilterPopover
+            col={openColDef}
+            state={colFilters[openColDef.key]}
+            distinct={distinctByCol[openColDef.key] ?? []}
+            sort={sort?.key === openColDef.key ? sort.dir : null}
+            x={openCol.x}
+            y={openCol.y}
+            onSort={(dir) => {
+              setSort(dir ? { key: openColDef.key, dir } : null);
+            }}
+            onChange={(patch) => patchFilter(openColDef.key, patch)}
+            onClose={() => setOpenCol(null)}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Column header: label + a funnel that highlights when the column is filtered/sorted. ──
+function ColHeader({
+  col,
+  active,
+  sortDir,
+  onOpen,
+  numeric,
+}: {
+  col: ColDef;
+  active: boolean;
+  sortDir: 'asc' | 'desc' | null;
+  onOpen: (x: number, y: number) => void;
+  numeric: boolean;
+}) {
+  return (
+    <th className={cn('px-3 py-2.5 font-medium', numeric && 'text-right')}>
+      <button
+        onClick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          onOpen(r.left, r.bottom);
+        }}
+        className={cn(
+          'inline-flex items-center gap-1 font-medium uppercase tracking-wide transition-colors hover:text-foreground',
+          active ? 'text-brand-600' : undefined,
+        )}
+        title="Filtrar / ordenar"
+      >
+        {col.label}
+        {sortDir === 'asc' && <ArrowUp size={11} />}
+        {sortDir === 'desc' && <ArrowDown size={11} />}
+        <Filter size={11} className={active ? 'opacity-100' : 'opacity-40'} />
+      </button>
+    </th>
+  );
+}
+
+function ColumnFilterPopover({
+  col,
+  state,
+  distinct,
+  sort,
+  x,
+  y,
+  onSort,
+  onChange,
+  onClose,
+}: {
+  col: ColDef;
+  state: ColFilter | undefined;
+  distinct: string[];
+  sort: 'asc' | 'desc' | null;
+  x: number;
+  y: number;
+  onSort: (dir: 'asc' | 'desc' | null) => void;
+  onChange: (patch: Partial<ColFilter> | null) => void;
+  onClose: () => void;
+}) {
+  const [listSearch, setListSearch] = useState('');
+  const left = Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 260);
+  const allowed = state?.checked; // undefined = all
+  const shownValues = distinct.filter((v) => v.toLowerCase().includes(listSearch.toLowerCase()));
+
+  const toggleValue = (v: string) => {
+    const cur = allowed ?? distinct;
+    const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+    onChange({ checked: next.length === distinct.length ? undefined : next });
+  };
+
+  return (
+    <div
+      className="fixed z-50 w-60 rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
+      style={{ left, top: y + 4 }}
+    >
+      {/* Sort */}
+      <div className="mb-2 flex items-center gap-1">
+        <button
+          onClick={() => onSort(sort === 'asc' ? null : 'asc')}
+          className={cn('inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 font-medium',
+            sort === 'asc' ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 hover:bg-muted')}
+        >
+          <ArrowUp size={12} /> {col.type === 'num' ? 'Menor→maior' : 'A→Z'}
+        </button>
+        <button
+          onClick={() => onSort(sort === 'desc' ? null : 'desc')}
+          className={cn('inline-flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 font-medium',
+            sort === 'desc' ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 hover:bg-muted')}
+        >
+          <ArrowDown size={12} /> {col.type === 'num' ? 'Maior→menor' : 'Z→A'}
+        </button>
+      </div>
+
+      {/* Type-specific filter */}
+      {col.type === 'text' && (
+        <input
+          autoFocus
+          value={state?.search ?? ''}
+          onChange={(e) => onChange(e.target.value ? { search: e.target.value } : { search: undefined })}
+          placeholder={`Contém… (${col.label})`}
+          className="mb-1 h-8 w-full rounded-md border border-border bg-background px-2 outline-none focus:border-brand-500"
+        />
+      )}
+
+      {col.type === 'num' && (
+        <div className="mb-1 flex items-center gap-1">
+          <input
+            type="number"
+            value={state?.min ?? ''}
+            onChange={(e) => onChange({ min: e.target.value === '' ? null : Number(e.target.value) })}
+            placeholder="mín"
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500"
+          />
+          <span className="text-muted-foreground">–</span>
+          <input
+            type="number"
+            value={state?.max ?? ''}
+            onChange={(e) => onChange({ max: e.target.value === '' ? null : Number(e.target.value) })}
+            placeholder="máx"
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-right tabular-nums outline-none focus:border-brand-500"
+          />
+        </div>
+      )}
+
+      {col.type === 'enum' && (
+        <>
+          {distinct.length > 8 && (
+            <input
+              value={listSearch}
+              onChange={(e) => setListSearch(e.target.value)}
+              placeholder="Buscar valor…"
+              className="mb-1 h-7 w-full rounded-md border border-border bg-background px-2 outline-none focus:border-brand-500"
+            />
+          )}
+          <div className="mb-1 flex items-center justify-between px-1 text-[10px] text-muted-foreground">
+            <button onClick={() => onChange({ checked: undefined })} className="hover:text-foreground">Todos</button>
+            <button onClick={() => onChange({ checked: [] })} className="hover:text-foreground">Nenhum</button>
+          </div>
+          <div className="max-h-52 overflow-y-auto rounded-md border border-border/60">
+            {shownValues.map((v) => {
+              const checked = allowed == null || allowed.includes(v);
+              return (
+                <label key={v} className="flex cursor-pointer items-center gap-2 px-2 py-1 hover:bg-muted/50">
+                  <input type="checkbox" checked={checked} onChange={() => toggleValue(v)} className="size-3.5 accent-brand-500" />
+                  <span className="truncate">{v}</span>
+                </label>
+              );
+            })}
+            {shownValues.length === 0 && <p className="px-2 py-1 text-muted-foreground">nenhum valor</p>}
+          </div>
+        </>
+      )}
+
+      <div className="mt-2 flex items-center justify-between">
+        <button
+          onClick={() => {
+            onChange(null);
+            onSort(null);
+          }}
+          className="text-[11px] text-muted-foreground hover:text-alert-error"
+        >
+          Limpar coluna
+        </button>
+        <button onClick={onClose} className="rounded-md bg-brand-500 px-3 py-1 text-[11px] font-medium text-white hover:bg-brand-400">
+          Fechar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function clampNum(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
+}
+
+// Inline recovery editor (Head only): repairable toggle + rate (%) + turnaround (days), saved
+// per row via updateRecoveryPolicy — no need to open the SKU page. Local state is the source of
+// truth after an edit (no page refresh). Number inputs commit on blur, the toggle on click; a
+// `saved` ref suppresses no-op writes so the audit log isn't spammed on a plain focus→blur.
+function RecoveryCell({ row, editable }: { row: SkuRow; editable: boolean }) {
+  const [repairable, setRepairable] = useState(row.isRepairable);
+  const [rate, setRate] = useState(Math.round(row.recoveryRate * 100));
+  const [turn, setTurn] = useState(row.recoveryTurnaroundDays);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [, start] = useTransition();
+  const saved = useRef({
+    repairable: row.isRepairable,
+    rate: Math.round(row.recoveryRate * 100),
+    turn: row.recoveryTurnaroundDays,
+  });
+
+  const commit = (next: { repairable?: boolean; rate?: number; turn?: number }) => {
+    const p = next.repairable ?? repairable;
+    const rt = clampNum(next.rate ?? rate, 0, 100);
+    const tn = clampNum(next.turn ?? turn, 1, 365);
+    if (p === saved.current.repairable && rt === saved.current.rate && tn === saved.current.turn) return;
+    setStatus('saving');
+    start(async () => {
+      const res = await updateRecoveryPolicy(row.skuBase, {
+        recoveryRate: rt / 100,
+        recoveryTurnaroundDays: tn,
+        isRepairable: p,
+      });
+      if (res.ok) {
+        saved.current = { repairable: p, rate: rt, turn: tn };
+        setStatus('saved');
+        setTimeout(() => setStatus('idle'), 1500);
+      } else {
+        setStatus('error');
+      }
+    });
+  };
+
+  if (!editable) {
+    return (
+      <span className="text-xs tabular-nums text-muted-foreground">
+        {repairable ? `${rate}% · ${turn}d` : '—'}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        role="switch"
+        aria-checked={repairable}
+        aria-label={`Recuperável ${row.skuBase}`}
+        title={repairable ? 'Recuperável — clique para desativar' : 'Não recuperável — clique para ativar'}
+        onClick={() => {
+          const v = !repairable;
+          setRepairable(v);
+          commit({ repairable: v });
+        }}
+        className={cn('relative h-4 w-7 shrink-0 rounded-full transition-colors', repairable ? 'bg-brand-500' : 'bg-muted-foreground/30')}
+      >
+        <span className={cn('absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform', repairable ? 'left-3.5' : 'left-0.5')} />
+      </button>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        value={rate}
+        disabled={!repairable}
+        aria-label={`Taxa de recuperação ${row.skuBase} (%)`}
+        onChange={(e) => setRate(clampNum(Number(e.target.value), 0, 100))}
+        onBlur={() => commit({})}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        className="h-7 w-11 rounded border border-border bg-background px-1 text-right text-xs tabular-nums outline-none focus:border-brand-500 disabled:opacity-40"
+      />
+      <span className="text-[10px] text-muted-foreground">%</span>
+      <input
+        type="number"
+        min={1}
+        max={365}
+        value={turn}
+        disabled={!repairable}
+        aria-label={`Turnaround ${row.skuBase} (dias)`}
+        onChange={(e) => setTurn(clampNum(Number(e.target.value), 1, 365))}
+        onBlur={() => commit({})}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        className="h-7 w-10 rounded border border-border bg-background px-1 text-right text-xs tabular-nums outline-none focus:border-brand-500 disabled:opacity-40"
+      />
+      <span className="text-[10px] text-muted-foreground">d</span>
+      <span className="w-3 text-center text-[11px] leading-none">
+        {status === 'saving' ? (
+          <span className="text-muted-foreground">…</span>
+        ) : status === 'saved' ? (
+          <span className="text-alert-success">✓</span>
+        ) : status === 'error' ? (
+          <span className="text-alert-error" title="Erro ao salvar">✗</span>
+        ) : null}
+      </span>
     </div>
   );
 }
@@ -880,8 +1006,8 @@ const INPUT_CLASS =
   'h-8 w-full rounded-md border border-border bg-card px-2.5 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50';
 
 // Register a brand-new SKU: its planning attributes (lead times, national/international,
-// default modal, ABC) + display name. Writes a policy + scope row via createSku, then
-// the page refreshes and the SKU appears (zero stock until inventory for it lands).
+// default modal, ABC) + display name. Writes a policy row via createSku, then the page
+// refreshes and the SKU appears (zero stock until inventory for it lands).
 function AddSkuForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [skuBase, setSkuBase] = useState('');
   const [skuName, setSkuName] = useState('');
@@ -980,176 +1106,7 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function clampNum(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
-}
-
-// Inline recovery editor (Head only): repairable toggle + rate (%) + turnaround (days), saved
-// per row via updateRecoveryPolicy — no need to open the SKU page. Local state is the source of
-// truth after an edit (no page refresh). Number inputs commit on blur, the toggle on click; a
-// `saved` ref suppresses no-op writes so the audit log isn't spammed on a plain focus→blur.
-function RecoveryCell({ row, editable }: { row: SkuRow; editable: boolean }) {
-  const [repairable, setRepairable] = useState(row.isRepairable);
-  const [rate, setRate] = useState(Math.round(row.recoveryRate * 100));
-  const [turn, setTurn] = useState(row.recoveryTurnaroundDays);
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [, start] = useTransition();
-  const saved = useRef({
-    repairable: row.isRepairable,
-    rate: Math.round(row.recoveryRate * 100),
-    turn: row.recoveryTurnaroundDays,
-  });
-
-  const commit = (next: { repairable?: boolean; rate?: number; turn?: number }) => {
-    const p = next.repairable ?? repairable;
-    const rt = clampNum(next.rate ?? rate, 0, 100);
-    const tn = clampNum(next.turn ?? turn, 1, 365);
-    if (p === saved.current.repairable && rt === saved.current.rate && tn === saved.current.turn) return;
-    setStatus('saving');
-    start(async () => {
-      const res = await updateRecoveryPolicy(row.skuBase, {
-        recoveryRate: rt / 100,
-        recoveryTurnaroundDays: tn,
-        isRepairable: p,
-      });
-      if (res.ok) {
-        saved.current = { repairable: p, rate: rt, turn: tn };
-        setStatus('saved');
-        setTimeout(() => setStatus('idle'), 1500);
-      } else {
-        setStatus('error');
-      }
-    });
-  };
-
-  if (!editable) {
-    return (
-      <span className="text-xs tabular-nums text-muted-foreground">
-        {repairable ? `${rate}% · ${turn}d` : '—'}
-      </span>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        role="switch"
-        aria-checked={repairable}
-        aria-label={`Recuperável ${row.skuBase}`}
-        title={repairable ? 'Recuperável — clique para desativar' : 'Não recuperável — clique para ativar'}
-        onClick={() => {
-          const v = !repairable;
-          setRepairable(v);
-          commit({ repairable: v });
-        }}
-        className={cn(
-          'relative h-4 w-7 shrink-0 rounded-full transition-colors',
-          repairable ? 'bg-brand-500' : 'bg-muted-foreground/30',
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform',
-            repairable ? 'left-3.5' : 'left-0.5',
-          )}
-        />
-      </button>
-      <input
-        type="number"
-        min={0}
-        max={100}
-        value={rate}
-        disabled={!repairable}
-        aria-label={`Taxa de recuperação ${row.skuBase} (%)`}
-        onChange={(e) => setRate(clampNum(Number(e.target.value), 0, 100))}
-        onBlur={() => commit({})}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        className="h-7 w-11 rounded border border-border bg-background px-1 text-right text-xs tabular-nums outline-none focus:border-brand-500 disabled:opacity-40"
-      />
-      <span className="text-[10px] text-muted-foreground">%</span>
-      <input
-        type="number"
-        min={1}
-        max={365}
-        value={turn}
-        disabled={!repairable}
-        aria-label={`Turnaround ${row.skuBase} (dias)`}
-        onChange={(e) => setTurn(clampNum(Number(e.target.value), 1, 365))}
-        onBlur={() => commit({})}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        className="h-7 w-10 rounded border border-border bg-background px-1 text-right text-xs tabular-nums outline-none focus:border-brand-500 disabled:opacity-40"
-      />
-      <span className="text-[10px] text-muted-foreground">d</span>
-      <span className="w-3 text-center text-[11px] leading-none">
-        {status === 'saving' ? (
-          <span className="text-muted-foreground">…</span>
-        ) : status === 'saved' ? (
-          <span className="text-alert-success">✓</span>
-        ) : status === 'error' ? (
-          <span className="text-alert-error" title="Erro ao salvar">✗</span>
-        ) : null}
-      </span>
-    </div>
-  );
-}
-
-/** Tiny uppercase label between chip groups. */
+/** Tiny uppercase label between control groups. */
 function Chip({ label }: { label: string }) {
-  return (
-    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{label}</span>
-  );
-}
-
-/** Toggleable filter chip (brand tint when active). */
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-        active ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Clickable column header: asc → desc → cleared. */
-function SortHeader({
-  label,
-  k,
-  sort,
-  onSort,
-  hint,
-}: {
-  label: string;
-  k: SortKey;
-  sort: { key: SortKey; dir: SortDir } | null;
-  onSort: (k: SortKey) => void;
-  hint?: React.ReactNode;
-}) {
-  const active = sort?.key === k;
-  return (
-    <button
-      onClick={() => onSort(k)}
-      className={cn(
-        'inline-flex items-center gap-1 font-medium uppercase tracking-wide transition-colors hover:text-foreground',
-        active ? 'text-brand-600' : undefined,
-      )}
-      title="Ordenar"
-    >
-      {label}
-      {hint}
-      <span className="w-2 text-[9px]">{active ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
-    </button>
-  );
+  return <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{label}</span>;
 }

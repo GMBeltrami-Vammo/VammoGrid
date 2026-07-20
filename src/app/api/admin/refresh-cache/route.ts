@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 // write-path bust (they normally wait out their TTL: forecast 6h, stock 10m, alerts
 // 10m, shares 6h, recovery-rates 6h). Hit this after an upstream SOP run / ledger
 // backfill to see fresh numbers immediately. Tags with an in-app write path (orders,
-// policies, sku-scope, global-settings, compat, fleet-info, hub-max-stock) are
+// policies, global-settings, compat, fleet-info, hub-max-stock) are
 // deliberately NOT listed — their writes already bust them.
 //
 // GET /api/admin/refresh-cache            → refresh all warehouse tags

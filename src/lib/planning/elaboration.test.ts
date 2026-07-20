@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HubId, ProjectionPoint, SkuPolicy, StockProjection, StockState } from '@/types/planning';
 import { addDays, nextFirstOfMonth } from './dates';
+import { computeRunwayDoh } from './doh';
 import {
   findElaborationTrigger,
   floorAtFactory,
@@ -18,6 +19,7 @@ function projection(today: string, start = 100, demand = 1, horizon = 150): Stoc
       date: addDays(today, day),
       day,
       stock,
+      doh: null as number | null,
       stockLo: stock,
       stockHi: stock,
       demand,
@@ -29,13 +31,19 @@ function projection(today: string, start = 100, demand = 1, horizon = 150): Stoc
       extrapolated: false,
     };
   });
+  // Populate the runway DOH the same way projectStream does (for constant unit demand the
+  // integral equals the old stock/rate, so the trigger assertions are unchanged).
+  const dohArr = computeRunwayDoh(timeline);
+  timeline.forEach((p, i) => {
+    p.doh = dohArr[i];
+  });
   return {
     skuBase: 'X',
     skuName: 'Peça X',
     scope: 'global',
     currentStock: start,
     dailyDemand: demand,
-    dohNow: demand > 0 ? start / demand : null,
+    dohNow: dohArr[0],
     stockoutDate: null,
     daysUntilStockout: null,
     incomingUnits: 0,

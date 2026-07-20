@@ -32,9 +32,9 @@ export const EXPLAINERS = {
   },
   doh: {
     title: 'Days on Hand (DOH)',
-    what: 'Quantos dias o estoque atual cobre, ao ritmo de consumo médio. Null quando não há demanda prevista.',
-    formula: 'DOH = avgDaily > 0 ? onHand / avgDaily : —',
-    source: 'Calculado',
+    what: 'Quantos dias o estoque atual dura, integrando o consumo diário PREVISTO até zerar o estoque — ignorando pedidos a caminho. Cai 1/dia; recalcula quando um pedido chega. Além do horizonte do modelo, repete a última semana prevista por dia da semana. Null quando não há consumo previsto (nunca zera).',
+    formula: 'DOH(d) = menor k tal que Σ consumo(d+1..d+k) ≥ estoque(d)',
+    source: 'Calculado (integral da projeção)',
   },
   'stockout-date': {
     title: 'Data de ruptura',
@@ -209,8 +209,8 @@ export const EXPLAINERS = {
   },
   'week-doh': {
     title: 'DOH na semana',
-    what: 'Dias de cobertura no fim da semana. Vermelho = ruptura (≤ 0); amarelo = baixo (DOH < 14).',
-    formula: 'DOH = demanda > 0 ? stock / demanda : —',
+    what: 'Dias de cobertura no fim da semana (runway: consumo previsto integrado até zerar o estoque, ignorando pedidos). Vermelho = ruptura (≤ 0); amarelo = abaixo do piso.',
+    formula: 'DOH(d) = menor k tal que Σ consumo(d+1..d+k) ≥ stock(d)',
     source: 'Calculado',
   },
   'week-inbound': {
@@ -229,9 +229,9 @@ export const EXPLAINERS = {
   // ── SKUs (tabela) ────────────────────────────────────────────────────────────
   'sku-doh': {
     title: 'DOH (tabela de SKUs)',
-    what: 'Dias de cobertura derivados do lead time: usa a demanda diária implícita na demanda do lead time.',
-    formula: 'dailyDemand = demanda no lead time / lead time · DOH = onHand / dailyDemand',
-    source: 'Calculado',
+    what: 'Dias de cobertura: consumo diário previsto integrado até zerar o estoque (ignora pedidos a caminho).',
+    formula: 'DOH = menor k tal que Σ consumo(1..k) ≥ estoque atual',
+    source: 'Calculado (integral da projeção)',
   },
 
   // ── Recuperação ───────────────────────────────────────────────────────────────

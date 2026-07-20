@@ -11,6 +11,7 @@ import { countsAsInbound } from '@/types/planning';
 import { ABC_Z, BAND_Z, HORIZON_DAYS } from './constants';
 import { addDays, diffDays } from './dates';
 import { buildDailyDemand, cumsum } from './forecast';
+import { buildDohContext, runwayFrom } from './doh';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Purchase Recommendation Engine
@@ -118,9 +119,11 @@ export function purchaseForSku({
   const z = serviceLevelZ ?? ABC_Z[policy.abcClass];
   const safety = policy.safetyOverride ?? z * sigmaL;
   const rop = expectedLeadTimeDemand + safety;
-  // ROP in days of cover (B4): the statistical reorder point as DOH, for the SKU
-  // detail view. meanDailyDemand is the average daily demand over the lead time.
-  const ropDoh = meanDailyDemand > 0 ? rop / meanDailyDemand : null;
+  // ROP in days of cover (B4): the reorder point expressed as a RUNWAY — how many days `rop`
+  // units last against predicted consumption (same integral as the canonical DOH), for the
+  // SKU detail view. Consistent with dohNow / the heatmap coverage.
+  const ropCtx = buildDohContext(demand.yhat.map((v) => ({ stock: 0, demand: v })));
+  const ropDoh = runwayFrom(ropCtx, 0, rop);
   const orderUpTo = cumD[Math.min(L + targetDoi, days)] + safety;
 
   // Net depletion: stock walked down by demand, topped up by expected receipts.

@@ -15,7 +15,8 @@ import {
   YAxis,
 } from 'recharts';
 import type { ProjectionPoint } from '@/types/planning';
-import { forwardAvgDemand, type PoArrival } from '@/lib/planning/projection';
+import { type PoArrival } from '@/lib/planning/projection';
+import { buildDohContext, runwayFrom } from '@/lib/planning/doh';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
 
@@ -65,15 +66,16 @@ export function ProjectionChart({
   const router = useRouter();
   const [unit, setUnit] = useState<ChartUnit>(defaultUnit);
   const isDoh = unit === 'doh';
-  // Days-of-cover divisor: the avg daily demand over the NEXT 7 days at each point
-  // (canonical DOH rate), computed from the full-horizon source so a windowed chart
-  // matches the full one. History uses today's forward rate.
+  // DOH = the runway from a given stock at a given day (integral; see doh.ts) — read off the
+  // precomputed point.doh where a series has one (main line, overlays), and computed from the
+  // full-horizon demand otherwise (band, history) so a windowed chart matches the full one.
   const rateData = rateSource ?? timeline;
-  const todayRate = forwardAvgDemand(rateData, timeline[0]?.day ?? 0, 7);
-  const toVal = (units: number | undefined, rate: number): number | undefined => {
+  const dohCtx = buildDohContext(rateData);
+  const toVal = (units: number | undefined, day: number, pre?: number | null): number | undefined => {
     if (units == null) return undefined;
     if (!isDoh) return units;
-    return rate > 0 ? Math.round(units / rate) : undefined;
+    const d = pre !== undefined ? pre : runwayFrom(dohCtx, day, units);
+    return d == null ? undefined : d;
   };
   const yLabel = isDoh ? 'Cobertura (dias — DOH)' : 'Unidades (peças)';
   const fmtY = (v: number) => (isDoh ? `${fmtInt(v)}d` : fmtInt(v));
@@ -87,7 +89,7 @@ export function ProjectionChart({
     .filter((h) => !todayMarker || h.date < todayMarker)
     .map((h) => ({
       date: h.date,
-      stock: toVal(h.stock, todayRate),
+      stock: toVal(h.stock, 0),
       band: undefined as [number, number] | undefined,
       bandExtrap: undefined as [number, number] | undefined,
       sim: undefined as number | undefined,
@@ -100,18 +102,17 @@ export function ProjectionChart({
   const projData = timeline.map((p, i) => {
     const nextExtrap = i + 1 < timeline.length ? timeline[i + 1].extrapolated : false;
     const isBoundary = !p.extrapolated && nextExtrap;
-    const rate = forwardAvgDemand(rateData, p.day, 7);
-    const lo = toVal(p.stockLo, rate);
-    const hi = toVal(p.stockHi, rate);
+    const lo = toVal(p.stockLo, p.day);
+    const hi = toVal(p.stockHi, p.day);
     const band = lo != null && hi != null ? ([lo, hi] as [number, number]) : undefined;
     return {
       date: p.date,
-      stock: toVal(p.stock, rate),
+      stock: toVal(p.stock, p.day, p.doh),
       band: p.extrapolated ? undefined : band,
       bandExtrap: p.extrapolated || isBoundary ? band : undefined,
-      sim: toVal(overlayTimeline?.[i]?.stock, rate),
-      sugg: toVal(suggestionTimeline?.[i]?.stock, rate),
-      back: toVal(p.backlog, rate),
+      sim: toVal(overlayTimeline?.[i]?.stock, p.day, overlayTimeline?.[i]?.doh),
+      sugg: toVal(suggestionTimeline?.[i]?.stock, p.day, suggestionTimeline?.[i]?.doh),
+      back: isDoh ? undefined : p.backlog,
     };
   });
   // Backlog line only when there IS unmet demand — an always-zero red line is noise.

@@ -67,14 +67,13 @@ export function findElaborationTrigger(args: {
   let breachDoh: number | null = null;
   for (const p of projection.timeline) {
     if (p.day === 0) continue;
-    const rate = forwardAvgDemand(projection.timeline, p.day, 7);
-    const doh = rate > 0 ? p.stock / rate : null;
+    const doh = p.doh; // precomputed runway DOH (integral; ignores inbound)
     const floor = floorAt ? floorAt(p.day) : criteria.dohThreshold;
     const breached =
       criteria.mode === 'rop' ? rop > 0 && p.stock < rop : doh != null && doh < floor;
     if (breached) {
       firstBreachDate = p.date;
-      breachDoh = doh != null ? Math.round(doh) : null;
+      breachDoh = doh;
       break;
     }
   }

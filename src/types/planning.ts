@@ -170,6 +170,9 @@ export interface ProjectionPoint {
   day: number;
   /** Projected end-of-day on-hand (clamped ≥ 0). */
   stock: number;
+  /** Runway DOH at this day: days the stock lasts against predicted consumption, ignoring
+   *  incoming orders (integral). null = no consumption ahead (never runs out). See doh.ts. */
+  doh: number | null;
   /** Band from the forecast lo/hi (optimistic / pessimistic stock). */
   stockLo: number;
   stockHi: number;

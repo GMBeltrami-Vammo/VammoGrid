@@ -1,9 +1,11 @@
 import type { SkuForecast } from '@/types/planning';
 
-// Turns a SkuForecast (sparse, model-horizon-bounded) into dense daily arrays out to
-// an arbitrary number of days, extrapolating past the model horizon by the mean of
-// the last `tailWindow` forecast days. This is the lab's `opCumArr` tail-mean
-// extension — it lets us project to 150 days even though the model only emits 90.
+// Turns a SkuForecast (sparse, model-horizon-bounded) into dense daily arrays out to an
+// arbitrary number of days. Past the model horizon it REPEATS THE LAST PREDICTED WEEK by
+// weekday (the last 7 in-horizon days, cycled) so the weekday pattern (e.g. low Sundays) is
+// preserved rather than flattened — this lets us project to 150 days even though the model
+// only emits ~90, and feeds the runway-DOH integral. (Sparse gaps INSIDE the horizon still
+// fall back to the last-`tailWindow` mean.)
 
 export interface DailyDemand {
   /** yhat[d] = forecast demand on day d (index 0 = today, unused, = 0). */
@@ -43,10 +45,18 @@ export function buildDailyDemand(
         yhat[d] = p.yhat;
         lo[d] = p.lo;
         hi[d] = p.hi;
-      } else {
+      } else if (d <= horizon) {
+        // Sparse gap inside the model horizon → tail-mean fallback.
         yhat[d] = tailY;
         lo[d] = tailLo;
         hi[d] = tailHi;
+      } else {
+        // Past the model horizon → repeat the last predicted week by weekday (cycle the
+        // last 7 in-horizon days), preserving the weekday pattern instead of flattening it.
+        const src = Math.max(1, horizon - 6 + ((d - horizon - 1) % 7));
+        yhat[d] = yhat[src];
+        lo[d] = lo[src];
+        hi[d] = hi[src];
       }
     }
   }

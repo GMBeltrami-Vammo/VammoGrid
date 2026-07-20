@@ -25,7 +25,8 @@ import {
 } from './constants';
 import { addDays, diffDays } from './dates';
 import { defaultPolicyFor } from './policy';
-import { forwardAvgDemand, projectGlobal, projectSku, type SkuProjections } from './projection';
+import { projectGlobal, projectSku, type SkuProjections } from './projection';
+import { buildDohContext, consumptionOver } from './doh';
 import type { ModalOption } from './supplierGroups';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -183,9 +184,9 @@ function sampleCells(
   return weeks.map((w, wi) => {
     const end = proj.timeline[w.dayOffset];
     const stock = end?.stock ?? 0;
-    // DOH = stock ÷ the NEXT 7 days' average daily demand (not the single end-of-week
-    // day, which was erratic). Consistent with the SKU-detail chart + breach detection.
-    const fwd = forwardAvgDemand(proj.timeline, w.dayOffset, 7);
+    // DOH = the precomputed runway (days the stock lasts vs predicted consumption, ignoring
+    // inbound) — the canonical metric, read straight off the projection point (see doh.ts).
+    const doh = end?.doh ?? null;
     // Sum inbound + recovery over the 7 days that make up this week.
     let inbound = 0;
     let recovery = 0;
@@ -195,7 +196,6 @@ function sampleCells(
       inbound += p.inbound;
       recovery += p.recovery;
     }
-    const doh = fwd > 0 ? Math.round(stock / fwd) : null;
     const isLow = criteria.mode === 'rop' ? rop > 0 && stock < rop : doh != null && doh < floor;
 
     const arrivals: WeekArrival[] = [];
@@ -242,9 +242,7 @@ function firstBreachDay(
     if (criteria.mode === 'rop') {
       if (rop > 0 && p.stock < rop) return d;
     } else {
-      const fwd = forwardAvgDemand(proj.timeline, d, 7);
-      if (fwd <= 0) continue;
-      if (p.stock / fwd < floor) return d;
+      if (p.doh != null && p.doh < floor) return d;
     }
   }
   return -1;
@@ -361,10 +359,11 @@ function whenNeededInjection(args: {
     const arrivalOffset = lane.leadDays <= bd ? bd : lane.leadDays;
     if (arrivalOffset > horizonDays) break; // can't arrive within the window → no help here
     const plan = planFor(lane.name);
-    const rate = forwardAvgDemand(proj.timeline, arrivalOffset, 7);
     const stockAtArrival = proj.timeline[arrivalOffset]?.stock ?? 0;
-    // Order-up-to (piso + cadência) of cover at the arrival — "frequency = cobertura".
-    const qty = Math.round((plan.minDoh + plan.cadence) * rate - stockAtArrival);
+    // Order-up-to (piso + cadência) DAYS of cover at the arrival — sized by the INTEGRATED
+    // consumption over that many days (runway definition), not a flat rate × days.
+    const ctx = buildDohContext(proj.timeline);
+    const qty = Math.round(consumptionOver(ctx, arrivalOffset, plan.minDoh + plan.cadence) - stockAtArrival);
     if (qty < 1) break; // already at/above the target → nothing useful to add
     const ord: OpenPurchaseOrder = {
       id: `scn-${iter}`,

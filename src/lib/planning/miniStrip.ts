@@ -1,5 +1,6 @@
 import type { StockProjection } from '@/types/planning';
-import { forwardAvgDemand, projectStream } from './projection';
+import { projectStream } from './projection';
+import { buildDohContext, consumptionOver } from './doh';
 import type { ModalPlan, ModalQty } from './elaboration';
 
 // Client-safe engine reuse for the Novo Pedido builder (F5). The projection engine is
@@ -82,26 +83,25 @@ export interface MiniCell {
   isOut: boolean;
 }
 
-/** Sample a projection at the given day-offsets (0, 7, 14, …) into week cells — the same
- *  metric the Projeção Global heatmap shows (stock ÷ next-7-day avg demand). */
+/** Sample a projection at the given day-offsets (0, 7, 14, …) into week cells — reading the
+ *  precomputed runway DOH off each point (same canonical metric as the big heatmap). */
 export function sampleMiniStrip(proj: StockProjection, weekOffsets: number[], floor: number): MiniCell[] {
   return weekOffsets.map((offset, weekIdx) => {
-    const stock = proj.timeline[offset]?.stock ?? 0;
-    const rate = forwardAvgDemand(proj.timeline, offset, 7);
-    const doh = rate > 0 ? Math.round(stock / rate) : null;
+    const p = proj.timeline[offset];
+    const stock = p?.stock ?? 0;
+    const doh = p?.doh ?? null;
     return { weekIdx, offset, stock, doh, isLow: doh != null && doh < floor, isOut: stock <= 0 };
   });
 }
 
-/** Lowest DOH over [0..horizonDays] — powers the "aparece se algum dia furar o DOH mínimo"
- *  filter (coverage horizon + min DOH). null when demand is zero throughout. */
+/** Lowest runway DOH over [0..horizonDays] — powers the "aparece se algum dia furar o DOH
+ *  mínimo" filter (coverage horizon + min DOH). null when demand is zero throughout. */
 export function minDohWithin(proj: StockProjection, horizonDays: number): number | null {
   let min: number | null = null;
   const last = Math.min(horizonDays, proj.timeline.length - 1);
   for (let d = 0; d <= last; d++) {
-    const rate = forwardAvgDemand(proj.timeline, d, 7);
-    if (rate <= 0) continue;
-    const doh = proj.timeline[d].stock / rate;
+    const doh = proj.timeline[d]?.doh;
+    if (doh == null) continue;
     if (min == null || doh < min) min = doh;
   }
   return min;
@@ -153,17 +153,18 @@ export function suggestCascadeQuantities(args: {
     // coverage this lane must fill at day d is measured against the UNFLOORED continuation from
     // its start: cont(d) = stock(d) − (backlog(d) − backlog(a−1)) — the floored stock minus only
     // the demand LOST after the lane begins. Q = the deepest shortfall below the target over the
-    // window; injecting it makes stock(d) = cont(d) + Q ≥ level·rate > 0 throughout (so it never
-    // re-floors, and the linear add is exact). No iteration → can't cap-out on a deep window.
+    // window; injecting it makes stock(d) = cont(d) + Q ≥ consumptionOver(d, level) throughout
+    // (so it never re-floors, and the linear add is exact). No iteration → can't cap-out.
     const proj = projectFromSeed(args.seed, injected, args.today);
     const tl = proj.timeline;
+    const ctx = buildDohContext(tl);
     const backAtStart = a > 0 ? tl[a - 1]?.backlog ?? 0 : 0;
     let qty = 0;
     for (let d = a; d <= windowEnd; d++) {
-      const rate = forwardAvgDemand(tl, d, 7);
-      if (rate <= 0) continue;
+      // Stock to hold `level` DAYS of cover at day d = integrated consumption over the next
+      // `level` days (runway definition), measured against the unfloored continuation `cont`.
       const cont = (tl[d]?.stock ?? 0) - ((tl[d]?.backlog ?? 0) - backAtStart);
-      const need = level * rate - cont;
+      const need = consumptionOver(ctx, d, level) - cont;
       if (need > qty) qty = need;
     }
     qty = Math.max(0, Math.round(qty));

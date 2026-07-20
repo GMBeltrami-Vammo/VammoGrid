@@ -12,6 +12,7 @@ import { countsAsInbound } from '@/types/planning';
 import { HORIZON_DAYS } from './constants';
 import { addDays, diffDays } from './dates';
 import { buildDailyDemand, type DailyDemand } from './forecast';
+import { computeRunwayDoh } from './doh';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Projection Engine — the per-day inventory walk, for scope ∈ {global, hub, SKU}.
@@ -231,6 +232,7 @@ export function projectStream(i: StreamInput): StockProjection {
       date: addDays(i.today, d),
       day: d,
       stock: Math.max(0, Math.round(stock)),
+      doh: null, // filled after the walk (needs the full demand series) — see below
       stockLo: Math.max(0, Math.round(stockLo)),
       stockHi: Math.max(0, Math.round(stockHi)),
       demand: round1(demand),
@@ -243,19 +245,20 @@ export function projectStream(i: StreamInput): StockProjection {
     });
   }
 
-  // Current coverage uses the NEXT 7 days' average daily demand (the canonical DOH
-  // rate) so it matches the projection chart's starting point and the heatmap cells —
-  // one definition of "days of cover" everywhere. dailyDemand stays a 30-day mean (a
-  // stable "typical consumption" figure).
-  const nextWeekRate = forwardAvgDemand(timeline, 0, 7);
-  const dohNow = nextWeekRate > 0 ? i.startStock / nextWeekRate : null;
+  // Runway DOH per day (integral; ignores inbound — see doh.ts) is THE coverage metric
+  // everywhere: assign it onto each point so consumers read point.doh instead of recomputing.
+  // dohNow = the runway from today's stock. dailyDemand stays a 30-day mean (a stable
+  // "typical consumption" figure, distinct from coverage).
+  const dohArr = computeRunwayDoh(timeline);
+  for (let d = 0; d < timeline.length; d++) timeline[d].doh = dohArr[d];
+  const dohNow = dohArr[0];
   return {
     skuBase: i.skuBase,
     skuName: i.skuName,
     scope: i.scope,
     currentStock: i.startStock,
     dailyDemand: round1(avgDaily),
-    dohNow: dohNow != null ? round1(dohNow) : null,
+    dohNow,
     stockoutDate: stockoutDay != null ? addDays(i.today, stockoutDay) : null,
     daysUntilStockout: stockoutDay,
     incomingUnits,

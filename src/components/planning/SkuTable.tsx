@@ -82,10 +82,18 @@ interface ColDef {
   sortGet?: (r: SkuRow) => string | number;
 }
 
+/** Bike-model compatibility as ONE categorical value (the user's "CPX, Comfort ou ambos"). */
+function modelLabel(models: string[]): string {
+  const cpx = models.includes('cpx');
+  const comfort = models.includes('comfort');
+  return cpx && comfort ? 'Ambos' : cpx ? 'CPX' : comfort ? 'COMFORT' : '—';
+}
+
 const COLUMNS: ColDef[] = [
   { key: 'skuBase', label: 'SKU', type: 'text', get: (r) => r.skuBase },
   { key: 'skuName', label: 'Nome', type: 'text', get: (r) => r.skuName },
   { key: 'abcClass', label: 'Classe', type: 'enum', get: (r) => r.abcClass },
+  { key: 'models', label: 'Moto', type: 'enum', get: (r) => modelLabel(r.models) },
   { key: 'onHand', label: 'Estoque', type: 'num', get: (r) => r.onHand },
   { key: 'osasco', label: 'OSA', type: 'num', get: (r) => r.byHub.osasco },
   { key: 'mooca', label: 'MOO', type: 'num', get: (r) => r.byHub.mooca },
@@ -365,7 +373,7 @@ export function SkuTable({
   // CSV = the FULL filtered set, every remaining column.
   const exportCsv = () => {
     const header = [
-      'sku', 'nome', 'classe', 'status', 'estoque_total', 'osasco', 'mooca', 'sbc',
+      'sku', 'nome', 'classe', 'moto', 'status', 'estoque_total', 'osasco', 'mooca', 'sbc',
       'consumo_dia', 'recuperavel', 'taxa_recuperacao_pct', 'turnaround_dias',
       'fornecedor', 'origem', 'ruptura', 'selecionado',
     ];
@@ -374,6 +382,7 @@ export function SkuTable({
         r.skuBase,
         `"${r.skuName.replace(/"/g, '""')}"`,
         r.abcClass,
+        modelLabel(r.models),
         r.status,
         r.onHand,
         r.byHub.osasco,
@@ -659,6 +668,15 @@ export function SkuTable({
                       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', ABC_CLASS[r.abcClass] ?? 'text-muted-foreground')}>
                         {r.abcClass}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {modelLabel(r.models) === '—' ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-foreground">
+                          {modelLabel(r.models)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.onHand)}</td>
                     <td className="px-2 py-2 text-right tabular-nums text-xs text-muted-foreground">{fmtInt(r.byHub.osasco)}</td>

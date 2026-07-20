@@ -61,7 +61,10 @@ export default async function SkusPage() {
       models: [...(snap.compatModels.get(p.skuBase) ?? [])],
       hasForecast: snap.forecasts.has(p.skuBase),
       isNational: policy?.leadTimeSource === 'national-file',
-      isRepairable: stock?.isRepairable ?? false,
+      // Recovery — the resolved policy value (override else stock), i.e. what the engine uses.
+      isRepairable: policy?.isRepairable ?? stock?.isRepairable ?? false,
+      recoveryRate: policy?.recoveryRate ?? 0,
+      recoveryTurnaroundDays: policy?.recoveryTurnaroundDays ?? 14,
       supplierName: supplierNameFor(p.skuBase),
     };
   });
@@ -87,7 +90,9 @@ export default async function SkusPage() {
       models: [...(snap.compatModels.get(base) ?? [])],
       hasForecast: snap.forecasts.has(base),
       isNational: pol.leadTimeSource === 'national-file',
-      isRepairable: false,
+      isRepairable: pol.isRepairable ?? false,
+      recoveryRate: pol.recoveryRate ?? 0,
+      recoveryTurnaroundDays: pol.recoveryTurnaroundDays ?? 14,
       supplierName: supplierNameFor(base),
     });
   }

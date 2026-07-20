@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Check, Download, Link2, Plus, X } from 'lucide-react';
@@ -12,6 +12,7 @@ import { MODEL_LABELS } from '@/constants/models';
 import { MAX_SELECTED_SKUS } from '@/lib/planning/filter';
 import { writeSkusCookies } from '@/lib/planning/applyFilter';
 import { createSku, setSkuScope } from '@/app/dashboard/skus/actions';
+import { updateRecoveryPolicy } from '@/app/dashboard/sku/[sku]/actions';
 import { linkSkusToSupplier } from '@/app/dashboard/fornecedores/actions';
 import { cn } from '@/lib/utils';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
@@ -38,6 +39,10 @@ export interface SkuRow {
   /** National vs international sourcing — local filter + display. */
   isNational: boolean;
   isRepairable: boolean;
+  /** Recovery rate (fraction 0–1) — the inline-editable Recuperação column. */
+  recoveryRate: number;
+  /** Recovery turnaround (days) — inline-editable. */
+  recoveryTurnaroundDays: number;
   /** Preferred supplier name (null = no supplier linked). */
   supplierName: string | null;
 }
@@ -51,6 +56,7 @@ type SortKey =
   | 'sbc'
   | 'dailyDemand'
   | 'dohDays'
+  | 'recovery'
   | 'status'
   | 'supplierName';
 type SortDir = 'asc' | 'desc';
@@ -67,6 +73,8 @@ function sortValue(r: SkuRow, key: SortKey): number | string {
     case 'dailyDemand': return r.dailyDemand;
     // null coverage (sem demanda) sorts last regardless of direction intent → +∞.
     case 'dohDays': return r.dohDays ?? Number.POSITIVE_INFINITY;
+    // Non-repairable SKUs (no recovery) sort below any repairable rate.
+    case 'recovery': return r.isRepairable ? r.recoveryRate : -1;
     case 'status': return STATUS_RANK[r.status];
     case 'supplierName': return r.supplierName ?? '￿'; // no supplier sorts last
   }
@@ -353,6 +361,7 @@ export function SkuTable({
     const header = [
       'sku', 'nome', 'categoria', 'classe', 'status', 'estoque_total',
       'osasco', 'mooca', 'sbc', 'consumo_dia', 'cobertura_dias', 'ruptura',
+      'recuperavel', 'taxa_recuperacao_pct', 'turnaround_dias',
       'fornecedor', 'origem', 'em_escopo', 'selecionado',
     ];
     const lines = filtered.map((r) =>
@@ -369,6 +378,9 @@ export function SkuTable({
         r.dailyDemand.toFixed(2),
         r.dohDays ?? '',
         r.stockoutDate ?? '',
+        r.isRepairable ? 'sim' : 'nao',
+        r.isRepairable ? Math.round(r.recoveryRate * 100) : '',
+        r.isRepairable ? r.recoveryTurnaroundDays : '',
         r.supplierName ? `"${r.supplierName.replace(/"/g, '""')}"` : '',
         r.isNational ? 'nacional' : 'internacional',
         scope.has(r.skuBase) ? 'sim' : 'nao',
@@ -711,6 +723,9 @@ export function SkuTable({
                 <SortHeader label="Cobertura" k="dohDays" sort={sort} onSort={toggleSort} hint={<InfoHint id="sku-doh" />} />
               </th>
               <th className="px-3 py-2.5 font-medium">
+                <SortHeader label="Recuperação" k="recovery" sort={sort} onSort={toggleSort} hint={<InfoHint id="recovery-rate" />} />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
                 <SortHeader label="Fornecedor" k="supplierName" sort={sort} onSort={toggleSort} />
               </th>
               <th className="px-3 py-2.5 font-medium">
@@ -724,7 +739,7 @@ export function SkuTable({
           <tbody className="divide-y divide-foreground/5">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={hasScope ? 15 : 14} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={hasScope ? 16 : 15} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   Nenhum SKU encontrado.
                 </td>
               </tr>
@@ -814,6 +829,9 @@ export function SkuTable({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {r.dohDays != null ? `${fmtInt(r.dohDays)}d` : '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <RecoveryCell row={r} editable={isHead} />
                     </td>
                     <td className="max-w-[120px] truncate px-3 py-2 text-xs text-muted-foreground" title={r.supplierName ?? undefined}>
                       {r.supplierName ?? '—'}
@@ -959,6 +977,119 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
       <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+function clampNum(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
+}
+
+// Inline recovery editor (Head only): repairable toggle + rate (%) + turnaround (days), saved
+// per row via updateRecoveryPolicy — no need to open the SKU page. Local state is the source of
+// truth after an edit (no page refresh). Number inputs commit on blur, the toggle on click; a
+// `saved` ref suppresses no-op writes so the audit log isn't spammed on a plain focus→blur.
+function RecoveryCell({ row, editable }: { row: SkuRow; editable: boolean }) {
+  const [repairable, setRepairable] = useState(row.isRepairable);
+  const [rate, setRate] = useState(Math.round(row.recoveryRate * 100));
+  const [turn, setTurn] = useState(row.recoveryTurnaroundDays);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [, start] = useTransition();
+  const saved = useRef({
+    repairable: row.isRepairable,
+    rate: Math.round(row.recoveryRate * 100),
+    turn: row.recoveryTurnaroundDays,
+  });
+
+  const commit = (next: { repairable?: boolean; rate?: number; turn?: number }) => {
+    const p = next.repairable ?? repairable;
+    const rt = clampNum(next.rate ?? rate, 0, 100);
+    const tn = clampNum(next.turn ?? turn, 1, 365);
+    if (p === saved.current.repairable && rt === saved.current.rate && tn === saved.current.turn) return;
+    setStatus('saving');
+    start(async () => {
+      const res = await updateRecoveryPolicy(row.skuBase, {
+        recoveryRate: rt / 100,
+        recoveryTurnaroundDays: tn,
+        isRepairable: p,
+      });
+      if (res.ok) {
+        saved.current = { repairable: p, rate: rt, turn: tn };
+        setStatus('saved');
+        setTimeout(() => setStatus('idle'), 1500);
+      } else {
+        setStatus('error');
+      }
+    });
+  };
+
+  if (!editable) {
+    return (
+      <span className="text-xs tabular-nums text-muted-foreground">
+        {repairable ? `${rate}% · ${turn}d` : '—'}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        role="switch"
+        aria-checked={repairable}
+        aria-label={`Recuperável ${row.skuBase}`}
+        title={repairable ? 'Recuperável — clique para desativar' : 'Não recuperável — clique para ativar'}
+        onClick={() => {
+          const v = !repairable;
+          setRepairable(v);
+          commit({ repairable: v });
+        }}
+        className={cn(
+          'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+          repairable ? 'bg-brand-500' : 'bg-muted-foreground/30',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform',
+            repairable ? 'left-3.5' : 'left-0.5',
+          )}
+        />
+      </button>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        value={rate}
+        disabled={!repairable}
+        aria-label={`Taxa de recuperação ${row.skuBase} (%)`}
+        onChange={(e) => setRate(clampNum(Number(e.target.value), 0, 100))}
+        onBlur={() => commit({})}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        className="h-7 w-11 rounded border border-border bg-background px-1 text-right text-xs tabular-nums outline-none focus:border-brand-500 disabled:opacity-40"
+      />
+      <span className="text-[10px] text-muted-foreground">%</span>
+      <input
+        type="number"
+        min={1}
+        max={365}
+        value={turn}
+        disabled={!repairable}
+        aria-label={`Turnaround ${row.skuBase} (dias)`}
+        onChange={(e) => setTurn(clampNum(Number(e.target.value), 1, 365))}
+        onBlur={() => commit({})}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        className="h-7 w-10 rounded border border-border bg-background px-1 text-right text-xs tabular-nums outline-none focus:border-brand-500 disabled:opacity-40"
+      />
+      <span className="text-[10px] text-muted-foreground">d</span>
+      <span className="w-3 text-center text-[11px] leading-none">
+        {status === 'saving' ? (
+          <span className="text-muted-foreground">…</span>
+        ) : status === 'saved' ? (
+          <span className="text-alert-success">✓</span>
+        ) : status === 'error' ? (
+          <span className="text-alert-error" title="Erro ao salvar">✗</span>
+        ) : null}
+      </span>
+    </div>
   );
 }
 

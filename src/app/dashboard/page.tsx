@@ -70,7 +70,7 @@ export default async function ExecutiveDashboard() {
           title="Sem dados de estoque"
           hint={
             snap.backend === 'clickhouse'
-              ? 'Nenhum SKU no escopo/filtro atual. Limpe os filtros no topo ou ajuste o escopo padrão na aba SKUs.'
+              ? 'A seleção aplicada não corresponde a nenhum SKU com estoque. Ajuste ou limpe a seleção na aba SKUs ("Aplicar seleção ao app" — seleção vazia = catálogo inteiro).'
               : 'Configure CLICKHOUSE_HOST/USER/PASSWORD/DATABASE para carregar estoque, previsão e movimentos.'
           }
         />

@@ -434,7 +434,11 @@ export async function computeElaborations(
         .filter((o) => OPEN_PO_STATUSES.has(o.status) && countsAsInbound(o.prepStatus))
         .map((o) => {
           const eta = o.eta ?? (o.leadTimeDays != null ? addDays(o.orderDate, o.leadTimeDays) : null);
-          const dayOffset = eta ? diffDays(inp.today, eta) : -1;
+          // Overdue-but-open POs land at day 0 in the projection (bucketReceipts floors a
+          // negative offset to 0 and still credits the units), so surface them at "today" here
+          // too — else the Pedidos column + arrows would hide an order whose units already prop
+          // up the coverage numbers shown alongside.
+          const dayOffset = eta ? Math.max(0, diffDays(inp.today, eta)) : -1;
           return { vo: o.vo, name: o.pedidoName ?? null, dayOffset, qty: o.qty, modal: o.modal };
         })
         .filter((o) => o.dayOffset >= 0 && o.dayOffset <= H);

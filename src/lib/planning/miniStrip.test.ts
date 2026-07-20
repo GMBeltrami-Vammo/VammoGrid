@@ -173,6 +173,26 @@ describe('suggestCascadeQuantities', () => {
     expect(c60).toBe(c30 + 30);
   });
 
+  it('wide bridge window (low piso, far next lane) is sized exactly — no iteration-cap under-order', () => {
+    // Air arrival 15 (piso 20), Sea (slowest) arrival 300 → a ~285-day bridge that stays
+    // stocked-out at its deepest point. An iterative fixed-point adding piso·rate per floored
+    // round would cap out (8·20=160) and leave DOH at 0 across most of the window; the closed
+    // form sizes it to actually hold 20 DOH all the way to the sea arrival.
+    const s = seed(48, 320);
+    const q = suggestCascadeQuantities({
+      seed: s,
+      plans: [
+        { modal: { id: 'air', name: 'Aéreo', leadDays: 15 }, minDoh: 20, cadenceDays: null, enabled: true },
+        { modal: { id: 'sea', name: 'Marítimo', leadDays: 300 }, minDoh: 75, cadenceDays: 30, enabled: true },
+      ],
+      today: TODAY,
+    });
+    const air = q.find((x) => x.modalId === 'air')!.qty;
+    expect(air).toBeGreaterThan(160); // an 8-iter cap would have stopped at ~160
+    const proj = projectFromSeed(s, [{ offset: 15, qty: air }], TODAY);
+    for (let d = 15; d <= 300; d++) expect(doh(proj, d)).toBeGreaterThanOrEqual(19);
+  });
+
   it('layered low pisos: the faster lane holds its (lower) floor even when it re-floors mid-window', () => {
     const s = scenario();
     const q = suggestCascadeQuantities({

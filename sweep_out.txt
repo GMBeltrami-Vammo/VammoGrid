@@ -1,0 +1,11 @@
+REPLICA MAX=8: qty=120 iters=8
+  iter0: qty(before)=0.00 worst=15.000
+  iter1: qty(before)=15.00 worst=15.000
+  iter2: qty(before)=30.00 worst=15.000
+  iter3: qty(before)=45.00 worst=15.000
+  iter4: qty(before)=60.00 worst=15.000
+  iter5: qty(before)=75.00 worst=15.000
+  iter6: qty(before)=90.00 worst=15.000
+  iter7: qty(before)=105.00 worst=15.000
+REAL courier qty=132
+REAL sea qty=90

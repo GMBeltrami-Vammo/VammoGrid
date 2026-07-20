@@ -120,10 +120,8 @@ export function minDohWithin(proj: StockProjection, horizonDays: number): number
 //     arrival — coverage lands at its piso exactly when the next lane comes in;
 //   • the SLOWEST lane order-up-to (piso + cadência) at its arrival (the volume/sustainer).
 // Each lane is sized against a fresh re-projection that already includes the faster lanes'
-// injected units, via a fixed-point that fills the deepest DOH shortfall in the lane's window
-// (robust to intermediate stockout flooring — a low-piso faster lane may re-floor mid-window).
-
-const CASCADE_MAX_ITERS = 8;
+// injected units, in ONE pass (see the per-lane note) — no iteration cap, so a wide/low-piso
+// bridge window can never be silently under-ordered.
 
 export function suggestCascadeQuantities(args: {
   seed: MiniProjSeed;
@@ -149,25 +147,24 @@ export function suggestCascadeQuantities(args: {
     const windowEnd = isSlowest ? a : clampDay(lanes[i + 1].arrival);
     const level = lane.minDoh + (isSlowest ? lane.cadenceDays ?? 0 : 0);
 
-    // Fixed-point on the re-projection: measure the deepest unit shortfall below the target
-    // over the window (on the floored walk that already carries the faster lanes + this lane's
-    // running qty), add it, repeat. Converges monotonically from below (no overshoot).
+    // Re-project WITH the faster lanes already placed, then size this lane in ONE exact pass.
+    // Injecting Q at day `a` adds linearly to the walk from its arrival, but only against the
+    // FLOORED stock at a−1 (lost-sales: pre-arrival shortfall is gone, never repaid). So the
+    // coverage this lane must fill at day d is measured against the UNFLOORED continuation from
+    // its start: cont(d) = stock(d) − (backlog(d) − backlog(a−1)) — the floored stock minus only
+    // the demand LOST after the lane begins. Q = the deepest shortfall below the target over the
+    // window; injecting it makes stock(d) = cont(d) + Q ≥ level·rate > 0 throughout (so it never
+    // re-floors, and the linear add is exact). No iteration → can't cap-out on a deep window.
+    const proj = projectFromSeed(args.seed, injected, args.today);
+    const tl = proj.timeline;
+    const backAtStart = a > 0 ? tl[a - 1]?.backlog ?? 0 : 0;
     let qty = 0;
-    for (let iter = 0; iter < CASCADE_MAX_ITERS; iter++) {
-      const proj = projectFromSeed(
-        args.seed,
-        qty > 0 ? [...injected, { offset: a, qty }] : injected,
-        args.today,
-      );
-      let worst = 0;
-      for (let d = a; d <= windowEnd; d++) {
-        const rate = forwardAvgDemand(proj.timeline, d, 7);
-        if (rate <= 0) continue;
-        const need = level * rate - (proj.timeline[d]?.stock ?? 0);
-        if (need > worst) worst = need;
-      }
-      if (worst <= 0.5) break;
-      qty += worst;
+    for (let d = a; d <= windowEnd; d++) {
+      const rate = forwardAvgDemand(tl, d, 7);
+      if (rate <= 0) continue;
+      const cont = (tl[d]?.stock ?? 0) - ((tl[d]?.backlog ?? 0) - backAtStart);
+      const need = level * rate - cont;
+      if (need > qty) qty = need;
     }
     qty = Math.max(0, Math.round(qty));
     if (qty > 0) injected.push({ offset: a, qty });

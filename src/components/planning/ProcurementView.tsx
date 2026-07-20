@@ -137,19 +137,15 @@ export function ProcurementView({
     const e = modalCfgEntry(cfg, supplierId, m.name);
     return e.lead && e.lead > 0 ? e.lead : m.leadDays;
   };
-  // The slowest ENABLED lane by simulated lead — only it carries a cadência ("uma vez só" for
-  // the others). Used for the cadence input + the buy-by column.
+  // The slowest ENABLED lane — MUST match suggestCascadeQuantities' own choice (it sorts by
+  // ROUNDED sim lead, stable, and treats the LAST as the sustaining lane). On a lead tie the
+  // last one wins here too, so the cadência input sits on the exact lane the engine applies
+  // cadência to — otherwise the cadence volume would silently vanish. Only it carries a cadência
+  // ("uma vez só" for the others); also drives the buy-by column.
   const slowestModalId = useMemo(() => {
-    let id: string | null = null;
-    let max = -1;
-    for (const m of enabledModalOptions) {
-      const l = simLead(m);
-      if (l > max) {
-        max = l;
-        id = m.id;
-      }
-    }
-    return id;
+    if (enabledModalOptions.length === 0) return null;
+    const sorted = [...enabledModalOptions].sort((a, b) => Math.round(simLead(a)) - Math.round(simLead(b)));
+    return sorted[sorted.length - 1].id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledModalOptions, cfg, supplierId]);
   const slowestLead = enabledModalOptions.find((m) => m.id === slowestModalId)?.leadDays ?? selectedSupplier?.leadTimeSeaDays ?? null;

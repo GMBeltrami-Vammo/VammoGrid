@@ -133,12 +133,13 @@ export default async function EstoquePage({
 
   // Yellow "com pedido sugerido" overlay: the N-modal cascade for the selected supplier's enabled
   // modais (sim lead/piso/cadência from the cookie). Falls back to the SKU's policy 2-modal plan
-  // when no supplier/modal applies, so the overlay never silently disappears.
+  // only when NO supplier/modais are registered (so unlinked SKUs still show a line); unchecking
+  // every modal of a linked supplier turns the overlay OFF.
   let suggestion: SkuProjections | null = null;
   if (projections) {
     const sugOrders: OpenPurchaseOrder[] = [];
     const enabledOpts = selModais.filter((m) => enabledModais.includes(m.name));
-    if (enabledOpts.length > 0) {
+    if (selModais.length > 0 && enabledOpts.length > 0) {
       const H = HORIZON_DAYS;
       const fleet = buildDailyDemand(forecast, H);
       const receipts: Record<number, number> = {};
@@ -170,8 +171,10 @@ export default async function EstoquePage({
       for (const q of suggestCascadeQuantities({ seed, plans, today: inputs.today })) {
         if (q.qty > 0) sugOrders.push(mkSugOrder(q.modalName, q.qty, q.arrivalOffset));
       }
-    } else {
-      // Fallback: policy-based air/sea (no linked supplier or no modal enabled).
+    } else if (selModais.length === 0) {
+      // No supplier linked (or the supplier has no modais registered) → policy air/sea fallback,
+      // so the overlay never vanishes for unlinked SKUs. NOTE: a supplier WITH modais whose boxes
+      // are all unchecked falls through to neither branch → no overlay (the user turned it off).
       const mq = suggestModalQuantities({ projection: projections.global, policy, today: inputs.today, dohThreshold: criteria.dohThreshold });
       if (mq.airQty > 0) sugOrders.push(mkSugOrder('air', mq.airQty, mq.airArrival));
       if (mq.seaQty > 0) sugOrders.push(mkSugOrder('sea', mq.seaQty, mq.seaArrival));

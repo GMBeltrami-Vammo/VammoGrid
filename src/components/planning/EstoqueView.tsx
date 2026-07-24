@@ -24,6 +24,7 @@ export function EstoqueView({
   projections,
   baseline,
   suggestion,
+  comparisons,
   arrivals,
   history,
 }: {
@@ -34,6 +35,8 @@ export function EstoqueView({
   baseline?: SkuProjections | null;
   /** Projected stock WITH the suggested order(s) — yellow overlay. */
   suggestion?: SkuProjections | null;
+  /** Faded L30/L90 naive comparison projections (Feature C). */
+  comparisons?: { label: string; color: string; projections: SkuProjections }[] | null;
   /** Open-PO arrivals to mark on the charts. */
   arrivals?: PoArrival[] | null;
   history: StockHistory;
@@ -87,6 +90,7 @@ export function EstoqueView({
             projections={projections}
             baseline={baseline}
             suggestion={suggestion}
+            comparisons={comparisons}
             arrivals={arrivals}
             scope={scope}
             onScopeChange={setScope}
@@ -108,6 +112,7 @@ export function EstoqueView({
         projections={projections}
         baseline={baseline}
         suggestion={suggestion}
+        comparisons={comparisons}
         arrivals={arrivals}
         history={history}
         scope={scope}

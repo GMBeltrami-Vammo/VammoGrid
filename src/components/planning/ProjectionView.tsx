@@ -24,6 +24,7 @@ export function ProjectionView({
   projections,
   baseline,
   suggestion,
+  comparisons,
   arrivals,
   history,
   scope: controlledScope,
@@ -37,6 +38,8 @@ export function ProjectionView({
   baseline?: SkuProjections | null;
   /** Projected stock WITH the suggested order(s) — yellow overlay (global/Osasco). */
   suggestion?: SkuProjections | null;
+  /** Faded L30/L90 naive comparison projections (Feature C) — valid at any scope. */
+  comparisons?: { label: string; color: string; projections: SkuProjections }[] | null;
   /** Open-PO arrivals (global/Osasco only). */
   arrivals?: PoArrival[] | null;
   history?: {
@@ -70,6 +73,13 @@ export function ProjectionView({
   const sugProj = suggestion && isGlobalOrOsasco
     ? scope === 'global' ? suggestion.global : suggestion.byHub[scope]
     : null;
+
+  // Comparison lines are a demand swap → valid at every scope (no Osasco guard).
+  const cmp = (comparisons ?? []).map((c) => ({
+    label: c.label,
+    color: c.color,
+    timeline: (scope === 'global' ? c.projections.global : c.projections.byHub[scope]).timeline,
+  }));
 
   const scopeHistory = history
     ? scope === 'global'
@@ -170,6 +180,7 @@ export function ProjectionView({
               overlayLabel="Sem recuperação"
               overlayColor="var(--color-muted-foreground)"
               suggestionTimeline={sugProj?.timeline}
+              comparisons={cmp}
               arrivals={isGlobalOrOsasco ? arrivals : undefined}
               stockoutDate={proj.stockoutDate}
               history={scopeHistory}
@@ -202,6 +213,9 @@ export function ProjectionView({
               )}
               Faixa azul = banda lo–hi da previsão. <InfoHint id="band" /> Faixa cinza (após o “limite
               do modelo”, ~90d) = extrapolação, menos confiável.
+              {cmp.map((c) => (
+                <span key={c.label} style={{ color: c.color }}> · <span style={{ opacity: 0.7 }}>▬</span> {c.label} = base naive (só comparação, não decide nada).</span>
+              ))}
             </p>
           </div>
         </>

@@ -41,6 +41,7 @@ export function ProjectionChart({
   suggestionTimeline,
   suggestionLabel = 'Com pedido sugerido',
   suggestionColor = '#f59e0b',
+  comparisons = [],
 }: {
   timeline: ProjectionPoint[];
   stockoutDate?: string | null;
@@ -62,6 +63,11 @@ export function ProjectionChart({
    *  DOH — identical to the full-horizon chart at every overlapping date. Indexed by
    *  each point's absolute `.day`. Defaults to `timeline` when not windowed. */
   rateSource?: ProjectionPoint[];
+  /** Faded comparison lines (L30 / L90 naive engines — Feature C). Each is a full
+   *  ProjectionPoint[] aligned by index with `timeline`; rendered thin/dashed/low-opacity,
+   *  clearly subordinate. Each point supplies its own `.doh` so DOH-mode is correct too.
+   *  COMPARISON ONLY — never drives any decision. */
+  comparisons?: { timeline: ProjectionPoint[]; label: string; color: string }[];
 }) {
   const router = useRouter();
   const [unit, setUnit] = useState<ChartUnit>(defaultUnit);
@@ -105,7 +111,7 @@ export function ProjectionChart({
     const lo = toVal(p.stockLo, p.day);
     const hi = toVal(p.stockHi, p.day);
     const band = lo != null && hi != null ? ([lo, hi] as [number, number]) : undefined;
-    return {
+    const row: Record<string, number | string | [number, number] | undefined> = {
       date: p.date,
       stock: toVal(p.stock, p.day, p.doh),
       band: p.extrapolated ? undefined : band,
@@ -114,6 +120,12 @@ export function ProjectionChart({
       sugg: toVal(suggestionTimeline?.[i]?.stock, p.day, suggestionTimeline?.[i]?.doh),
       back: isDoh ? undefined : p.backlog,
     };
+    // Faded comparison lines (L30/L90) — forward-only, aligned by index with `timeline`.
+    for (let j = 0; j < comparisons.length; j++) {
+      const cp = comparisons[j].timeline[i];
+      row[`cmp${j}`] = toVal(cp?.stock, p.day, cp?.doh);
+    }
+    return row;
   });
   // Backlog line only when there IS unmet demand — an always-zero red line is noise.
   const hasBacklog = timeline.some((p) => (p.backlog ?? 0) > 0);
@@ -185,6 +197,9 @@ export function ProjectionChart({
               if (name === 'sim') return [fmtY(Number(value)), overlayLabel];
               if (name === 'sugg') return [fmtY(Number(value)), suggestionLabel];
               if (name === 'back') return [fmtY(Number(value)), 'Demanda acum. não fornecida'];
+              if (typeof name === 'string' && name.startsWith('cmp')) {
+                return [fmtY(Number(value)), comparisons[Number(name.slice(3))]?.label ?? 'Comparação'];
+              }
               return [fmtY(Number(value)), valLabel];
             }}
             contentStyle={{
@@ -209,6 +224,20 @@ export function ProjectionChart({
             fillOpacity={0.12}
             isAnimationActive={false}
           />
+          {/* Faded L30/L90 comparison lines — thin, dashed, low-opacity, no dots, clearly
+              subordinate. Drawn before the main line so it renders on top. */}
+          {comparisons.map((c, j) => (
+            <Line
+              key={`cmp-${j}`}
+              dataKey={`cmp${j}`}
+              stroke={c.color}
+              strokeWidth={1.25}
+              strokeOpacity={0.4}
+              strokeDasharray="4 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+          ))}
           <Line
             dataKey="stock"
             stroke="var(--color-brand-500)"

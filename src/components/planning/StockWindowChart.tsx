@@ -29,6 +29,7 @@ export function StockWindowChart({
   projections,
   baseline,
   suggestion,
+  comparisons,
   arrivals,
   scope: controlledScope,
   onScopeChange,
@@ -39,6 +40,9 @@ export function StockWindowChart({
   baseline?: SkuProjections | null;
   /** Projected stock WITH the suggested order(s) — yellow overlay (global/Osasco). */
   suggestion?: SkuProjections | null;
+  /** Faded L30/L90 naive comparison projections (Feature C) — a demand swap, valid at
+   *  ANY scope (no Osasco guard). Comparison only. */
+  comparisons?: { label: string; color: string; projections: SkuProjections }[] | null;
   /** Open-PO arrivals (global/Osasco only). */
   arrivals?: PoArrival[] | null;
   scope?: Scope;
@@ -68,6 +72,13 @@ export function StockWindowChart({
   const sugProj = suggestion && isGlobalOrOsasco
     ? scope === 'global' ? suggestion.global : suggestion.byHub[scope as HubId]
     : null;
+
+  // Comparison lines are a demand swap → valid at every scope; slice to the same window.
+  const cmp = (comparisons ?? []).map((c) => ({
+    label: c.label,
+    color: c.color,
+    timeline: (scope === 'global' ? c.projections.global : c.projections.byHub[scope as HubId]).timeline.slice(0, 31),
+  }));
 
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
@@ -102,6 +113,7 @@ export function StockWindowChart({
         overlayLabel="Sem recuperação"
         overlayColor="var(--color-muted-foreground)"
         suggestionTimeline={sugProj ? sugProj.timeline.slice(0, 31) : undefined}
+        comparisons={cmp}
         arrivals={isGlobalOrOsasco ? arrivals : undefined}
         stockoutDate={proj.stockoutDate}
         history={hist.length > 0 ? hist : undefined}
@@ -129,6 +141,9 @@ export function StockWindowChart({
         ) : (
           ''
         )}
+        {cmp.map((c) => (
+          <span key={c.label} style={{ color: c.color }}> · <span style={{ opacity: 0.7 }}>▬</span> {c.label} (base naive)</span>
+        ))}
       </p>
     </div>
   );

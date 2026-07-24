@@ -33,6 +33,7 @@ import {
 } from '@/components/planning/ui';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { EstoqueView } from '@/components/planning/EstoqueView';
+import { ForecastSourceBadge } from '@/components/planning/ForecastSourceBadge';
 import { SkuSuggestionControls } from '@/components/planning/SkuSuggestionControls';
 import { RecoveryPanel } from '@/components/planning/RecoveryPanel';
 import { LeadTimePanel } from '@/components/planning/LeadTimePanel';
@@ -211,6 +212,15 @@ export default async function EstoquePage({
         title={selStock.skuName}
         subtitle={selStock.isRepairable ? 'Peça recuperável (reconditioning)' : 'Peça não recuperável'}
       />
+      {forecast?.source && (
+        <div className="mb-2 -mt-1">
+          <ForecastSourceBadge
+            source={forecast.source}
+            asOfDate={forecast.asOfDate}
+            modelVersion={forecast.modelVersion}
+          />
+        </div>
+      )}
       <FreshnessBanner asOfDate={inputs.asOfDate} backend={inputs.backend} />
 
       {/* Pedido sugerido (simulação) — fornecedor + modais deste SKU alimentam a linha amarela */}

@@ -1,171 +1,150 @@
 import 'server-only';
-import { unstable_cache } from 'next/cache';
-import type { AbcClass, ForecastPoint, SkuForecast } from '@/types/planning';
-import { chQuery } from '@/lib/clickhouse/reader';
+import type { SkuForecast } from '@/types/planning';
+import { cachedChQuery } from '@/lib/clickhouse/reader';
+import {
+  coalesceForecasts,
+  coalesceOne,
+  maxAsOf,
+  rowsToForecasts,
+  rowsToOneForecast,
+  type ForecastRow,
+} from './forecastMerge';
 
-// Consume the upstream demand forecast (dev.sop_predictions_daily) at its latest run.
-// Fleet-level daily yhat/lo/hi per sku_base; we do not re-forecast — swapping the
-// model = swapping this table / model_version, with no engine change.
+// ─────────────────────────────────────────────────────────────────────────────
+// Consume the upstream demand forecast, COALESCED per SKU across two models
+// (decisions.MD #33):
+//   • PRIMARY  ml_models_dev.spare_parts_consumption_forecast_daily — the corrected
+//     consumption model. Preferred for any SKU it covers, regardless of relative
+//     as_of staleness (the old S&OP model under-forecast some SKUs up to ~6x).
+//   • FALLBACK dev.sop_predictions_daily — the S&OP forecast; a superset covering
+//     every SKU, used wherever the primary has no series.
+// We do not re-forecast — swapping the model = swapping the table / model_version,
+// with no engine change. Column names differ (target_day vs target_date, klass vs
+// abc_class); the SQL below aliases both into the uniform ForecastRow shape, and the
+// pure merge in forecastMerge.ts tags provenance + resolves the per-SKU preference.
+// ─────────────────────────────────────────────────────────────────────────────
 
-interface ForecastRow {
-  sku_base: string;
-  abc_class: string;
-  model_version: string;
-  as_of_date: string;
-  target_date: string;
-  horizon_day: number | string;
-  yhat: number | string;
-  lo: number | string;
-  hi: number | string;
-}
+const PRIMARY_TABLE = 'ml_models_dev.spare_parts_consumption_forecast_daily';
+const FALLBACK_TABLE = 'dev.sop_predictions_daily';
 
-const FORECAST_SQL = `
-SELECT sku_base, abc_class, model_version, as_of_date, target_date,
+// The forecast only changes when a new model run lands (daily/weekly), so cache the
+// row sets for 6h across requests/users; revalidateTag('forecast') busts BOTH reads.
+const REVALIDATE = 21_600;
+const TAGS = ['forecast'];
+
+// PRIMARY: klass→abc_class, target_day→target_date; band collapses to yhat if missing.
+const PRIMARY_SELECT = `
+SELECT sku_base,
+       toString(klass)         AS abc_class,
+       toString(model_version) AS model_version,
+       toString(as_of_date)    AS as_of_date,
+       toString(target_day)    AS target_date,
        horizon_day,
+       toFloat64(yhat)                             AS yhat,
+       ifNull(toFloat64(yhat_lo), toFloat64(yhat)) AS lo,
+       ifNull(toFloat64(yhat_hi), toFloat64(yhat)) AS hi
+FROM ${PRIMARY_TABLE}`;
+
+const FALLBACK_SELECT = `
+SELECT sku_base, abc_class, model_version, as_of_date, target_date, horizon_day,
        toFloat64(yhat)    AS yhat,
        toFloat64(yhat_lo) AS lo,
        toFloat64(yhat_hi) AS hi
-FROM dev.sop_predictions_daily
-WHERE as_of_date = (SELECT max(as_of_date) FROM dev.sop_predictions_daily)`;
+FROM ${FALLBACK_TABLE}`;
 
-// The forecast is ~90 rows/SKU × hundreds of SKUs (tens of thousands of rows) — one
-// query on direct ClickHouse (no row cap). It only changes when a new model run lands
-// (daily/weekly), so cache the whole row set for an hour across requests;
-// revalidateTag('forecast') to bust.
-const fetchForecastRows = unstable_cache(
-  () => chQuery<ForecastRow>(FORECAST_SQL),
-  ['forecast-rows'],
-  { revalidate: 21600, tags: ['forecast'] },
-);
+const d10 = (v: unknown): string => String(v ?? '').slice(0, 10);
+const esc = (s: string): string => s.replace(/'/g, "''");
 
-function asAbc(s: string): AbcClass {
-  return s === 'A' || s === 'B' ? s : 'C';
+// The primary table is optional infrastructure (a new ML output). If it is missing or
+// errors, degrade GRACEFULLY to S&OP-only rather than breaking the whole app — the
+// error is not cached (cachedChQuery re-throws), so a transient failure retries.
+async function fetchPrimaryRows(extraWhere = ''): Promise<ForecastRow[]> {
+  const sql = `${PRIMARY_SELECT}
+WHERE as_of_date = (SELECT max(as_of_date) FROM ${PRIMARY_TABLE})${extraWhere}`;
+  try {
+    return await cachedChQuery<ForecastRow>(sql, REVALIDATE, TAGS);
+  } catch (e) {
+    console.warn(
+      `[forecast] primary source ${PRIMARY_TABLE} unavailable — using S&OP fallback only: ${(e as Error).message}`,
+    );
+    return [];
+  }
 }
 
-const d10 = (v: unknown) => String(v ?? '').slice(0, 10);
+function fetchFallbackRows(extraWhere = ''): Promise<ForecastRow[]> {
+  const sql = `${FALLBACK_SELECT}
+WHERE as_of_date = (SELECT max(as_of_date) FROM ${FALLBACK_TABLE})${extraWhere}`;
+  return cachedChQuery<ForecastRow>(sql, REVALIDATE, TAGS);
+}
 
 export interface ForecastBundle {
   bySku: Map<string, SkuForecast>;
   asOfDate: string;
 }
 
+/** Whole-catalog forecast, coalesced. bySku = primary-preferred per-SKU merge;
+ *  asOfDate = the freshest run across both sources (per-SKU provenance is on each
+ *  SkuForecast.source/asOfDate). */
 export async function fetchForecasts(): Promise<ForecastBundle> {
-  const rows = await fetchForecastRows();
-
-  const bySku = new Map<string, SkuForecast>();
-  let asOfDate = '';
-
-  for (const r of rows) {
-    const skuBase = String(r.sku_base);
-    const asOf = d10(r.as_of_date);
-    if (asOf > asOfDate) asOfDate = asOf;
-
-    let fc = bySku.get(skuBase);
-    if (!fc) {
-      fc = {
-        skuBase,
-        asOfDate: asOf,
-        abcClass: asAbc(String(r.abc_class)),
-        modelVersion: String(r.model_version),
-        horizonDays: 0,
-        points: [],
-      };
-      bySku.set(skuBase, fc);
-    }
-    const day = Number(r.horizon_day) || 0;
-    const point: ForecastPoint = {
-      day,
-      date: d10(r.target_date),
-      yhat: Number(r.yhat) || 0,
-      lo: Number(r.lo) || 0,
-      hi: Number(r.hi) || 0,
-    };
-    fc.points.push(point);
-    if (day > fc.horizonDays) fc.horizonDays = day;
-  }
-
-  for (const fc of bySku.values()) fc.points.sort((a, b) => a.day - b.day);
-  return { bySku, asOfDate };
+  const [primaryRows, fallbackRows] = await Promise.all([fetchPrimaryRows(), fetchFallbackRows()]);
+  const primary = rowsToForecasts(primaryRows, 'consumo-diario');
+  const fallback = rowsToForecasts(fallbackRows, 'sop');
+  return { bySku: coalesceForecasts(primary, fallback), asOfDate: maxAsOf(primary, fallback) };
 }
 
-function rowToForecast(rows: ForecastRow[], skuBase: string): SkuForecast | null {
-  if (rows.length === 0) return null;
-  const fc: SkuForecast = {
-    skuBase,
-    asOfDate: d10(rows[0].as_of_date),
-    abcClass: asAbc(String(rows[0].abc_class)),
-    modelVersion: String(rows[0].model_version),
-    horizonDays: 0,
-    points: [],
-  };
-  for (const r of rows) {
-    const day = Number(r.horizon_day) || 0;
-    fc.points.push({
-      day,
-      date: d10(r.target_date),
-      yhat: Number(r.yhat) || 0,
-      lo: Number(r.lo) || 0,
-      hi: Number(r.hi) || 0,
-    });
-    if (day > fc.horizonDays) fc.horizonDays = day;
-  }
-  fc.points.sort((a, b) => a.day - b.day);
-  return fc;
-}
-
-// Single-SKU fast path: fetch + build ONE SkuForecast (≈90 rows, one query — no
-// materializing the whole catalog). For the SKU deep-dive page, which only needs
-// the selected SKU. Cached per sku_base.
+// Single-SKU fast path (SKU deep-dive page): fetch + build ONE SkuForecast from each
+// source for the selected SKU, then prefer primary. Cached per sku_base via the SQL key.
 export async function fetchOneForecast(skuBase: string): Promise<SkuForecast | null> {
   if (!skuBase) return null;
-  const safe = skuBase.replace(/'/g, "''");
-  const rows = await unstable_cache(
-    () => chQuery<ForecastRow>(`${FORECAST_SQL} AND sku_base = '${safe}'`),
-    ['forecast-one', skuBase],
-    { revalidate: 21600, tags: ['forecast'] },
-  )();
-  return rowToForecast(rows, skuBase);
+  const where = ` AND sku_base = '${esc(skuBase)}'`;
+  const [primaryRows, fallbackRows] = await Promise.all([fetchPrimaryRows(where), fetchFallbackRows(where)]);
+  return coalesceOne(
+    rowsToOneForecast(primaryRows, skuBase, 'consumo-diario'),
+    rowsToOneForecast(fallbackRows, skuBase, 'sop'),
+  );
 }
 
-// Historical run: the forecast for a SKU at a SPECIFIC as_of_date (review 8 fase 2 —
-// previsão × realizado). Unlike fetchOneForecast (pinned to max as_of), this reads the
-// frozen run stored on a pedido's elaboration_snapshot. Returns null if that run/SKU
-// isn't in the table. Cached per (skuBase, asOfDate).
+// Historical run: the forecast for a SKU at a SPECIFIC as_of_date (previsão × realizado).
+// Tries the consumption model at that as_of FIRST, then the S&OP table (which holds the
+// deep as_of history; the consumption table currently has only its latest run). Returns
+// null when neither has that run/SKU. Cached per (skuBase, asOfDate) via the SQL key.
 export async function fetchForecastAsOf(skuBase: string, asOfDate: string): Promise<SkuForecast | null> {
   if (!skuBase || !asOfDate) return null;
-  const safeSku = skuBase.replace(/'/g, "''");
-  const safeAsOf = asOfDate.slice(0, 10).replace(/'/g, "''");
-  const rows = await unstable_cache(
-    () =>
-      chQuery<ForecastRow>(
-        `SELECT sku_base, abc_class, model_version, as_of_date, target_date, horizon_day,
-                toFloat64(yhat) AS yhat, toFloat64(yhat_lo) AS lo, toFloat64(yhat_hi) AS hi
-         FROM dev.sop_predictions_daily
-         WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`,
-      ),
-    ['forecast-asof', skuBase, safeAsOf],
-    { revalidate: 21600, tags: ['forecast'] },
-  )();
-  return rowToForecast(rows, skuBase);
+  const safeSku = esc(skuBase);
+  const safeAsOf = esc(asOfDate.slice(0, 10));
+  const primarySql = `${PRIMARY_SELECT}
+WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`;
+  const fallbackSql = `${FALLBACK_SELECT}
+WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`;
+  const [primaryRows, fallbackRows] = await Promise.all([
+    cachedChQuery<ForecastRow>(primarySql, REVALIDATE, TAGS).catch(() => [] as ForecastRow[]),
+    cachedChQuery<ForecastRow>(fallbackSql, REVALIDATE, TAGS),
+  ]);
+  return coalesceOne(
+    rowsToOneForecast(primaryRows, skuBase, 'consumo-diario'),
+    rowsToOneForecast(fallbackRows, skuBase, 'sop'),
+  );
 }
 
-// Lightweight forecast metadata (the set of sku_base that have a forecast + the latest
-// as_of_date) for the SKU selector's "com previsão" filter + the freshness banner —
-// without building the full forecast Map. One cheap DISTINCT query, cached.
+// Lightweight forecast metadata (the UNION of sku_base that have a forecast in EITHER
+// source + the latest as_of_date) for the SKU selector's "com previsão" filter + the
+// freshness banner — without building the full forecast Map. Cheap DISTINCT queries.
 export async function fetchForecastMeta(): Promise<{ skuBases: Set<string>; asOfDate: string }> {
-  const rows = await unstable_cache(
-    () =>
-      chQuery<{ sku_base: string; as_of: string }>(
-        `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
-         FROM dev.sop_predictions_daily
-         WHERE as_of_date = (SELECT max(as_of_date) FROM dev.sop_predictions_daily)`,
-      ),
-    ['forecast-meta'],
-    { revalidate: 21600, tags: ['forecast'] },
-  )();
+  const primarySql = `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
+    FROM ${PRIMARY_TABLE}
+    WHERE as_of_date = (SELECT max(as_of_date) FROM ${PRIMARY_TABLE})`;
+  const fallbackSql = `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
+    FROM ${FALLBACK_TABLE}
+    WHERE as_of_date = (SELECT max(as_of_date) FROM ${FALLBACK_TABLE})`;
+  const [primaryRows, fallbackRows] = await Promise.all([
+    cachedChQuery<{ sku_base: string; as_of: string }>(primarySql, REVALIDATE, TAGS).catch(
+      () => [] as { sku_base: string; as_of: string }[],
+    ),
+    cachedChQuery<{ sku_base: string; as_of: string }>(fallbackSql, REVALIDATE, TAGS),
+  ]);
   const skuBases = new Set<string>();
   let asOfDate = '';
-  for (const r of rows) {
+  for (const r of [...primaryRows, ...fallbackRows]) {
     skuBases.add(String(r.sku_base));
     const a = d10(r.as_of);
     if (a > asOfDate) asOfDate = a;

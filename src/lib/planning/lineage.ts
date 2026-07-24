@@ -62,13 +62,13 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         ref: 'src/lib/planning/source/history.ts:51-58',
       },
       {
-        name: 'dev.sop_predictions_daily',
-        source: 'ClickHouse — forecast de demanda upstream (último run)',
+        name: 'ml_models_dev.spare_parts_consumption_forecast_daily ⊕ dev.sop_predictions_daily',
+        source: 'ClickHouse — forecast COALESCED por SKU (consumo-diário preferido; S&OP fallback)',
         formula:
-          'sku_base, abc_class, model_version, as_of_date, target_date, horizon_day, toFloat64(yhat/yhat_lo/yhat_hi) WHERE as_of_date=(SELECT max(as_of_date) …)',
+          'PRIMÁRIO: klass→abc_class, target_day→target_date, ifNull(yhat_lo/hi, yhat); FALLBACK: sop yhat/yhat_lo/yhat_hi. Cada tabela no seu próprio max(as_of_date); por SKU o primário sempre vence (decisions #33).',
         notes:
-          'yhat/lo/hi diário por sku_base, nível-frota. Não há re-forecast: trocar modelo = trocar tabela/model_version sem mudar engine. asOfDate = max(as_of_date) slice(0,10).',
-        ref: 'src/lib/planning/source/forecast.ts:21-28',
+          'yhat/lo/hi diário por sku_base, nível-frota. O consumo-diário é o modelo corrigido (o S&OP subestimava até ~6x); preferido mesmo se seu as_of for mais antigo. Não há re-forecast. Provenance (source+as_of) por SKU.',
+        ref: 'src/lib/planning/source/forecast.ts; forecastMerge.ts',
       },
       {
         name: 'dev.sop_alerts',
@@ -146,12 +146,12 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
         ref: 'src/lib/planning/source/stock.ts:44-77',
       },
       {
-        name: 'SkuForecast (forecast de demanda nível-frota)',
-        source: 'dev.sop_predictions_daily (último run)',
+        name: 'SkuForecast (forecast de demanda nível-frota, coalesced)',
+        source: 'consumo-diário (primário) ⊕ S&OP (fallback), por SKU',
         formula:
-          "Por sku_base: abcClass=asAbc(s); horizonDays=max(horizon_day); points[]={day, date, yhat, lo, hi} sorted by day ASC; asOfDate=max(as_of_date)",
-        notes: 'Diário yhat/lo/hi por sku_base, nível-frota (split por hub só na alocação). Bundle{bySku, asOfDate}. Sem re-forecast.',
-        ref: 'src/lib/planning/source/forecast.ts:41-78',
+          "Por sku_base: abcClass=asAbc(s); horizonDays=max(horizon_day); points[]={day, date, yhat, lo, hi} sorted by day ASC; source ∈ {consumo-diario, sop}; asOfDate por SKU (da fonte escolhida)",
+        notes: 'Diário yhat/lo/hi por sku_base, nível-frota (split por hub só na alocação). Bundle{bySku, asOfDate=max das fontes}. Merge puro em forecastMerge.ts (primário sempre vence). Sem re-forecast.',
+        ref: 'src/lib/planning/source/forecastMerge.ts; forecast.ts',
       },
       {
         name: 'HubShares (share de demanda por hub)',
@@ -215,10 +215,10 @@ export const LINEAGE_SECTIONS: LineageSection[] = [
       },
       {
         name: 'AbcClass',
-        source: 'dev.sop_predictions_daily.abc_class (forecast) ou fallback',
+        source: 'forecast coalesced: klass (consumo-diário) ou abc_class (S&OP), com fallback',
         formula: "AbcClass = 'A'|'B'|'C'; asAbc(s) = (s==='A'||s==='B') ? s : 'C'",
         notes: "Classe de importância do forecast (fallback 'C'). Dirige targetDoi, Z de safety e prioridade de serviço.",
-        ref: 'src/lib/planning/source/forecast.ts:30-32; policy.ts:49',
+        ref: 'src/lib/planning/source/forecastMerge.ts; policy.ts:49',
       },
       {
         name: 'DEFAULT_RECOVERY_TURNAROUND_DAYS',

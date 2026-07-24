@@ -38,7 +38,15 @@ export interface Hub {
 /** ABC importance class (drives service level + target days-of-inventory). */
 export type AbcClass = 'A' | 'B' | 'C';
 
-// ─── Forecast contract (consumed from dev.sop_predictions_daily) ──────────────
+// ─── Forecast contract (coalesced per-SKU across two upstream models) ─────────
+// PRIMARY: ml_models_dev.spare_parts_consumption_forecast_daily (the corrected
+// consumption model — preferred whenever a SKU is present). FALLBACK:
+// dev.sop_predictions_daily (the S&OP forecast, a superset covering every SKU).
+// See lib/planning/source/forecast.ts and decisions.MD #33.
+
+/** Which upstream model produced a SKU's forecast — surfaced as a provenance badge.
+ *  'consumo-diario' = the primary consumption model; 'sop' = the S&OP fallback. */
+export type ForecastSource = 'consumo-diario' | 'sop';
 
 /** One day of the demand forecast for a SKU. `day` is the 1-based horizon offset. */
 export interface ForecastPoint {
@@ -61,6 +69,9 @@ export interface SkuForecast {
   /** Number of days the model actually predicts (horizon); points beyond are extrapolated. */
   horizonDays: number;
   points: ForecastPoint[];
+  /** Which upstream model this series came from (provenance badge). Undefined for
+   *  synthetic forecasts (e.g. the L30/L90 comparison engines, suggestion overlays). */
+  source?: ForecastSource;
 }
 
 // ─── Stock state (derived per-hub from the IMS inventory + ledger) ────────────

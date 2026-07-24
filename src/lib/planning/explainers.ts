@@ -28,7 +28,7 @@ export const EXPLAINERS = {
     title: 'Demanda diária média',
     what: 'Consumo médio por dia nos primeiros 30 dias da previsão. É a base para Days-on-Hand e para a data de ruptura.',
     formula: 'avgDaily = Σ yhat[d] (d = 1..min(30, horizonte)) / 30',
-    source: 'ClickHouse · sop_predictions_daily',
+    source: 'ClickHouse · consumo-diário ⊕ S&OP (coalesced)',
   },
   doh: {
     title: 'Days on Hand (DOH)',
@@ -49,10 +49,10 @@ export const EXPLAINERS = {
     source: 'ClickHouse · dev.fleet_purchase_order',
   },
   forecast: {
-    title: 'Previsão de demanda (S&OP)',
-    what: 'Previsão diária por SKU no nível-frota, vinda do modelo S&OP upstream. yhat é o valor central; lo/hi são a banda (≈ quantil 80%, ±1,28σ). O app não re-prevê — apenas consome.',
-    formula: 'yhat, yhat_lo, yhat_hi por dia · as_of = último run',
-    source: 'ClickHouse · sop_predictions_daily',
+    title: 'Previsão de demanda (coalesced)',
+    what: 'Previsão diária por SKU no nível-frota. Por SKU, usa o modelo de consumo-diário (corrigido) quando disponível — sempre preferido, mesmo se seu run for mais antigo — senão cai no S&OP (superset). yhat é o valor central; lo/hi são a banda (≈ quantil 80%, ±1,28σ). O app não re-prevê — apenas consome. O selo de previsão na página do SKU mostra a fonte + data.',
+    formula: 'yhat, yhat_lo, yhat_hi por dia · cada fonte no seu próprio último run · primário vence por SKU',
+    source: 'ClickHouse · consumo-diário ⊕ S&OP (coalesced)',
   },
   band: {
     title: 'Banda otimista / pessimista',
@@ -86,7 +86,7 @@ export const EXPLAINERS = {
     title: 'Classe ABC',
     what: 'Importância do SKU vinda da previsão. Dirige o Z do estoque de segurança e o DOI-alvo. Fallback "C".',
     formula: 'A → Z 1,96 · B → Z 1,65 · C → Z 1,28',
-    source: 'ClickHouse · sop_predictions_daily',
+    source: 'ClickHouse · consumo-diário ⊕ S&OP (coalesced)',
   },
 
   // ── Motor de compras ─────────────────────────────────────────────────────────
@@ -100,13 +100,13 @@ export const EXPLAINERS = {
     title: 'Demanda no lead time',
     what: 'Total de unidades que se espera consumir durante o lead time — o mesmo que o estoque mínimo. Quanto precisa estar coberto só para aguentar a reposição.',
     formula: 'demanda no lead = Σ yhat[d] (d = 1..lead time)',
-    source: 'ClickHouse · sop_predictions_daily',
+    source: 'ClickHouse · consumo-diário ⊕ S&OP (coalesced)',
   },
   'estoque-minimo': {
     title: 'Estoque mínimo',
     what: 'O consumo previsto integrado ao longo do lead time (110d padrão) — quanto precisa ter em casa só para aguentar até a próxima reposição chegar, SEM colchão. O estoque de segurança entra por cima disto, e a soma dos dois é o ponto de recompra (ROP).',
     formula: 'estoque mínimo = Σ yhat[d] (d = 1..lead time)',
-    source: 'ClickHouse · sop_predictions_daily',
+    source: 'ClickHouse · consumo-diário ⊕ S&OP (coalesced)',
   },
   'sigma-monthly': {
     title: 'σ mensal (consumo 30d)',

@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, Check, Download, Filter, Link2, ListChecks, Plus, X } from 'lucide-react';
-import type { PurchaseStatus, TransportModal } from '@/types/planning';
+import type { ForecastSource, PurchaseStatus, TransportModal } from '@/types/planning';
 import type { FilterPreset, Supplier } from '@/types';
+import { ForecastSourceBadge } from '@/components/planning/ForecastSourceBadge';
 import { deletePreset, savePreset } from '@/app/dashboard/skus/presetActions';
 import { MAX_SELECTED_SKUS } from '@/lib/planning/filter';
 import { writeSkusCookies } from '@/lib/planning/applyFilter';
@@ -34,6 +35,9 @@ export interface SkuRow {
   models: string[];
   /** Has a demand forecast. */
   hasForecast: boolean;
+  /** Which model produced the forecast (provenance indicator). */
+  forecastSource?: ForecastSource | null;
+  forecastAsOf?: string | null;
   /** National vs international sourcing. */
   isNational: boolean;
   isRepairable: boolean;
@@ -656,13 +660,16 @@ export function SkuTable({
                       </Link>
                     </td>
                     <td className="px-3 py-2 max-w-[200px]">
-                      <Link
-                        prefetch={false}
-                        href={`/dashboard/estoque?sku=${encodeURIComponent(r.skuBase)}`}
-                        className="truncate block text-foreground hover:text-brand-500 transition-colors"
-                      >
-                        {r.skuName}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          prefetch={false}
+                          href={`/dashboard/estoque?sku=${encodeURIComponent(r.skuBase)}`}
+                          className="truncate block text-foreground hover:text-brand-500 transition-colors"
+                        >
+                          {r.skuName}
+                        </Link>
+                        <ForecastSourceBadge compact source={r.forecastSource} asOfDate={r.forecastAsOf} />
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', ABC_CLASS[r.abcClass] ?? 'text-muted-foreground')}>

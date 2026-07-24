@@ -35,6 +35,7 @@ export default async function SkusPage() {
   const rows: SkuRow[] = snap.purchases.map((p) => {
     const stock = stockByBase.get(p.skuBase);
     const policy = snap.policies.get(p.skuBase);
+    const fc = snap.forecasts.get(p.skuBase);
     const dailyDemand =
       p.leadTimeDays > 0 ? p.expectedLeadTimeDemand / p.leadTimeDays : 0;
     const dohDays =
@@ -57,7 +58,9 @@ export default async function SkusPage() {
       stockoutDate: p.stockoutDate,
       isLate: p.isLate,
       models: [...(snap.compatModels.get(p.skuBase) ?? [])],
-      hasForecast: snap.forecasts.has(p.skuBase),
+      hasForecast: !!fc,
+      forecastSource: fc?.source ?? null,
+      forecastAsOf: fc?.asOfDate ?? null,
       isNational: policy?.leadTimeSource === 'national-file',
       // Recovery — the resolved policy value (override else stock), i.e. what the engine uses.
       isRepairable: policy?.isRepairable ?? stock?.isRepairable ?? false,
@@ -73,6 +76,7 @@ export default async function SkusPage() {
   const presentBases = new Set(snap.purchases.map((p) => p.skuBase));
   for (const [base, pol] of policies) {
     if (presentBases.has(base)) continue;
+    const fc = snap.forecasts.get(base);
     rows.push({
       skuBase: base,
       skuName: pol.skuName ?? base,
@@ -86,7 +90,9 @@ export default async function SkusPage() {
       stockoutDate: null,
       isLate: false,
       models: [...(snap.compatModels.get(base) ?? [])],
-      hasForecast: snap.forecasts.has(base),
+      hasForecast: !!fc,
+      forecastSource: fc?.source ?? null,
+      forecastAsOf: fc?.asOfDate ?? null,
       isNational: pol.leadTimeSource === 'national-file',
       isRepairable: pol.isRepairable ?? false,
       recoveryRate: pol.recoveryRate ?? 0,

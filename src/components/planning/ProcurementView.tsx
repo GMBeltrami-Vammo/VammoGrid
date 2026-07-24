@@ -19,10 +19,11 @@ import {
   type ModalCfg,
 } from '@/lib/planning/modalConfig';
 import { projectFromSeed, sampleMiniStrip, suggestCascadeQuantities, type MiniCell } from '@/lib/planning/miniStrip';
-import { addDays } from '@/lib/planning/dates';
+import { addDays, diffDays } from '@/lib/planning/dates';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
+import { KpiCard } from '@/components/planning/ui';
 import { cn } from '@/lib/utils';
 
 // Weeks shown in the per-SKU mini-heatmap strip (kept fixed/compact so the column stays
@@ -456,8 +457,44 @@ export function ProcurementView({
     URL.revokeObjectURL(url);
   };
 
+  // Per-fornecedor KPIs — everything on this page is supplier-scoped. "Atrasados" = SKUs whose
+  // projected rupture arrives before the supplier's FASTEST AVAILABLE modal could (not saveable
+  // even by the quickest lane — courier/air/…), so the hint names that modal dynamically.
+  const supplierRows = useMemo(
+    () => (supplierSkuSet ? rows.filter((r) => supplierSkuSet.has(r.suggestion.skuBase)) : rows),
+    [rows, supplierSkuSet],
+  );
+  const fastestModal = useMemo(
+    () => (modalOptions.length ? [...modalOptions].sort((a, b) => a.leadDays - b.leadDays)[0] : null),
+    [modalOptions],
+  );
+  const fastestLead = fastestModal?.leadDays ?? selectedSupplier?.leadTimeAirDays ?? null;
+  const lateCount = useMemo(() => {
+    if (fastestLead == null) return supplierRows.filter((r) => r.suggestion.isLate).length;
+    return supplierRows.filter((r) => {
+      // Late = the fastest lane, ordered today, still arrives after the first breach — the same
+      // shape as the engine's isLate (!airInTime), but with the supplier's fastest modal lead.
+      const b = r.suggestion.firstBreachDate;
+      return b != null && diffDays(today, b) < fastestLead;
+    }).length;
+  }, [supplierRows, fastestLead, today]);
+  const lateHint = fastestModal
+    ? `não chegam a tempo nem por ${fastestModal.name.toLowerCase()}`
+    : 'não chegam a tempo nem pelo modal mais rápido';
+
   return (
     <div>
+      {/* Per-fornecedor KPIs — supplier-scoped (Atrasados uses the supplier's fastest modal). */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <KpiCard
+          label={<span className="inline-flex items-center gap-1">Precisam de pedido <InfoHint id="elaboration-trigger" /></span>}
+          value={fmtInt(supplierRows.length)}
+          tone="brand"
+        />
+        <KpiCard label="Atrasados" value={fmtInt(lateCount)} hint={lateHint} tone="danger" />
+        <KpiCard label="No horizonte" value={fmtInt(supplierRows.length)} hint="cobertura abaixo do piso" tone="default" />
+      </div>
+
       {/* Order-level controls */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
         <div>

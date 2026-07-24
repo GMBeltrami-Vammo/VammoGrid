@@ -2,11 +2,9 @@ import { auth } from '@/auth';
 import { computeElaborations } from '@/lib/planning/load';
 import { parseOrderRules } from '@/lib/planning/elaboration';
 import { fetchSuppliers, fetchSkuSuppliers, fetchSupplierModals } from '@/lib/planning/source/suppliers';
-import { fmtInt } from '@/lib/planning/format';
-import { EmptyState, FreshnessBanner, KpiCard, PageHeader } from '@/components/planning/ui';
+import { EmptyState, FreshnessBanner, PageHeader } from '@/components/planning/ui';
 import { ProcurementView } from '@/components/planning/ProcurementView';
 import { ScopeNotice } from '@/components/planning/ScopeNotice';
-import { InfoHint } from '@/components/planning/InfoHint';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,9 +48,6 @@ export default async function ProcurementPage({
   const skusBySupplier: Record<string, string[]> = {};
   for (const l of skuSuppliers) (skusBySupplier[l.supplierId] ??= []).push(l.skuBase);
 
-  const total = rows.length;
-  const late = rows.filter((r) => r.suggestion.isLate).length;
-
   return (
     <div>
       <PageHeader
@@ -67,16 +62,6 @@ export default async function ProcurementPage({
         <EmptyState title="Sem dados" hint="Configure a fonte de dados para gerar recomendações de compra." />
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
-            <KpiCard
-              label={<span className="inline-flex items-center gap-1">Precisam de pedido <InfoHint id="elaboration-trigger" /></span>}
-              value={fmtInt(total)}
-              tone="brand"
-            />
-            <KpiCard label="Atrasados" value={fmtInt(late)} hint="não chegam a tempo nem por aéreo" tone="danger" />
-            <KpiCard label="No horizonte" value={fmtInt(total)} hint="cobertura abaixo do piso" tone="default" />
-          </div>
-
           <ProcurementView
             rows={rows}
             isHead={isHead}

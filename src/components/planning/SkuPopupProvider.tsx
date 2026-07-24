@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { Dialog } from '@/components/ui/dialog';
 import { SkuPopup } from './SkuPopup';
 
@@ -29,9 +29,12 @@ export function SkuPopupProvider({ children }: { children: ReactNode }) {
     setOpen(true);
   }, []);
   const close = useCallback(() => setOpen(false), []);
+  // Stable identity so opening/closing the popup does not re-render every useSkuPopup()
+  // consumer (the ~300 SkuLink rows on the SKUs/Projeção Global tables). decisions.MD #37.
+  const value = useMemo(() => ({ openSku }), [openSku]);
 
   return (
-    <Ctx.Provider value={{ openSku }}>
+    <Ctx.Provider value={value}>
       {children}
       <Dialog open={open} onClose={close} labelledBy={LABEL_ID}>
         <SkuPopup skuBase={skuBase} open={open} onClose={close} labelId={LABEL_ID} />

@@ -99,9 +99,18 @@ export function buildCompatFleetSeries(args: {
   const seriesFor = (s: FleetSegmentInput) =>
     buildFleetDailySeries({ controlPoints: s.controlPoints, monthlyGrowthRate: s.monthlyGrowthRate, from: args.from, to: args.to });
 
-  const cpxSeg = args.segments.find((s) => s.segment.toLowerCase().includes('cpx'));
-  const comfortSeg = args.segments.find((s) => s.segment.toLowerCase().includes('comfort'));
-  const totalSeg = args.segments.find((s) => s.segment.toLowerCase() === 'total');
+  // Classify by name. Prefer an EXACT 'cpx'/'comfort' match; else the first segment that is
+  // one model but NOT the other. A combined name (contains BOTH, e.g. 'CPX+Comfort') classes
+  // as neither per-model segment and flows into `total` (the sum of all), rather than being
+  // double-counted by both finds (decisions.MD #37).
+  const norm = (s: FleetSegmentInput) => s.segment.trim().toLowerCase();
+  const isCpx = (s: FleetSegmentInput) => norm(s).includes('cpx');
+  const isComfort = (s: FleetSegmentInput) => norm(s).includes('comfort');
+  const cpxSeg =
+    args.segments.find((s) => norm(s) === 'cpx') ?? args.segments.find((s) => isCpx(s) && !isComfort(s));
+  const comfortSeg =
+    args.segments.find((s) => norm(s) === 'comfort') ?? args.segments.find((s) => isComfort(s) && !isCpx(s));
+  const totalSeg = args.segments.find((s) => norm(s) === 'total');
 
   const cpxSeries = cpxSeg ? seriesFor(cpxSeg) : null;
   const comfortSeries = comfortSeg ? seriesFor(comfortSeg) : null;
@@ -230,7 +239,9 @@ export function buildNaiveComparisons(args: {
     const rate = naiveRate({ consumption: args.consumption, fleetOn, today: args.today, windowDays: window });
     if (rate <= 0) continue;
     const forecast = buildNaiveForecast({ skuBase: args.skuBase, window, rate, fleetOn, today: args.today, horizonDays: args.horizonDays });
-    const projections = projectSku({ stock: args.stock, forecast, orders: args.orders, policy: args.policy, shares: args.shares, today: args.today });
+    // Forward horizon explicitly so the comparison timeline length always matches the
+    // synthetic forecast's (don't rely on projectSku's default coinciding with horizonDays).
+    const projections = projectSku({ stock: args.stock, forecast, orders: args.orders, policy: args.policy, shares: args.shares, today: args.today, horizon: args.horizonDays });
     out.push({ label: `L${window}`, color: NAIVE_COLORS[`L${window}`], projections });
   }
   return out;

@@ -140,6 +140,31 @@ describe('buildCompatFleetSeries', () => {
     expect(r.total).toEqual([0, 0, 0]);
     expect(r.cpx).toEqual([0, 0, 0]);
   });
+
+  it('a combined-name segment (contains cpx AND comfort) is NOT double-counted', () => {
+    // 'CPX+Comfort' must class as neither per-model segment → total = that one segment (100),
+    // not 2× (200). Regression guard for decisions.MD #37.
+    const r = buildCompatFleetSeries({
+      segments: [{ segment: 'CPX+Comfort', controlPoints: P(100), monthlyGrowthRate: 0 }],
+      ...range,
+    });
+    expect(r.total).toEqual([100, 100, 100]);
+    expect(r.cpx).toEqual([100, 100, 100]); // falls back to total
+    expect(r.comfort).toEqual([100, 100, 100]);
+  });
+
+  it('prefers an exact per-model segment over a combined one that shadows it', () => {
+    const r = buildCompatFleetSeries({
+      segments: [
+        { segment: 'CPX e Comfort (total)', controlPoints: P(300), monthlyGrowthRate: 0 },
+        { segment: 'CPX', controlPoints: P(100), monthlyGrowthRate: 0 },
+        { segment: 'COMFORT', controlPoints: P(200), monthlyGrowthRate: 0 },
+      ],
+      ...range,
+    });
+    expect(r.cpx).toEqual([100, 100, 100]); // exact 'CPX', not the 300 combined-name row
+    expect(r.comfort).toEqual([200, 200, 200]);
+  });
 });
 
 describe('mapFleetSegments', () => {

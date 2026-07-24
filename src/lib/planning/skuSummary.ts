@@ -74,7 +74,10 @@ export async function buildSkuSummary(sku: string): Promise<SkuSummary> {
   const { inputs, selected } = await loadSkuView(sku);
   const today = inputs.today;
   const selStock = inputs.stocks.find((s) => s.skuBase === selected);
-  if (!selected || !selStock) return empty(sku, today);
+  // loadSkuView falls back to the FIRST catalog SKU when `sku` matches nothing (intended
+  // for the Estoque page's visible selector). For the popup/API that would silently show a
+  // DIFFERENT SKU's data as found:true — so require an exact match here (decisions.MD #37).
+  if (!selected || selected !== sku || !selStock) return empty(sku, today);
 
   const forecast = inputs.forecasts.get(selected) ?? null;
   const orders = inputs.ordersBySku.get(selected) ?? [];

@@ -33,7 +33,15 @@ const REVALIDATE = 21_600;
 const TAGS = ['forecast'];
 
 // PRIMARY: klass→abc_class, target_day→target_date; band collapses to yhat if missing.
-const PRIMARY_SELECT = `
+// The rows are FILTERED in an alias-free inner subquery, THEN aliased in the outer SELECT.
+// This is load-bearing: ClickHouse resolves a WHERE identifier to a same-name SELECT alias
+// by default, so casting `toString(as_of_date) AS as_of_date` in the SAME select as
+// `WHERE as_of_date = (SELECT max(as_of_date)…)` made the WHERE compare String vs Date and
+// throw Code 386 NO_COMMON_TYPE on every request — silently degrading the whole app to
+// S&OP-only (decisions.MD #37). Filtering before aliasing keeps the physical Date column in
+// scope for the WHERE while still emitting the string-shaped ForecastRow.
+function primarySql(innerWhere: string): string {
+  return `
 SELECT sku_base,
        toString(klass)         AS abc_class,
        toString(model_version) AS model_version,
@@ -43,7 +51,8 @@ SELECT sku_base,
        toFloat64(yhat)                             AS yhat,
        ifNull(toFloat64(yhat_lo), toFloat64(yhat)) AS lo,
        ifNull(toFloat64(yhat_hi), toFloat64(yhat)) AS hi
-FROM ${PRIMARY_TABLE}`;
+FROM (SELECT * FROM ${PRIMARY_TABLE} WHERE ${innerWhere})`;
+}
 
 const FALLBACK_SELECT = `
 SELECT sku_base, abc_class, model_version, as_of_date, target_date, horizon_day,
@@ -53,21 +62,33 @@ SELECT sku_base, abc_class, model_version, as_of_date, target_date, horizon_day,
 FROM ${FALLBACK_TABLE}`;
 
 const d10 = (v: unknown): string => String(v ?? '').slice(0, 10);
-const esc = (s: string): string => s.replace(/'/g, "''");
+// Escape a value for a ClickHouse single-quoted literal: backslashes FIRST (ClickHouse
+// honors C-style backslash escapes, so a leading backslash would otherwise defeat the
+// quote-doubling and re-open the string), then single quotes.
+const esc = (s: string): string => s.replace(/\\/g, '\\\\').replace(/'/g, "''");
 
-// The primary table is optional infrastructure (a new ML output). If it is missing or
-// errors, degrade GRACEFULLY to S&OP-only rather than breaking the whole app — the
-// error is not cached (cachedChQuery re-throws), so a transient failure retries.
+// True only for ClickHouse "table/database does not exist" — the ONLY error class the
+// primary read may swallow (degrade to S&OP). Any other error (SQL/type/permission) must
+// surface so a real regression is not masked as a silent total fallback (decisions.MD #37).
+function isMissingTableError(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /UNKNOWN_TABLE|UNKNOWN_DATABASE|Code:\s*(60|81)\b/.test(m);
+}
+
+// The primary table is optional infrastructure (a new ML output). If it is genuinely
+// ABSENT, degrade GRACEFULLY to S&OP-only; any OTHER error re-throws so a real regression
+// surfaces instead of silently running on the inferior model. The error is not cached
+// (cachedChQuery re-throws), so a transient failure retries.
 async function fetchPrimaryRows(extraWhere = ''): Promise<ForecastRow[]> {
-  const sql = `${PRIMARY_SELECT}
-WHERE as_of_date = (SELECT max(as_of_date) FROM ${PRIMARY_TABLE})${extraWhere}`;
+  const sql = primarySql(`as_of_date = (SELECT max(as_of_date) FROM ${PRIMARY_TABLE})${extraWhere}`);
   try {
     return await cachedChQuery<ForecastRow>(sql, REVALIDATE, TAGS);
   } catch (e) {
-    console.warn(
-      `[forecast] primary source ${PRIMARY_TABLE} unavailable — using S&OP fallback only: ${(e as Error).message}`,
-    );
-    return [];
+    if (isMissingTableError(e)) {
+      console.warn(`[forecast] primary source ${PRIMARY_TABLE} absent — using S&OP fallback only.`);
+      return [];
+    }
+    throw e;
   }
 }
 
@@ -112,13 +133,15 @@ export async function fetchForecastAsOf(skuBase: string, asOfDate: string): Prom
   if (!skuBase || !asOfDate) return null;
   const safeSku = esc(skuBase);
   const safeAsOf = esc(asOfDate.slice(0, 10));
-  const primarySql = `${PRIMARY_SELECT}
-WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`;
-  const fallbackSql = `${FALLBACK_SELECT}
+  const primaryQuery = primarySql(`as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`);
+  const fallbackQuery = `${FALLBACK_SELECT}
 WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`;
   const [primaryRows, fallbackRows] = await Promise.all([
-    cachedChQuery<ForecastRow>(primarySql, REVALIDATE, TAGS).catch(() => [] as ForecastRow[]),
-    cachedChQuery<ForecastRow>(fallbackSql, REVALIDATE, TAGS),
+    cachedChQuery<ForecastRow>(primaryQuery, REVALIDATE, TAGS).catch((e) => {
+      if (isMissingTableError(e)) return [] as ForecastRow[];
+      throw e;
+    }),
+    cachedChQuery<ForecastRow>(fallbackQuery, REVALIDATE, TAGS),
   ]);
   return coalesceOne(
     rowsToOneForecast(primaryRows, skuBase, 'consumo-diario'),
@@ -130,17 +153,20 @@ WHERE as_of_date = '${safeAsOf}' AND sku_base = '${safeSku}'`;
 // source + the latest as_of_date) for the SKU selector's "com previsão" filter + the
 // freshness banner — without building the full forecast Map. Cheap DISTINCT queries.
 export async function fetchForecastMeta(): Promise<{ skuBases: Set<string>; asOfDate: string }> {
-  const primarySql = `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
+  // The alias here is `as_of` (NOT as_of_date), so there is no WHERE-shadowing — this
+  // query works; only the primarySql() paths needed the subquery restructure.
+  const primaryMetaSql = `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
     FROM ${PRIMARY_TABLE}
     WHERE as_of_date = (SELECT max(as_of_date) FROM ${PRIMARY_TABLE})`;
-  const fallbackSql = `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
+  const fallbackMetaSql = `SELECT DISTINCT sku_base, toString(as_of_date) AS as_of
     FROM ${FALLBACK_TABLE}
     WHERE as_of_date = (SELECT max(as_of_date) FROM ${FALLBACK_TABLE})`;
   const [primaryRows, fallbackRows] = await Promise.all([
-    cachedChQuery<{ sku_base: string; as_of: string }>(primarySql, REVALIDATE, TAGS).catch(
-      () => [] as { sku_base: string; as_of: string }[],
-    ),
-    cachedChQuery<{ sku_base: string; as_of: string }>(fallbackSql, REVALIDATE, TAGS),
+    cachedChQuery<{ sku_base: string; as_of: string }>(primaryMetaSql, REVALIDATE, TAGS).catch((e) => {
+      if (isMissingTableError(e)) return [] as { sku_base: string; as_of: string }[];
+      throw e;
+    }),
+    cachedChQuery<{ sku_base: string; as_of: string }>(fallbackMetaSql, REVALIDATE, TAGS),
   ]);
   const skuBases = new Set<string>();
   let asOfDate = '';

@@ -188,7 +188,7 @@ export function PurchaseOrdersPanel() {
         <p className="text-sm text-muted-foreground">Nenhum pedido no filtro/busca atual.</p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Nenhum pedido ainda. Sincronizados do ClickHouse{isHead ? ' ou adicione acima.' : '.'}
+          Nenhum pedido ainda.{isHead ? ' Adicione ou importe um pedido acima.' : ''}
         </p>
       )}
     </div>

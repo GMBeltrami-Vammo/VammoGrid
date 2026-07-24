@@ -36,7 +36,7 @@ export const MODAL_LABELS: Record<string, string> = {
 
 /** Where the pedido came from (dev.fleet_purchase_order.source) — pt-BR display. */
 export const SOURCE_LABELS: Record<string, string> = {
-  clickhouse: 'Sincronizado',
+  clickhouse: 'Sincronizado (legado)',
   manual: 'Manual',
   elaboracao: 'Novo Pedido',
   import: 'Importado',

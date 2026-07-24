@@ -33,8 +33,7 @@ export const config = {
   // self-authenticating machine endpoints (Vercel crons, authenticated via
   // CRON_SECRET — they carry no session cookie, so middleware must not block them):
   //   • api/inventory/snapshot — Vercel cron
-  //   • api/orders/sync        — daily ClickHouse → fleet_purchase_order sync cron
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot|api/orders/sync).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/inventory/snapshot).*)',
   ],
 };

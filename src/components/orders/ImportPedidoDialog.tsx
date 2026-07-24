@@ -15,8 +15,8 @@ import type { TransportModal } from '@/types/planning';
 
 // Import a placed order from an .xlsx (review item 3a). SheetJS is dynamic-imported so
 // the parser stays off the initial bundle. Flow: pick file → parse → preview → set the
-// pedido header (name/type/modal/order date) → Criar pedido (source='import', so the
-// daily ClickHouse sync never overwrites it). Head-gated by the parent.
+// pedido header (name/type/modal/order date) → Criar pedido (source='import'). Orders are
+// fed only manually now (the daily ClickHouse sync was removed). Head-gated by the parent.
 
 export function ImportPedidoDialog({
   onDone,

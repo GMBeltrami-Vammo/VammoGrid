@@ -67,11 +67,13 @@ export function FleetWeeklyPanel({
   return (
     <div className="mt-6 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Registros semanais da frota
+        Pontos de controle da frota
       </p>
       <p className="mb-4 text-xs text-muted-foreground">
-        Informe a frota real semana a semana por modelo, ou só o fim do mês — o crescimento é
-        distribuído homogeneamente entre o último registro e a data informada.
+        Cada ponto é (data, frota real) por modelo. O gráfico interpola linearmente entre pontos,
+        mantém constante antes do primeiro e projeta o crescimento após o último. Registre semana a
+        semana (reinformar a mesma data atualiza o ponto) ou use o fim de mês, que distribui
+        homogeneamente entre o último ponto e a data informada.
       </p>
 
       {error && <p className="mb-3 rounded-md bg-alert-error/10 px-3 py-2 text-sm text-alert-error">{error}</p>}
@@ -149,7 +151,7 @@ export function FleetWeeklyPanel({
 
       {/* Recent records per segment */}
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum registro semanal ainda — o gráfico usa a retroprojeção.</p>
+        <p className="text-sm text-muted-foreground">Nenhum ponto de controle ainda — o gráfico usa o tamanho atual do fleet_info como ponto único (constante antes, crescimento depois).</p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {[...bySegment.entries()].map(([seg, list]) => (
@@ -157,7 +159,7 @@ export function FleetWeeklyPanel({
               <p className="border-b border-border/60 px-3 py-1.5 text-xs font-semibold">{seg}</p>
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-foreground/5">
-                  {list.slice(-8).reverse().map((r) => (
+                  {[...list].reverse().map((r) => (
                     <tr key={r.weekStart} className="hover:bg-muted/20">
                       <td className="px-3 py-1.5 tabular-nums text-xs text-muted-foreground">{fmtDate(r.weekStart)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{fmtInt(r.size)} motos</td>

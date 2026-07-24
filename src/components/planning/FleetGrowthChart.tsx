@@ -4,13 +4,15 @@ import { useMemo, useState, useTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { Check, Pencil } from 'lucide-react';
-import { netMonthlyGrowthRate, projectFleetGrowth } from '@/lib/planning/fleetGrowth';
+import { fleetSizeOn, netMonthlyGrowthRate, type FleetControlPoint } from '@/lib/planning/fleetGrowth';
+import { addDays } from '@/lib/planning/dates';
 import { upsertFleetInfo } from '@/app/dashboard/admin/actions';
 import { fmtInt } from '@/lib/planning/format';
 
-// Fleet-size chart (request #4): one line per model segment, realized (past, left of
-// "hoje") + estimated (future, right), with an editable monthly growth rate per model.
-// Linear: future = rate × current × dt (see projectFleetGrowth).
+// Fleet-size chart (request #4 / Feature B): one line per model segment built from
+// editable CONTROL POINTS (decisions.MD #34) — realized past = piecewise-linear
+// interpolation between points (constant before the first), future = linear growth off
+// the last point, with an editable monthly growth rate per model.
 // Recharts is lazy-loaded via the Inner split (repo-standard next/dynamic pattern) so
 // it stays off the frota route's initial bundle; the editable rate list paints at once.
 
@@ -55,39 +57,37 @@ export function FleetGrowthChart({
 }) {
   const router = useRouter();
 
-  // Per segment: real weekly points (when any) + linear projection anchored on the
-  // latest real record (else on today's fleet_info size, with retro-projected past).
+  // Per segment: a CONTROL-POINT curve (decisions.MD #34) — the real weekly records are
+  // control points; the past is piecewise-linear interpolation between them (CONSTANT
+  // before the first, no retro-projection), the future is linear growth off the last.
+  // A segment with no records falls back to a single synthetic point at fleet_info's
+  // as_of/current size. Sampled on the weekly grid around "hoje" ∪ the real point dates
+  // (so the real vertices land exactly, with interpolation/growth between them).
   const { data, keys } = useMemo(() => {
     const keys = segments.map((s) => s.segment);
-    const bySegDate = new Map<string, Map<string, number>>(keys.map((k) => [k, new Map()]));
-    const lastActual = new Map<string, { date: string; size: number }>();
+    const cpBySeg = new Map<string, FleetControlPoint[]>(keys.map((k) => [k, []]));
     for (const a of actuals) {
-      const m = bySegDate.get(a.segment);
-      if (!m) continue; // record for a segment not configured in Admin → not charted
-      const date = a.weekStart.slice(0, 10);
-      m.set(date, a.size);
-      const last = lastActual.get(a.segment);
-      if (!last || date > last.date) lastActual.set(a.segment, { date, size: a.size });
+      const arr = cpBySeg.get(a.segment);
+      if (!arr) continue; // record for a segment not configured in Admin → not charted
+      arr.push({ date: a.weekStart.slice(0, 10), size: a.size });
     }
     for (const s of segments) {
-      const anchor = lastActual.get(s.segment);
-      const proj = projectFleetGrowth({
-        base: anchor?.size ?? s.currentSize,
-        // net = meta − churn quando informados; senão a taxa manual.
-        monthlyGrowthRate: netMonthlyGrowthRate(s),
-        anchor: anchor?.date ?? today,
-        pastWeeks: anchor ? 0 : PAST_WEEKS,
-        futureWeeks: FUTURE_WEEKS,
-      });
-      const m = bySegDate.get(s.segment)!;
-      for (const p of proj) if (!m.has(p.date)) m.set(p.date, p.size);
+      const arr = cpBySeg.get(s.segment)!;
+      if (arr.length === 0) arr.push({ date: (s.asOfDate ?? today).slice(0, 10), size: s.currentSize });
     }
-    const dates = [...new Set([...bySegDate.values()].flatMap((m) => [...m.keys()]))].sort();
+    const from = addDays(today, -PAST_WEEKS * 7);
+    const to = addDays(today, FUTURE_WEEKS * 7);
+    const dateSet = new Set<string>();
+    for (let w = -PAST_WEEKS; w <= FUTURE_WEEKS; w++) dateSet.add(addDays(today, w * 7));
+    for (const arr of cpBySeg.values()) {
+      for (const cp of arr) if (cp.date >= from && cp.date <= to) dateSet.add(cp.date);
+    }
+    const dates = [...dateSet].sort();
     const data = dates.map((date) => {
       const row: Record<string, number | string> = { date };
-      for (const k of keys) {
-        const v = bySegDate.get(k)!.get(date);
-        if (v != null) row[k] = v;
+      for (const s of segments) {
+        // net = meta − churn quando informados; senão a taxa manual.
+        row[s.segment] = fleetSizeOn(cpBySeg.get(s.segment)!, netMonthlyGrowthRate(s), date);
       }
       return row;
     });
@@ -106,8 +106,8 @@ export function FleetGrowthChart({
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <FleetGrowthChartInner data={data} keys={keys} today={today} />
       <p className="mt-1 text-center text-[11px] text-muted-foreground">
-        À esquerda de <b>hoje</b>: realizado ({actuals.length > 0 ? 'registros semanais reais' : 'retroprojetado — registre semanas abaixo'}) ·
-        à direita: estimado — crescimento linear ancorado no último registro (futuro = taxa × frota × dt).
+        Pontos de controle {actuals.length > 0 ? '(registros semanais reais)' : '(nenhum registro — usando o tamanho atual do fleet_info)'}:
+        passado = interpolação linear entre pontos, constante antes do primeiro; futuro = crescimento linear a partir do último ponto (taxa × frota × dt).
       </p>
 
       {/* Editable growth rate per model */}

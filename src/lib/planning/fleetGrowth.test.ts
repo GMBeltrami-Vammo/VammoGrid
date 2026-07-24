@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { netMonthlyGrowthRate, projectFleetGrowth } from './fleetGrowth';
+import {
+  buildFleetDailySeries,
+  fleetSizeOn,
+  netMonthlyGrowthRate,
+  projectFleetGrowth,
+  type FleetControlPoint,
+} from './fleetGrowth';
 
 const ANCHOR = '2026-07-01';
 
@@ -59,5 +65,75 @@ describe('netMonthlyGrowthRate', () => {
     const rate = netMonthlyGrowthRate({ monthlyGrowthRate: 0.05, commercialTargetPct: 0.03, churnPct: 0.03 });
     const pts = projectFleetGrowth({ base: 1000, monthlyGrowthRate: rate, anchor: ANCHOR, pastWeeks: 0, futureWeeks: 8 });
     expect(pts.every((p) => p.size === 1000)).toBe(true);
+  });
+});
+
+// Control-point model (Feature B / decisions.MD #34): constant before first, linear
+// interpolation between points, linear growth after last. This is the divisor source
+// for the L30/L90 comparison engines, so a wrong rule quietly skews every naive rate.
+describe('fleetSizeOn — control-point interpolation', () => {
+  const points: FleetControlPoint[] = [
+    { date: '2026-06-01', size: 1000 },
+    { date: '2026-07-01', size: 1300 }, // +300 over 30 days
+  ];
+
+  it('holds CONSTANT at the first point before the first date (no retro-projection)', () => {
+    expect(fleetSizeOn(points, 0.1, '2026-05-01')).toBe(1000);
+    expect(fleetSizeOn(points, 0.1, '2026-06-01')).toBe(1000); // exactly at first
+  });
+
+  it('returns the exact size AT a control-point date', () => {
+    expect(fleetSizeOn(points, 0.1, '2026-07-01')).toBe(1300);
+  });
+
+  it('linearly interpolates between two consecutive points', () => {
+    // 2026-06-16 is 15/30 of the way from 1000→1300 → 1150
+    expect(fleetSizeOn(points, 0.1, '2026-06-16')).toBe(1150);
+  });
+
+  it('grows linearly off the LAST point after it', () => {
+    // +10%/month off 1300, ~1 month later ≈ 1300 × (1 + 0.1 × 30.44/30.44) = 1430
+    expect(fleetSizeOn(points, 0.1, '2026-07-31')).toBeGreaterThan(1420);
+    expect(fleetSizeOn(points, 0.1, '2026-07-31')).toBeLessThan(1440);
+  });
+
+  it('accepts unsorted control points', () => {
+    const unsorted: FleetControlPoint[] = [points[1], points[0]];
+    expect(fleetSizeOn(unsorted, 0.1, '2026-06-16')).toBe(1150);
+  });
+
+  it('returns 0 with no control points', () => {
+    expect(fleetSizeOn([], 0.1, '2026-07-01')).toBe(0);
+  });
+
+  it('a single control point → constant before, growth after', () => {
+    const one: FleetControlPoint[] = [{ date: '2026-07-01', size: 500 }];
+    expect(fleetSizeOn(one, 0.1, '2026-06-01')).toBe(500); // constant before
+    expect(fleetSizeOn(one, 0, '2026-09-01')).toBe(500); // flat when rate 0
+  });
+});
+
+describe('buildFleetDailySeries', () => {
+  const points: FleetControlPoint[] = [
+    { date: '2026-06-01', size: 1000 },
+    { date: '2026-07-01', size: 1300 },
+  ];
+
+  it('produces one entry per day inclusive, indexed from `from`', () => {
+    const s = buildFleetDailySeries({ controlPoints: points, monthlyGrowthRate: 0.1, from: '2026-06-01', to: '2026-06-11' });
+    expect(s).toHaveLength(11);
+    expect(s[0]).toBe(1000); // at first point
+    expect(s[10]).toBe(fleetSizeOn(points, 0.1, '2026-06-11')); // day 10 = 2026-06-11
+  });
+
+  it('daily series matches fleetSizeOn day-by-day', () => {
+    const from = '2026-05-20';
+    const to = '2026-07-20';
+    const s = buildFleetDailySeries({ controlPoints: points, monthlyGrowthRate: 0.08, from, to });
+    expect(s[0]).toBe(1000); // constant before first
+    // spot-check a future day past the last point
+    const idx = s.length - 1;
+    expect(s[idx]).toBe(fleetSizeOn(points, 0.08, to));
+    expect(s[idx]).toBeGreaterThan(1300); // grown past the last point
   });
 });

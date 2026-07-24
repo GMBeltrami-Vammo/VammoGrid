@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarDays, Check, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, DownloadCloud, Trash2 } from 'lucide-react';
 import { DateField } from '@/components/ui/DateField';
+import { AdminRefreshButton } from '@/components/admin/AdminRefreshButton';
 import { deleteWeeklySize, setMonthEndSize, upsertWeeklySize } from '@/app/dashboard/frota/actions';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { cn } from '@/lib/utils';
@@ -66,9 +67,21 @@ export function FleetWeeklyPanel({
 
   return (
     <div className="mt-6 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Pontos de controle da frota
-      </p>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Pontos de controle da frota
+        </p>
+        {isHead && (
+          <AdminRefreshButton
+            href="/api/admin/backfill-fleet-history"
+            idleLabel="Preencher do ClickHouse"
+            pendingLabel="Preenchendo…"
+            icon={<DownloadCloud size={13} />}
+            refreshOnDone
+            formatDone={(j) => `${j.written ?? 0} ponto(s) preenchido(s)`}
+          />
+        )}
+      </div>
       <p className="mb-4 text-xs text-muted-foreground">
         Cada ponto é (data, frota real) por modelo. O gráfico interpola linearmente entre pontos,
         mantém constante antes do primeiro e projeta o crescimento após o último. Registre semana a

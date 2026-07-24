@@ -15,6 +15,7 @@ export function AdminRefreshButton({
   icon,
   className,
   refreshOnDone = false,
+  doneLabel,
   formatDone,
 }: {
   href: string;
@@ -24,7 +25,11 @@ export function AdminRefreshButton({
   className?: string;
   /** Re-render the current route after a successful call (to reflect fresh data). */
   refreshOnDone?: boolean;
-  /** Build the success message from the route's JSON. Defaults to "Feito". */
+  /** Static success message — use this from Server Components (functions can't cross the
+   *  RSC boundary). */
+  doneLabel?: string;
+  /** Build the success message from the route's JSON (client-component callers only).
+   *  Takes precedence over doneLabel; defaults to "Feito". */
   formatDone?: (json: Record<string, unknown>) => string;
 }) {
   const router = useRouter();
@@ -38,7 +43,7 @@ export function AdminRefreshButton({
         const res = await fetch(href, { method: 'GET', cache: 'no-store' });
         const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
         if (res.ok && json.ok !== false) {
-          setStatus({ kind: 'ok', msg: formatDone ? formatDone(json) : 'Feito' });
+          setStatus({ kind: 'ok', msg: formatDone ? formatDone(json) : (doneLabel ?? 'Feito') });
           if (refreshOnDone) router.refresh();
         } else {
           setStatus({ kind: 'err', msg: String(json.error ?? `Erro ${res.status}`) });

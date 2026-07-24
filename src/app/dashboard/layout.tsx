@@ -33,7 +33,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 idleLabel="Atualizar tabela de previsões"
                 pendingLabel="Atualizando…"
                 refreshOnDone
-                formatDone={() => 'Previsões atualizadas'}
+                doneLabel="Previsões atualizadas"
               />
             )}
           </div>

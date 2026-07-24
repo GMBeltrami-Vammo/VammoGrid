@@ -19,6 +19,7 @@ import {
   type ModalCfg,
 } from '@/lib/planning/modalConfig';
 import { projectFromSeed, sampleMiniStrip, suggestCascadeQuantities, type MiniCell } from '@/lib/planning/miniStrip';
+import { addDays } from '@/lib/planning/dates';
 import { fmtDate, fmtInt } from '@/lib/planning/format';
 import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
@@ -306,6 +307,20 @@ export function ProcurementView({
       return true;
     });
   }, [rows, search, modalFilter, supplierSkuSet]);
+
+  // Global stock vision (mirrors the Projeção Global summary row): per-week count of shown
+  // SKUs whose FIRST rupture (stock ≤ 0) lands in that week — the BASELINE trajectory
+  // (registered orders only, NOT the order being built), so it reads as the current risk.
+  const weekStockouts = useMemo(() => {
+    const counts: number[] = new Array(STRIP_WEEKS).fill(0);
+    for (const r of filtered) {
+      const base = sampleMiniStrip(projectFromSeed(r.miniSeed, [], today), STRIP_OFFSETS, criteria.dohThreshold);
+      const firstOut = base.findIndex((c) => c.isOut);
+      if (firstOut !== -1) counts[firstOut]++;
+    }
+    return counts;
+  }, [filtered, today, criteria.dohThreshold]);
+  const totalStockouts = weekStockouts.reduce((a, b) => a + b, 0);
 
   // Default inclusion: every row, unless the deep link named a specific SKU set (then only
   // those, intersected with what actually needs an order).
@@ -784,6 +799,36 @@ export function ProcurementView({
         <span className="ml-auto text-[11px] text-muted-foreground">
           {selectedCount} selec. · {filtered.length} / {rows.length}
         </span>
+      </div>
+
+      {/* Global stock vision — per-week count of shown SKUs whose first rupture lands that
+          week (baseline, before the order being built). Same metric as Projeção Global. */}
+      <div className="mb-3">
+        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Rupturas por semana (baseline) ·{' '}
+          <span className={cn('font-semibold', totalStockouts > 0 ? 'text-alert-error' : 'text-muted-foreground')}>
+            {totalStockouts} SKU{totalStockouts === 1 ? '' : 's'} com ruptura
+          </span>
+        </p>
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          {weekStockouts.map((n, i) => (
+            <div
+              key={i}
+              className={cn(
+                'min-w-[46px] shrink-0 rounded-md border p-1.5 text-center',
+                n > 0 ? 'border-alert-error/30 bg-alert-error/5' : 'border-border bg-muted/20',
+              )}
+            >
+              <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                {i === 0 ? 'Hoje' : `S${i}`}
+              </p>
+              <p className="text-[9px] text-muted-foreground/70">{fmtDate(addDays(today, i * 7))}</p>
+              <p className={cn('text-sm font-bold tabular-nums', n > 0 ? 'text-alert-error' : 'text-muted-foreground/40')}>
+                {n}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">

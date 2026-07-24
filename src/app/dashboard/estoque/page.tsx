@@ -18,16 +18,7 @@ import { fetchRecoveryRefreshedAt } from '@/lib/planning/recoveryRefresh';
 import { fetchFleetInfoRows } from '@/lib/planning/source/fleetInfo';
 import { fetchFleetWeeklySizes } from '@/lib/planning/source/fleetSizeWeekly';
 import { fetchDailyConsumption } from '@/lib/planning/source/consumption';
-import { netMonthlyGrowthRate } from '@/lib/planning/fleetGrowth';
-import {
-  buildCompatFleetSeries,
-  buildNaiveForecast,
-  consumptionByDate,
-  fleetAccessor,
-  naiveRate,
-  pickCompatFleet,
-  type FleetSegmentInput,
-} from '@/lib/planning/naiveEngines';
+import { buildNaiveComparisons, consumptionByDate, mapFleetSegments } from '@/lib/planning/naiveEngines';
 import { addDays } from '@/lib/planning/dates';
 import type { OpenPurchaseOrder } from '@/types/planning';
 import { HubMaxStockPanel } from '@/components/planning/HubMaxStockPanel';
@@ -129,49 +120,20 @@ export default async function EstoquePage({
   //    lazily: a naive per-bike rate over the last 30/90 days × the compat-aware projected
   //    fleet → a synthetic forecast re-projected with the SAME orders/policy so the line is
   //    point-to-point comparable. See lib/planning/naiveEngines.ts + decisions.MD #35.
-  const naiveComparisons: { label: string; color: string; projections: SkuProjections }[] = [];
-  if (projections) {
-    const to = addDays(inputs.today, HORIZON_DAYS);
-    const fleetSegments: FleetSegmentInput[] = fleetRows.map((r) => {
-      const cps = weeklyRows
-        .filter((w) => w.segment === r.segment)
-        .map((w) => ({ date: String(w.week_start).slice(0, 10), size: Number(w.size) || 0 }));
-      if (cps.length === 0) {
-        cps.push({ date: String(r.as_of_date ?? inputs.today).slice(0, 10), size: Number(r.current_size) || 0 });
-      }
-      return {
-        segment: r.segment,
-        controlPoints: cps,
-        monthlyGrowthRate: netMonthlyGrowthRate({
-          monthlyGrowthRate: Number(r.monthly_growth_rate) || 0,
-          commercialTargetPct: r.commercial_target_pct ?? null,
-          churnPct: r.churn_pct ?? null,
-        }),
-      };
-    });
-    const fleetSeries = buildCompatFleetSeries({ segments: fleetSegments, from: from90, to });
-    const compatSeries = pickCompatFleet(inputs.compatModels.get(selected), fleetSeries);
-    const fleetOn = fleetAccessor(compatSeries, from90);
-    const consumption = consumptionByDate(consumptionRows);
-    const naiveDefs = [
-      { window: 30 as const, label: 'L30', color: '#7c3aed' },
-      { window: 90 as const, label: 'L90', color: '#0d9488' },
-    ];
-    for (const d of naiveDefs) {
-      const rate = naiveRate({ consumption, fleetOn, today: inputs.today, windowDays: d.window });
-      if (rate <= 0) continue; // no consumption signal → no comparison line
-      const naiveFc = buildNaiveForecast({
+  const naiveComparisons = projections
+    ? buildNaiveComparisons({
         skuBase: selected,
-        window: d.window,
-        rate,
-        fleetOn,
+        stock: selStock,
+        orders,
+        policy,
+        shares,
         today: inputs.today,
         horizonDays: HORIZON_DAYS,
-      });
-      const proj = projectSku({ stock: selStock, forecast: naiveFc, orders, policy, shares, today: inputs.today });
-      naiveComparisons.push({ label: d.label, color: d.color, projections: proj });
-    }
-  }
+        models: inputs.compatModels.get(selected),
+        fleetSegments: mapFleetSegments(fleetRows, weeklyRows, inputs.today),
+        consumption: consumptionByDate(consumptionRows),
+      })
+    : [];
 
   // ── Interactive suggested-order simulation (the yellow overlay), driven by a supplier + modal
   //    panel LOCKED to the suppliers that carry THIS SKU. Supplier + enabled modais come from the

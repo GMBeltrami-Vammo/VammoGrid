@@ -1,6 +1,10 @@
-import type { SkuForecast } from '@/types/planning';
+import type { HubId, OpenPurchaseOrder, SkuForecast, SkuPolicy, StockState } from '@/types/planning';
 import { addDays, diffDays } from './dates';
-import { buildFleetDailySeries, type FleetControlPoint } from './fleetGrowth';
+import { buildFleetDailySeries, netMonthlyGrowthRate, type FleetControlPoint } from './fleetGrowth';
+import { projectSku, type SkuProjections } from './projection';
+
+/** Colours for the L30/L90 faded comparison lines (kept in one place). */
+export const NAIVE_COLORS: Record<'L30' | 'L90', string> = { L30: '#7c3aed', L90: '#0d9488' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // L30 / L90 naive comparison engines (Feature C / decisions.MD #35). COMPARISON
@@ -154,4 +158,80 @@ export function buildNaiveForecast(args: {
     horizonDays: args.horizonDays,
     points,
   };
+}
+
+/** Minimal structural shapes of the fleet source rows (avoids importing server types). */
+type FleetInfoRowLike = {
+  segment: string;
+  current_size: number | string;
+  monthly_growth_rate: number | string;
+  commercial_target_pct: number | null;
+  churn_pct: number | null;
+  as_of_date: string | null;
+};
+type FleetWeeklyRowLike = { segment: string; week_start: string; size: number };
+
+/**
+ * Map fleet source rows → FleetSegmentInput[] (control points + net growth rate). A
+ * segment with no weekly records falls back to a single synthetic point at its
+ * as_of/current size. Shared by the Estoque page and the SKU-summary route.
+ */
+export function mapFleetSegments(
+  fleetRows: FleetInfoRowLike[],
+  weeklyRows: FleetWeeklyRowLike[],
+  fallbackDate: string,
+): FleetSegmentInput[] {
+  return fleetRows.map((r) => {
+    const controlPoints = weeklyRows
+      .filter((w) => w.segment === r.segment)
+      .map((w) => ({ date: String(w.week_start).slice(0, 10), size: Number(w.size) || 0 }));
+    if (controlPoints.length === 0) {
+      controlPoints.push({ date: String(r.as_of_date ?? fallbackDate).slice(0, 10), size: Number(r.current_size) || 0 });
+    }
+    return {
+      segment: r.segment,
+      controlPoints,
+      monthlyGrowthRate: netMonthlyGrowthRate({
+        monthlyGrowthRate: Number(r.monthly_growth_rate) || 0,
+        commercialTargetPct: r.commercial_target_pct ?? null,
+        churnPct: r.churn_pct ?? null,
+      }),
+    };
+  });
+}
+
+/**
+ * Build the L30 + L90 naive comparison projections for a SKU (COMPARISON ONLY). Re-projects
+ * a synthetic per-bike-rate forecast (× the compat-aware projected fleet) with the SAME
+ * orders/policy/shares as the real projection, so the resulting lines are point-to-point
+ * comparable. Pure (projectSku is pure). An engine with no consumption signal (rate ≤ 0) is
+ * skipped. Shared by the Estoque page + the SKU popup.
+ */
+export function buildNaiveComparisons(args: {
+  skuBase: string;
+  stock: StockState;
+  orders: OpenPurchaseOrder[];
+  policy: SkuPolicy;
+  shares: Record<HubId, number>;
+  today: string;
+  horizonDays: number;
+  models: Set<string> | undefined;
+  fleetSegments: FleetSegmentInput[];
+  consumption: Map<string, number>;
+}): { label: string; color: string; projections: SkuProjections }[] {
+  const from = addDays(args.today, -90);
+  const to = addDays(args.today, args.horizonDays);
+  const fleetSeries = buildCompatFleetSeries({ segments: args.fleetSegments, from, to });
+  const compatSeries = pickCompatFleet(args.models, fleetSeries);
+  const fleetOn = fleetAccessor(compatSeries, from);
+
+  const out: { label: string; color: string; projections: SkuProjections }[] = [];
+  for (const window of [30, 90] as const) {
+    const rate = naiveRate({ consumption: args.consumption, fleetOn, today: args.today, windowDays: window });
+    if (rate <= 0) continue;
+    const forecast = buildNaiveForecast({ skuBase: args.skuBase, window, rate, fleetOn, today: args.today, horizonDays: args.horizonDays });
+    const projections = projectSku({ stock: args.stock, forecast, orders: args.orders, policy: args.policy, shares: args.shares, today: args.today });
+    out.push({ label: `L${window}`, color: NAIVE_COLORS[`L${window}`], projections });
+  }
+  return out;
 }

@@ -6,15 +6,17 @@ import { Search, X } from 'lucide-react';
 import { MAX_SELECTED_SKUS, type PlanningFilter } from '@/lib/planning/filter';
 import { writeSkusCookies } from '@/lib/planning/applyFilter';
 import { useSkuCatalog } from '@/hooks/useSkuCatalog';
+import { useSkuPopup } from '@/components/planning/SkuPopupProvider';
 import type { FilterPreset } from '@/types';
 
-// Slim top bar: (a) SKU search as pure NAVIGATION (typeahead → SKU page; it does not
-// filter anything) and (b) the global "N SKUs selecionados" chip. All FILTERING lives
-// on the SKUs page — the hand-picked selection there is the single recorte the
+// Slim top bar: (a) SKU search (typeahead → opens the app-wide SKU popup, Feature D; it
+// does not filter anything) and (b) the global "N SKUs selecionados" chip. All FILTERING
+// lives on the SKUs page — the hand-picked selection there is the single recorte the
 // analyses see (the old top-bar model/category/forecast filters were removed).
 
 export function FilterBar({ initial, presets = [] }: { initial: PlanningFilter; presets?: FilterPreset[] }) {
   const router = useRouter();
+  const skuPopup = useSkuPopup();
   const [q, setQ] = useState('');
 
   const applyPreset = (id: string) => {
@@ -38,7 +40,10 @@ export function FilterBar({ initial, presets = [] }: { initial: PlanningFilter; 
 
   const goToSku = (skuBase: string) => {
     setSearchOpen(false);
-    router.push(`/dashboard/estoque?sku=${encodeURIComponent(skuBase)}`);
+    setQ('');
+    // Open the app-wide popup (Feature D); fall back to navigation outside the provider.
+    if (skuPopup) skuPopup.openSku(skuBase);
+    else router.push(`/dashboard/estoque?sku=${encodeURIComponent(skuBase)}`);
   };
 
   const clearSelection = () => {

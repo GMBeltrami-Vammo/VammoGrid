@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Recycle, Flag, Ship, Plane, Truck, Package, ArrowUpRight, ChevronDown, ChevronUp, FlaskConical, Landmark, type LucideIcon } from 'lucide-react';
 import type { WeekCell, WeekGridRow, WeekMeta } from '@/types/planning';
@@ -676,13 +677,12 @@ function GridRow({
   return (
     <tr className="hover:bg-muted/20">
       <td className="sticky left-0 z-10 bg-card px-3 py-1.5 align-middle">
-        <Link
-          prefetch={false}
-          href={`/dashboard/estoque?sku=${encodeURIComponent(row.skuBase)}`}
+        <SkuLink
+          skuBase={row.skuBase}
           className="block font-mono text-[11px] text-brand-500 hover:text-brand-400 transition-colors"
         >
           {row.skuBase}
-        </Link>
+        </SkuLink>
         <span className="block max-w-[180px] truncate text-[11px] text-muted-foreground" title={row.skuName}>
           {row.skuName}
         </span>

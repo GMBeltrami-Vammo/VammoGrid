@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { notFound } from 'next/navigation';
 import { loadPlanningInputs } from '@/lib/planning/load';
 import { resolveShares } from '@/lib/planning/allocation';
@@ -82,13 +83,12 @@ export default async function HubPage({ params }: { params: Promise<{ hub: strin
                 {rows.slice(0, 300).map((r) => (
                   <tr key={r.s.skuBase} className="hover:bg-muted/40">
                     <td className="px-3 py-2">
-                      <Link
-                        prefetch={false}
-                        href={`/dashboard/estoque?sku=${encodeURIComponent(r.s.skuBase)}`}
+                      <SkuLink
+                        skuBase={r.s.skuBase}
                         className="font-medium text-foreground hover:text-brand-600"
                       >
                         {r.s.skuName}
-                      </Link>
+                      </SkuLink>
                       <div className="text-[11px] text-muted-foreground">{r.s.skuBase}</div>
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">

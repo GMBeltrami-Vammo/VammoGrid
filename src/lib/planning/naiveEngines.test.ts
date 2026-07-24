@@ -4,6 +4,7 @@ import {
   buildNaiveForecast,
   consumptionByDate,
   fleetAccessor,
+  mapFleetSegments,
   naiveRate,
   pickCompatFleet,
 } from './naiveEngines';
@@ -138,6 +139,51 @@ describe('buildCompatFleetSeries', () => {
     const r = buildCompatFleetSeries({ segments: [], ...range });
     expect(r.total).toEqual([0, 0, 0]);
     expect(r.cpx).toEqual([0, 0, 0]);
+  });
+});
+
+describe('mapFleetSegments', () => {
+  it('builds control points from weekly rows + net growth rate', () => {
+    const segs = mapFleetSegments(
+      [{ segment: 'CPX', current_size: 1000, monthly_growth_rate: 0.05, commercial_target_pct: null, churn_pct: null, as_of_date: '2026-07-01' }],
+      [
+        { segment: 'CPX', week_start: '2026-06-01', size: 900 },
+        { segment: 'CPX', week_start: '2026-07-01', size: 1000 },
+        { segment: 'COMFORT', week_start: '2026-07-01', size: 5 }, // other segment ignored
+      ],
+      '2026-07-10',
+    );
+    expect(segs).toHaveLength(1);
+    expect(segs[0].controlPoints).toEqual([
+      { date: '2026-06-01', size: 900 },
+      { date: '2026-07-01', size: 1000 },
+    ]);
+    expect(segs[0].monthlyGrowthRate).toBeCloseTo(0.05, 10);
+  });
+
+  it('falls back to a single point (as_of/current_size) when no weekly rows', () => {
+    const noAsOf = mapFleetSegments(
+      [{ segment: 'C', current_size: 500, monthly_growth_rate: 0.1, commercial_target_pct: null, churn_pct: null, as_of_date: null }],
+      [],
+      '2026-07-10',
+    );
+    expect(noAsOf[0].controlPoints).toEqual([{ date: '2026-07-10', size: 500 }]); // fallbackDate
+
+    const withAsOf = mapFleetSegments(
+      [{ segment: 'C', current_size: 500, monthly_growth_rate: 0, commercial_target_pct: null, churn_pct: null, as_of_date: '2026-06-15' }],
+      [],
+      '2026-07-10',
+    );
+    expect(withAsOf[0].controlPoints).toEqual([{ date: '2026-06-15', size: 500 }]);
+  });
+
+  it('applies meta − churn precedence over the manual rate', () => {
+    const segs = mapFleetSegments(
+      [{ segment: 'CPX', current_size: 1000, monthly_growth_rate: 0.05, commercial_target_pct: 0.08, churn_pct: 0.03, as_of_date: null }],
+      [],
+      '2026-07-10',
+    );
+    expect(segs[0].monthlyGrowthRate).toBeCloseTo(0.05, 10); // 0.08 − 0.03, not the manual 0.05 coincidence
   });
 });
 

@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { useMemo, useState, useTransition } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
@@ -204,13 +204,12 @@ export function CompatPanel() {
             {filtered.map((c) => (
               <TableRow key={c.sku}>
                 <TableCell className="font-mono text-xs">
-                  <Link
-                    prefetch={false}
-                    href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(c.sku))}`}
+                  <SkuLink
+                    skuBase={toSkuBase(c.sku)}
                     className="text-foreground hover:text-brand-500 transition-colors"
                   >
                     {c.sku}
-                  </Link>
+                  </SkuLink>
                 </TableCell>
                 <TableCell className="max-w-[200px] truncate text-muted-foreground">
                   {c.description ?? '—'}

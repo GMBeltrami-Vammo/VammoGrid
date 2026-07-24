@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { safeComputeSnapshot, safeComputeTransfers } from '@/lib/planning/load';
 import { isFilterActive } from '@/lib/planning/filter';
 import { fmtDate, fmtInt, HUB_SHORT } from '@/lib/planning/format';
@@ -87,13 +87,12 @@ export default async function TransfersPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <Link
-                          prefetch={false}
-                          href={`/dashboard/estoque?sku=${encodeURIComponent(t.skuBase)}`}
+                        <SkuLink
+                          skuBase={t.skuBase}
                           className="font-medium text-foreground hover:text-brand-600"
                         >
                           {t.skuName}
-                        </Link>
+                        </SkuLink>
                         <div className="text-[11px] text-muted-foreground">{t.skuBase}</div>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">

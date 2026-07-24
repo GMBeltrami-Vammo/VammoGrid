@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, Check, Download, Filter, Link2, ListChecks, Plus, X
 import type { ForecastSource, PurchaseStatus, TransportModal } from '@/types/planning';
 import type { FilterPreset, Supplier } from '@/types';
 import { ForecastSourceBadge } from '@/components/planning/ForecastSourceBadge';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { deletePreset, savePreset } from '@/app/dashboard/skus/presetActions';
 import { MAX_SELECTED_SKUS } from '@/lib/planning/filter';
 import { writeSkusCookies } from '@/lib/planning/applyFilter';
@@ -651,23 +652,21 @@ export function SkuTable({
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <Link
-                        prefetch={false}
-                        href={`/dashboard/estoque?sku=${encodeURIComponent(r.skuBase)}`}
+                      <SkuLink
+                        skuBase={r.skuBase}
                         className="font-mono text-xs text-brand-500 hover:text-brand-400 transition-colors"
                       >
                         {r.skuBase}
-                      </Link>
+                      </SkuLink>
                     </td>
                     <td className="px-3 py-2 max-w-[200px]">
                       <div className="flex items-center gap-1.5">
-                        <Link
-                          prefetch={false}
-                          href={`/dashboard/estoque?sku=${encodeURIComponent(r.skuBase)}`}
+                        <SkuLink
+                          skuBase={r.skuBase}
                           className="truncate block text-foreground hover:text-brand-500 transition-colors"
                         >
                           {r.skuName}
-                        </Link>
+                        </SkuLink>
                         <ForecastSourceBadge compact source={r.forecastSource} asOfDate={r.forecastAsOf} />
                       </div>
                     </td>

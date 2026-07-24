@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { loadPlanningInputs } from '@/lib/planning/load';
 import { EmptyState, FreshnessBanner, KpiCard, PageHeader, SeverityPill } from '@/components/planning/ui';
 import { fmtInt } from '@/lib/planning/format';
@@ -73,13 +73,12 @@ export default async function AlertsPage() {
                       {list.slice(0, 50).map((a, i) => (
                         <tr key={`${a.skuBase}-${i}`} className="align-top hover:bg-muted/40">
                           <td className="px-3 py-2">
-                            <Link
-                              prefetch={false}
-                              href={`/dashboard/estoque?sku=${encodeURIComponent(a.skuBase)}`}
+                            <SkuLink
+                              skuBase={a.skuBase}
                               className="font-medium text-foreground hover:text-brand-600"
                             >
                               {a.skuName}
-                            </Link>
+                            </SkuLink>
                             <div className="text-[11px] text-muted-foreground">{a.skuBase}</div>
                           </td>
                           <td className="px-3 py-2">

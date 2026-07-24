@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { usePathname, useRouter } from 'next/navigation';
 import { ChevronDown, ChevronUp, Download, Package, Plane, Ship, Truck, CheckSquare, SlidersHorizontal, Square, Trash2 } from 'lucide-react';
 import type { ElaborationRow } from '@/lib/planning/load';
@@ -842,13 +843,12 @@ export function ProcurementView({
                       />
                     </td>
                     <td className="px-3 py-2 align-top">
-                      <Link
-                        prefetch={false}
-                        href={`/dashboard/estoque?sku=${encodeURIComponent(s.skuBase)}`}
+                      <SkuLink
+                        skuBase={s.skuBase}
                         className="font-mono text-xs text-brand-500 hover:text-brand-400"
                       >
                         {s.skuBase}
-                      </Link>
+                      </SkuLink>
                     </td>
                     <td className="max-w-[180px] truncate px-3 py-2 align-top text-muted-foreground">{s.skuName}</td>
                     <td className="px-3 py-2 text-right align-top tabular-nums">{s.dohNow != null ? fmtInt(s.dohNow) : '—'}</td>

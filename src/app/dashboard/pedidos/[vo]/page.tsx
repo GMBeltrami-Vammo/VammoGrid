@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { ArrowLeft } from 'lucide-react';
 import { auth } from '@/auth';
 import { fetchOrderRows } from '@/lib/planning/source/orders';
@@ -154,13 +155,12 @@ export default async function PedidoDetailPage({
                   return (
                     <tr key={o.id}>
                       <td className="py-1.5 font-mono text-xs">
-                        <Link
-                          prefetch={false}
-                          href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(o.sku))}`}
+                        <SkuLink
+                          skuBase={toSkuBase(o.sku)}
                           className="text-brand-500 hover:text-brand-400"
                         >
                           {o.sku}
-                        </Link>
+                        </SkuLink>
                       </td>
                       <td className="py-1.5 text-right tabular-nums text-muted-foreground">
                         {s.suggestedQty != null ? fmtInt(s.suggestedQty) : '—'}
@@ -197,13 +197,12 @@ export default async function PedidoDetailPage({
             {group.map((o) => (
               <tr key={o.id} className="hover:bg-muted/30">
                 <td className="px-3 py-2">
-                  <Link
-                    prefetch={false}
-                    href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(o.sku))}`}
+                  <SkuLink
+                    skuBase={toSkuBase(o.sku)}
                     className="font-mono text-xs text-brand-500 hover:text-brand-400"
                   >
                     {o.sku}
-                  </Link>
+                  </SkuLink>
                 </td>
                 <td className="max-w-[220px] truncate px-3 py-2 text-muted-foreground">{o.skuName ?? '—'}</td>
                 {showPn && <td className="px-3 py-2 text-xs text-muted-foreground">{o.partNumber ?? '—'}</td>}

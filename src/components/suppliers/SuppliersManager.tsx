@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { Check, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -215,16 +215,15 @@ export function SuppliersManager({
                       <ul className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
                         {[...skus].sort().map((sku) => (
                           <li key={sku}>
-                            <Link
-                              prefetch={false}
-                              href={`/dashboard/estoque?sku=${encodeURIComponent(sku)}`}
+                            <SkuLink
+                              skuBase={sku}
                               className="group inline-flex max-w-full items-baseline gap-1.5 py-0.5 text-[11px]"
                             >
                               <span className="shrink-0 font-mono text-brand-600 group-hover:underline">{sku}</span>
                               <span className="truncate text-muted-foreground" title={skuNames[sku]}>
                                 {skuNames[sku] ?? '—'}
                               </span>
-                            </Link>
+                            </SkuLink>
                           </li>
                         ))}
                       </ul>

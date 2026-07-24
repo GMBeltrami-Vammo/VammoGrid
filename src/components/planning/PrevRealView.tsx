@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import type { PrevRealPoint } from '@/lib/planning/prevReal';
 
 // Previsão × Realizado per SKU (review 8 fase 2): demand (previsto vs consumido) and
@@ -34,13 +34,12 @@ export function PrevRealView({ skus }: { skus: PrevRealSku[] }) {
       {skus.map((s) => (
         <div key={s.skuBase} className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
           <div className="mb-3 flex flex-wrap items-baseline gap-2">
-            <Link
-              prefetch={false}
-              href={`/dashboard/estoque?sku=${encodeURIComponent(s.skuBase)}`}
+            <SkuLink
+              skuBase={s.skuBase}
               className="font-medium text-brand-600 hover:underline"
             >
               {s.skuName ?? s.skuBase}
-            </Link>
+            </SkuLink>
             <span className="font-mono text-[11px] text-muted-foreground">{s.skuBase}</span>
             {s.demandRatio != null && (
               <span

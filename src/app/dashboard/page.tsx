@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { safeComputeSnapshot, safeComputeTransfers } from '@/lib/planning/load';
 import {
   actionablePurchases,
@@ -54,7 +55,6 @@ export default async function ExecutiveDashboard() {
   });
   const mixTotal = mix.procurement + mix.recovery;
 
-  const skuHref = (sku: string) => `/dashboard/estoque?sku=${encodeURIComponent(sku)}`;
 
   return (
     <div>
@@ -176,7 +176,7 @@ export default async function ExecutiveDashboard() {
                   ver tudo →
                 </Link>
               </div>
-              <RiskTable rows={actionable.slice(0, 8)} today={snap.today} skuHref={skuHref} kind="purchase" />
+              <RiskTable rows={actionable.slice(0, 8)} today={snap.today} kind="purchase" />
             </div>
             <div>
               <div className="mb-3 flex items-center justify-between">
@@ -185,7 +185,7 @@ export default async function ExecutiveDashboard() {
                   estoque →
                 </Link>
               </div>
-              <RiskTable rows={stockouts.slice(0, 8)} today={snap.today} skuHref={skuHref} kind="stockout" />
+              <RiskTable rows={stockouts.slice(0, 8)} today={snap.today} kind="stockout" />
             </div>
           </div>
 
@@ -212,13 +212,12 @@ export default async function ExecutiveDashboard() {
                     {delayed.slice(0, 10).map((d, i) => (
                       <tr key={`${d.order.id}-${i}`} className="hover:bg-muted/40">
                         <td className="px-3 py-2">
-                          <Link
-                            prefetch={false}
-                            href={skuHref(d.order.skuBase)}
+                          <SkuLink
+                            skuBase={d.order.skuBase}
                             className="font-medium text-foreground hover:text-brand-600"
                           >
                             {d.skuName}
-                          </Link>
+                          </SkuLink>
                           <div className="text-[11px] text-muted-foreground">{d.order.skuBase}</div>
                         </td>
                         <td className="px-3 py-2">{d.order.vo ?? '—'}</td>
@@ -245,12 +244,10 @@ export default async function ExecutiveDashboard() {
 
 function RiskTable({
   rows,
-  skuHref,
   kind,
 }: {
   rows: import('@/types/planning').PurchaseSuggestion[];
   today: string;
-  skuHref: (s: string) => string;
   kind: 'purchase' | 'stockout';
 }) {
   if (rows.length === 0) {
@@ -285,9 +282,9 @@ function RiskTable({
           {rows.map((p) => (
             <tr key={p.skuBase} className="hover:bg-muted/40">
               <td className="px-3 py-2">
-                <Link prefetch={false} href={skuHref(p.skuBase)} className="font-medium text-foreground hover:text-brand-600">
+                <SkuLink skuBase={p.skuBase} className="font-medium text-foreground hover:text-brand-600">
                   {p.skuName}
-                </Link>
+                </SkuLink>
                 <div className="text-[11px] text-muted-foreground">{p.skuBase}</div>
               </td>
               <td className="px-3 py-2">

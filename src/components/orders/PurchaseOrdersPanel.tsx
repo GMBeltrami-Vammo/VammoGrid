@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { SkuLink } from '@/components/planning/SkuLink';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { ChevronDown, ChevronRight, Plus, Trash2, Check, Upload, X } from 'lucide-react';
@@ -457,13 +458,12 @@ function LineRow({
   return (
     <tr className="hover:bg-muted/20">
       <td className="py-1.5 font-mono text-xs">
-        <Link
-          prefetch={false}
-          href={`/dashboard/estoque?sku=${encodeURIComponent(toSkuBase(line.sku))}`}
+        <SkuLink
+          skuBase={toSkuBase(line.sku)}
           className="text-brand-500 hover:text-brand-400"
         >
           {line.sku}
-        </Link>
+        </SkuLink>
       </td>
       <td className="max-w-[240px] truncate py-1.5 text-muted-foreground">{line.skuName ?? '—'}</td>
       <td className="py-1.5 text-right tabular-nums">{line.qtyOrdered}</td>

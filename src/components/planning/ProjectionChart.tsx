@@ -224,16 +224,16 @@ export function ProjectionChart({
             fillOpacity={0.12}
             isAnimationActive={false}
           />
-          {/* Faded L30/L90 comparison lines — thin, dashed, low-opacity, no dots, clearly
-              subordinate. Drawn before the main line so it renders on top. */}
+          {/* L30/L90 comparison lines — dashed (distinct from the solid main line) but
+              clearly visible, no dots. Drawn before the main line so the main renders on top. */}
           {comparisons.map((c, j) => (
             <Line
               key={`cmp-${j}`}
               dataKey={`cmp${j}`}
               stroke={c.color}
-              strokeWidth={1.25}
-              strokeOpacity={0.4}
-              strokeDasharray="4 3"
+              strokeWidth={2}
+              strokeOpacity={0.9}
+              strokeDasharray="7 4"
               dot={false}
               isAnimationActive={false}
             />

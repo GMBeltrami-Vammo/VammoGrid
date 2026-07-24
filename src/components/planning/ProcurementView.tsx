@@ -25,8 +25,6 @@ import { DateField } from '@/components/ui/DateField';
 import { InfoHint } from '@/components/planning/InfoHint';
 import { cn } from '@/lib/utils';
 
-type ModalFilter = 'all' | 'air' | 'sea';
-
 // Weeks shown in the per-SKU mini-heatmap strip (kept fixed/compact so the column stays
 // narrow regardless of the coverage-filter horizon).
 const STRIP_WEEKS = 20;
@@ -81,7 +79,6 @@ export function ProcurementView({
   const router = useRouter();
   const pathname = usePathname();
   const [search, setSearch] = useState('');
-  const [modalFilter, setModalFilter] = useState<ModalFilter>('all');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [pedidoName, setPedidoName] = useState('');
 
@@ -303,10 +300,9 @@ export function ProcurementView({
       const s = r.suggestion;
       if (supplierSkuSet && !supplierSkuSet.has(s.skuBase)) return false;
       if (q && !s.skuBase.toLowerCase().includes(q) && !(s.skuName ?? '').toLowerCase().includes(q)) return false;
-      if (modalFilter !== 'all' && s.suggestedModal !== modalFilter) return false;
       return true;
     });
-  }, [rows, search, modalFilter, supplierSkuSet]);
+  }, [rows, search, supplierSkuSet]);
 
   // Global stock vision (mirrors the Projeção Global summary row): per-week count of shown
   // SKUs whose FIRST rupture (stock ≤ 0) lands in that week — the BASELINE trajectory
@@ -750,26 +746,6 @@ export function ProcurementView({
           onChange={(e) => setSearch(e.target.value)}
           className="h-8 w-40 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-brand-500 placeholder:text-muted-foreground/50"
         />
-
-        {/* Modal-necessity chips (suggestão binária do motor) */}
-        {([
-          ['all', 'Tudo'],
-          ['air', 'Aéreo necessário'],
-          ['sea', 'Marítimo'],
-        ] as [ModalFilter, string][]).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setModalFilter(id)}
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
-              modalFilter === id ? 'bg-brand-500/20 text-brand-600' : 'bg-muted/60 text-muted-foreground hover:bg-muted',
-            )}
-          >
-            {id === 'air' && <Plane size={11} />}
-            {id === 'sea' && <Ship size={11} />}
-            {label}
-          </button>
-        ))}
 
         <span className="mx-0.5 h-4 w-px bg-border" />
 

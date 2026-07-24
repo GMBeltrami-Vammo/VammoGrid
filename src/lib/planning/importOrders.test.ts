@@ -101,6 +101,31 @@ describe('parseWorkbook (Vammo PO template — Dagster parity)', () => {
     ]);
   });
 
+  it('derives per-line lead from an ETA column relative to the header-block DATE', () => {
+    const grid: CellGrid = [
+      ['DATE', 'PURCHASE ORDER NO.', null, null],
+      ['2026-07-24', '254', null, null],
+      [null, null, null, null],
+      ['SKU VAMMO', 'DESCRIPTION', 'QTY', 'ETA'],
+      ['VM-01-A', 'Item A', 10, '2026-07-28'], // +4 days
+      ['VM-01-B', 'Item B', 20, '2026-08-14'], // +21 days
+    ];
+    const r = parseWorkbook([grid], { defaultLeadDays: 45 });
+    expect(r.orderDate).toBe('2026-07-24');
+    expect(r.lines.map((l) => l.leadDays)).toEqual([4, 21]);
+  });
+
+  it('falls back to defaultLeadDays for rows with no valid ETA', () => {
+    const grid: CellGrid = [
+      ['DATE', null, null, null],
+      ['2026-07-24', null, null, null],
+      [null, null, null, null],
+      ['SKU VAMMO', 'DESCRIPTION', 'QTY', 'ETA'],
+      ['VM-01-A', 'Item A', 10, 'sem data'],
+    ];
+    expect(parseWorkbook([grid], { defaultLeadDays: 45 }).lines[0].leadDays).toBe(45);
+  });
+
   it('reads the PART NUMBER column when present (Notas P3)', () => {
     const grid: CellGrid = [
       ['ITEM NO.', 'SKU VAMMO', 'DESCRIPTION', 'PART NUMBER', 'QTY'],

@@ -99,12 +99,13 @@ export function ImportPedidoDialog({
         pedidoName: pedidoName || null,
         orderType,
         source: 'import',
-        // Lead comes from the pedido's modal (the PO template has no per-line lead).
+        // Per-line lead from the sheet's ETA column when present (parseWorkbook), else the
+        // modal default.
         lines: lines.map((l) => ({
           skuBase: l.skuBase,
           skuName: l.skuName,
           qty: l.qty,
-          leadDays: defaultLead,
+          leadDays: l.leadDays,
           partNumber: l.partNumber,
         })),
       });
@@ -144,7 +145,9 @@ export function ImportPedidoDialog({
       <p className="mt-2 text-[11px] text-muted-foreground">
         Lê o <b>template de PO da Vammo</b> (mesma leitura do Dagster): acha a aba e o cabeçalho pelos
         rótulos <b>SKU VAMMO</b> / <b>QTY</b> / <b>DESCRIPTION</b> automaticamente, e lê <b>DATE</b> e{' '}
-        <b>PURCHASE ORDER NO.</b> do topo. Uma Google Sheet exportada como .xlsx funciona igual.
+        <b>PURCHASE ORDER NO.</b> do topo. Uma coluna <b>ETA</b> (opcional) define o lead de cada
+        linha em relação à <b>DATE</b>; sem ela, usa o lead do modal. Uma Google Sheet exportada
+        como .xlsx funciona igual.
         {detectedPo && (
           <span className="ml-1 font-medium text-brand-600">Detectado PO {detectedPo}.</span>
         )}

@@ -145,7 +145,7 @@ export function parseImportRows(
 /** One sheet as a grid of raw cell values (SheetJS sheet_to_json with header:1). */
 export type CellGrid = unknown[][];
 
-type Canonical = 'sku' | 'part_number' | 'item_name' | 'quantity' | 'item_no';
+type Canonical = 'sku' | 'part_number' | 'item_name' | 'quantity' | 'item_no' | 'eta';
 
 // Ordered keyword → canonical column (first substring match wins; each canonical once).
 const COLUMN_KEYWORDS: [string, Canonical][] = [
@@ -157,6 +157,9 @@ const COLUMN_KEYWORDS: [string, Canonical][] = [
   ['quantity', 'quantity'],
   ['qty', 'quantity'],
   ['item no', 'item_no'], // "ITEM NO."
+  ['eta', 'eta'], // optional per-line ETA → derives that line's lead vs the header DATE
+  ['chegada', 'eta'],
+  ['previsao', 'eta'],
 ];
 const REQUIRED_COLUMNS: Canonical[] = ['sku', 'quantity'];
 const DATE_LABELS = ['date', 'data'];
@@ -243,7 +246,8 @@ export interface WorkbookParseResult extends ImportParseResult {
 /**
  * Parse a whole workbook (all sheets as cell grids) using the real Vammo PO template —
  * the Dagster extraction logic. Returns the header-block order date + PO number and the
- * line items. Per-line lead time isn't in the template, so every line uses
+ * line items. Per-line lead time comes from an optional ETA column (relative to the
+ * header-block DATE); rows without a valid ETA (or without a DATE anchor) fall back to
  * `defaultLeadDays` (from the dialog's modal). Also handles a plain flat sheet (SKU/QTY
  * labels on the first row) — that's just a header row at r=0 with no header block.
  */
@@ -304,11 +308,19 @@ export function parseWorkbook(
       warnings.push(`Linha ${r + 1} (${skuBase}): quantidade inválida — ignorada.`);
       continue;
     }
+    // Per-line lead: the row's ETA relative to the header-block DATE, else the pedido
+    // default (modal). Needs the DATE block to anchor the diff.
+    let leadDays = defLead;
+    const etaIso = toIsoDate(cell('eta'));
+    if (etaIso && orderDate) {
+      const d = diffDays(orderDate, etaIso);
+      if (d >= 0) leadDays = d;
+    }
     lines.push({
       skuBase,
       skuName: isBlankCell(name) ? null : String(name).trim(),
       qty,
-      leadDays: defLead,
+      leadDays,
       partNumber: isBlankCell(part) ? null : String(part).trim(),
     });
   }
